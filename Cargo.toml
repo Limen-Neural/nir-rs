@@ -1,0 +1,21 @@
+[package]
+name = "nir-rs"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+authors = ["Raul Montoya Cardenas <montoyaraul34@gmail.com>"]
+description = "Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR) — the standard interchange format for spiking neural networks."
+repository = "https://github.com/Limen-Neural/nir-rs"
+readme = "README.md"
+keywords = ["nir", "neuromorphic", "snn", "spiking", "interoperability"]
+categories = ["science", "algorithms", "encoding"]
+
+[lib]
+name = "nir_rs"
+path = "src/lib.rs"
+
+[dependencies]
+# Add hdf5 later when you start implementing I/O
+# hdf5 = "0.8"
+
+[dev-dependencies]
