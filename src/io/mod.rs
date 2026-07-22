@@ -5,8 +5,9 @@
 //! **v0.3 — HDF5 I/O** will implement read/write using the maintained
 //! `hdf5-metno` crate (feature-gated), not the abandoned `hdf5` 0.8 package.
 //!
-//! This module is intentionally empty in v0.1 so pure-Rust graph work can
-//! land without a system libhdf5 dependency.
+//! In v0.1 this module only exposes **unimplemented stubs** (`read` / `write`
+//! return [`crate::NirError::Unimplemented`]) so pure-Rust graph work can land
+//! without a system libhdf5 dependency.
 
 use crate::error::{NirError, Result};
 use crate::graph::NirGraph;

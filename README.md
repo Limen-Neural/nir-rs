@@ -72,8 +72,10 @@ fn main() {
 ### Develop
 
 ```bash
+cargo fmt --check
 cargo test --all-features
 cargo clippy --all-targets --all-features -- -D warnings
+cargo doc --no-deps --all-features
 ```
 
 See [REVIEW.md](REVIEW.md) and [AGENTS.md](AGENTS.md).
@@ -82,7 +84,7 @@ See [REVIEW.md](REVIEW.md) and [AGENTS.md](AGENTS.md).
 
 This project is dual-licensed under either:
 
-- Apache License, Version 2.0 ([LICENSE-APACHE-2.0](LICENSE-APACHE-2.0) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT License ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- Apache License, Version 2.0 ([LICENSE-APACHE-2.0](LICENSE-APACHE-2.0) or https://www.apache.org/licenses/LICENSE-2.0)
+- MIT License ([LICENSE-MIT](LICENSE-MIT) or https://opensource.org/licenses/MIT)
 
 at your option.
