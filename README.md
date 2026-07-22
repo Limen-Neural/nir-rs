@@ -5,7 +5,7 @@
 [![CI](https://github.com/Limen-Neural/nir-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-> Early scaffold of a pure-Rust library for reading, writing, and working with NIR — the standard interchange format for spiking neural networks.
+> Pure-Rust library for the NIR graph model (typed nodes, edges, validation). HDF5 `.nir` I/O lands in v0.3.
 
 NIR is to SNNs what ONNX is to conventional neural networks (or GGUF to LLMs): a framework-agnostic graph format that lets models move between simulators and hardware without being rewritten.
 
@@ -43,8 +43,8 @@ This crate does **not** own:
 
 | Milestone | Focus | Status |
 |-----------|--------|--------|
-| **v0.1** | Dual license, module skeleton, CI, agent docs | **This release** |
-| **v0.2** | Typed graph, wire-accurate nodes, structured errors | Planned |
+| **v0.1** | Dual license, module skeleton, CI, agent docs | Done |
+| **v0.2** | Typed graph, wire-accurate nodes, structured errors | **This release** |
 | **v0.3** | HDF5 read/write via `hdf5-metno`, fixtures, round-trip | Planned |
 | **v0.4** | Serde/debug DX, examples | Planned |
 | **v0.5** | Wire consumers (silicon-bridge, axon-encoder, engram-parser) | Planned |
@@ -61,11 +61,29 @@ nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "Main" }
 ```
 
 ```rust
-use nir_rs::NirGraph;
+use nir_rs::nodes::{Input, Output};
+use nir_rs::{NirGraph, NirNode};
 
-fn main() {
-    let _g = NirGraph::new();
+fn main() -> nir_rs::Result<()> {
+    let mut g = NirGraph::new();
+    g.insert_node(
+        "input",
+        NirNode::Input(Input {
+            shape: vec![4],
+            metadata: Default::default(),
+        }),
+    )?;
+    g.insert_node(
+        "output",
+        NirNode::Output(Output {
+            shape: vec![4],
+            metadata: Default::default(),
+        }),
+    )?;
+    g.add_edge("input", "output");
+    g.validate_structure()?;
     // HDF5 I/O arrives in v0.3: nir_rs::io::read("model.nir")
+    Ok(())
 }
 ```
 

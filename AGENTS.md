@@ -49,8 +49,8 @@ See [REVIEW.md](REVIEW.md) for the local quality bar.
 
 | Milestone | Focus |
 |-----------|--------|
-| v0.1 | Bootstrap (license, CI, skeleton) — current |
-| v0.2 | Typed graph + wire-accurate nodes + errors |
+| v0.1 | Bootstrap (license, CI, skeleton) |
+| v0.2 | Typed graph + wire-accurate nodes + errors — current |
 | v0.3 | HDF5 read/write + round-trip fixtures (`hdf5-metno`) |
 | v0.4 | Serde/debug DX + examples |
 | v0.5 | Consumer wiring (silicon-bridge, axon-encoder, engram-parser) |
