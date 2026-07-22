@@ -66,8 +66,20 @@ use nir_rs::{NirGraph, NirNode};
 
 fn main() -> nir_rs::Result<()> {
     let mut g = NirGraph::new();
-    g.insert_node("input", NirNode::Input(Input { shape: vec![4] }))?;
-    g.insert_node("output", NirNode::Output(Output { shape: vec![4] }))?;
+    g.insert_node(
+        "input",
+        NirNode::Input(Input {
+            shape: vec![4],
+            metadata: Default::default(),
+        }),
+    )?;
+    g.insert_node(
+        "output",
+        NirNode::Output(Output {
+            shape: vec![4],
+            metadata: Default::default(),
+        }),
+    )?;
     g.add_edge("input", "output");
     g.validate_structure()?;
     // HDF5 I/O arrives in v0.3: nir_rs::io::read("model.nir")
