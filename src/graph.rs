@@ -116,6 +116,9 @@ impl NirGraph {
             }
         }
 
+        // Nested graphs: re-prefix structure errors so callers see which subgraph failed.
+        // Today this method only returns MissingNode / DuplicateEdge / InvalidGraph;
+        // the `other` arm preserves any future validation variants as InvalidGraph.
         for (name, node) in &self.nodes {
             if let NirNode::Graph(sub) = node {
                 sub.validate_structure().map_err(|e| match e {
@@ -125,6 +128,9 @@ impl NirGraph {
                     NirError::DuplicateEdge(a, b) => NirError::InvalidGraph(format!(
                         "in subgraph {name:?}: duplicate edge: ({a}, {b})"
                     )),
+                    NirError::DuplicateNode(n) => {
+                        NirError::InvalidGraph(format!("in subgraph {name:?}: duplicate node: {n}"))
+                    }
                     NirError::InvalidGraph(msg) => {
                         NirError::InvalidGraph(format!("in subgraph {name:?}: {msg}"))
                     }

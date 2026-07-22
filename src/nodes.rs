@@ -220,8 +220,12 @@ pub struct CubaLi {
     pub r: Tensor,
     /// Leak voltage.
     pub v_leak: Tensor,
-    /// Input current weight (elementwise); defaults to ones in Python.
-    pub w_in: Tensor,
+    /// Input current weight (elementwise).
+    ///
+    /// Upstream Python NIR defaults missing `w_in` to ones (broadcast). Use
+    /// [`None`] when the field is absent on the wire; v0.3 decode should
+    /// synthesize ones when needed.
+    pub w_in: Option<Tensor>,
     /// Free-form node metadata (Python `metadata` dict).
     pub metadata: MetadataMap,
 }
@@ -242,7 +246,11 @@ pub struct CubaLif {
     /// Reset potential (optional; Python defaults to zeros).
     pub v_reset: Option<Tensor>,
     /// Input current weight (elementwise).
-    pub w_in: Tensor,
+    ///
+    /// Upstream Python NIR defaults missing `w_in` to ones (broadcast). Use
+    /// [`None`] when the field is absent on the wire; v0.3 decode should
+    /// synthesize ones when needed.
+    pub w_in: Option<Tensor>,
     /// Free-form node metadata (Python `metadata` dict).
     pub metadata: MetadataMap,
 }
@@ -445,7 +453,7 @@ mod tests {
                     tau_mem: sample_vec3(),
                     r: sample_vec3(),
                     v_leak: Tensor::from_f64(vec![3], vec![0., 0., 0.]).unwrap(),
-                    w_in: Tensor::from_f64(vec![3], vec![1., 1., 1.]).unwrap(),
+                    w_in: Some(Tensor::from_f64(vec![3], vec![1., 1., 1.]).unwrap()),
                     metadata: Default::default(),
                 }),
             ),
@@ -458,7 +466,7 @@ mod tests {
                     v_leak: Tensor::from_f64(vec![3], vec![0., 0., 0.]).unwrap(),
                     v_threshold: Tensor::from_f64(vec![3], vec![1., 1., 1.]).unwrap(),
                     v_reset: None,
-                    w_in: Tensor::from_f64(vec![3], vec![1., 1., 1.]).unwrap(),
+                    w_in: Some(Tensor::from_f64(vec![3], vec![1., 1., 1.]).unwrap()),
                     metadata: Default::default(),
                 }),
             ),
@@ -567,7 +575,7 @@ mod tests {
                 v_leak: Tensor::scalar_f64(0.0),
                 v_threshold: Tensor::scalar_f64(1.0),
                 v_reset: None,
-                w_in: Tensor::scalar_f64(1.0),
+                w_in: Some(Tensor::scalar_f64(1.0)),
                 metadata: Default::default(),
             }),
             NirNode::Conv2d(Conv2d {
