@@ -82,8 +82,11 @@ impl TensorData {
 ///
 /// Shape is listed outer-to-inner (C-order), matching typical NumPy layout.
 ///
-/// Element dtype is always derived from [`Tensor::data`] via [`Tensor::dtype`] —
-/// there is no separate stored dtype field that can desync from the buffer.
+/// Element dtype is always derived from the payload via [`Tensor::dtype`].
+///
+/// Shape and data are **private** so callers cannot break the
+/// `shape product == data.len()` invariant after construction. Use
+/// [`Tensor::shape`] / [`Tensor::data`] accessors.
 ///
 /// # PartialEq
 ///
@@ -92,9 +95,9 @@ impl TensorData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tensor {
     /// Axis lengths.
-    pub shape: Vec<usize>,
+    shape: Vec<usize>,
     /// Contiguous elements in C-order.
-    pub data: TensorData,
+    data: TensorData,
 }
 
 impl Tensor {
@@ -105,10 +108,22 @@ impl Tensor {
         Ok(Self { shape, data })
     }
 
-    /// Element dtype of this tensor (derived from [`Tensor::data`]).
+    /// Element dtype of this tensor (derived from the payload).
     #[must_use]
     pub const fn dtype(&self) -> DType {
         self.data.dtype()
+    }
+
+    /// Axis lengths (outer-to-inner / C-order).
+    #[must_use]
+    pub fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    /// Contiguous payload.
+    #[must_use]
+    pub fn data(&self) -> &TensorData {
+        &self.data
     }
 
     /// `f32` tensor; `data.len()` must equal the product of `shape`.
@@ -161,7 +176,8 @@ impl Tensor {
     /// Number of elements implied by `shape` (empty shape → 1).
     #[must_use]
     pub fn numel(&self) -> usize {
-        shape_product(&self.shape)
+        // Invariant: construction ensures product fits and matches data.len().
+        shape_product(&self.shape).expect("tensor shape product overflow")
     }
 
     /// Number of dimensions.
@@ -171,7 +187,10 @@ impl Tensor {
     }
 }
 
-/// Free-form metadata values attached to graphs (and later nodes).
+/// Free-form metadata map (Python NIR `metadata: Dict[str, Any]`).
+pub type MetadataMap = std::collections::HashMap<String, MetadataValue>;
+
+/// Free-form metadata values attached to graphs and nodes.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum MetadataValue {
@@ -187,16 +206,20 @@ pub enum MetadataValue {
     Tensor(Tensor),
 }
 
-fn shape_product(shape: &[usize]) -> usize {
+/// Product of shape dims; empty shape is a scalar (1 element).
+/// Returns `None` if the product overflows `usize`.
+fn shape_product(shape: &[usize]) -> Option<usize> {
     if shape.is_empty() {
-        1
+        Some(1)
     } else {
-        shape.iter().copied().product()
+        shape.iter().try_fold(1usize, |acc, &d| acc.checked_mul(d))
     }
 }
 
 fn check_shape_len(shape: &[usize], len: usize) -> Result<()> {
-    let expected = shape_product(shape);
+    let expected = shape_product(shape).ok_or_else(|| {
+        NirError::InvalidTensor(format!("shape product overflows usize (shape={shape:?})"))
+    })?;
     if expected != len {
         return Err(NirError::InvalidTensor(format!(
             "shape product {expected} != data len {len} (shape={shape:?})"
@@ -240,9 +263,9 @@ mod tests {
     #[test]
     fn scalar_has_empty_shape_one_element() {
         let t = Tensor::scalar_f64(0.5);
-        assert!(t.shape.is_empty());
+        assert!(t.shape().is_empty());
         assert_eq!(t.numel(), 1);
-        assert_eq!(t.data.len(), 1);
+        assert_eq!(t.data().len(), 1);
     }
 
     #[test]
@@ -265,6 +288,13 @@ mod tests {
         assert_eq!(DType::F64.size_of(), 8);
         assert_eq!(DType::I64.size_of(), 8);
         assert_eq!(DType::Bool.size_of(), 1);
+    }
+
+    #[test]
+    fn shape_product_overflow_rejected() {
+        let err = Tensor::from_f32(vec![usize::MAX, usize::MAX], vec![1.0]).unwrap_err();
+        assert!(matches!(err, NirError::InvalidTensor(_)));
+        assert!(err.to_string().contains("overflows"));
     }
 
     #[test]

@@ -144,11 +144,17 @@ mod tests {
     use crate::types::Tensor;
 
     fn input(shape: Vec<usize>) -> NirNode {
-        NirNode::Input(Input { shape })
+        NirNode::Input(Input {
+            shape,
+            metadata: Default::default(),
+        })
     }
 
     fn output(shape: Vec<usize>) -> NirNode {
-        NirNode::Output(Output { shape })
+        NirNode::Output(Output {
+            shape,
+            metadata: Default::default(),
+        })
     }
 
     #[test]
@@ -231,8 +237,15 @@ mod tests {
         );
 
         g.insert_node("input", input(vec![4])).unwrap();
-        g.insert_node("fc", NirNode::Affine(Affine { weight, bias }))
-            .unwrap();
+        g.insert_node(
+            "fc",
+            NirNode::Affine(Affine {
+                weight,
+                bias,
+                metadata: Default::default(),
+            }),
+        )
+        .unwrap();
         g.insert_node(
             "lif",
             NirNode::Lif(Lif {
@@ -241,6 +254,7 @@ mod tests {
                 v_leak,
                 v_threshold: v_th,
                 v_reset: None,
+                metadata: Default::default(),
             }),
         )
         .unwrap();

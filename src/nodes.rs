@@ -11,12 +11,12 @@
 //! Numeric array parameters are [`Tensor`] values (Python: `numpy.ndarray`).
 
 use crate::graph::NirGraph;
-use crate::types::Tensor;
+use crate::types::{MetadataMap, Tensor};
 
 /// Convolution / pooling padding specification.
 ///
 /// Upstream NIR accepts integer extents or the string modes `"same"` / `"valid"`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Padding {
     /// Explicit per-axis padding extents (length 1 for 1d, 2 for 2d, …).
@@ -119,19 +119,23 @@ impl NirNode {
 /// Input port: virtual node feeding data into the graph.
 ///
 /// Wire field: `shape` (array of axis lengths).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Input {
     /// Shape of the input tensor.
     pub shape: Vec<usize>,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Output port: virtual node collecting graph results.
 ///
 /// Wire field: `shape` (array of axis lengths).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Output {
     /// Shape of the output tensor.
     pub shape: Vec<usize>,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Affine map `y = W x + b`.
@@ -141,6 +145,8 @@ pub struct Affine {
     pub weight: Tensor,
     /// Bias vector / tensor.
     pub bias: Tensor,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Linear map without bias `y = W x`.
@@ -148,6 +154,8 @@ pub struct Affine {
 pub struct Linear {
     /// Weight matrix / tensor.
     pub weight: Tensor,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Elementwise scale `y = x ⊙ s`.
@@ -155,6 +163,8 @@ pub struct Linear {
 pub struct Scale {
     /// Per-element scale factors.
     pub scale: Tensor,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// 1-D convolution.
@@ -170,10 +180,12 @@ pub struct Conv1d {
     pub dilation: Vec<i64>,
     /// Grouped convolution groups.
     pub groups: i64,
-    /// Optional bias of shape `(C_out,)`.
-    pub bias: Option<Tensor>,
+    /// Bias of shape `(C_out,)` (required on the NIR wire).
+    pub bias: Tensor,
     /// Optional spatial input length `N` used for shape inference.
     pub input_shape: Option<usize>,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// 2-D convolution.
@@ -189,10 +201,12 @@ pub struct Conv2d {
     pub dilation: Vec<i64>,
     /// Grouped convolution groups.
     pub groups: i64,
-    /// Optional bias of shape `(C_out,)`.
-    pub bias: Option<Tensor>,
+    /// Bias of shape `(C_out,)` (required on the NIR wire).
+    pub bias: Tensor,
     /// Optional spatial input `(N_x, N_y)`.
     pub input_shape: Option<Vec<usize>>,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Current-based leaky integrator (`CubaLI`).
@@ -208,6 +222,8 @@ pub struct CubaLi {
     pub v_leak: Tensor,
     /// Input current weight (elementwise); defaults to ones in Python.
     pub w_in: Tensor,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Current-based leaky integrate-and-fire (`CubaLIF`).
@@ -227,6 +243,8 @@ pub struct CubaLif {
     pub v_reset: Option<Tensor>,
     /// Input current weight (elementwise).
     pub w_in: Tensor,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Pure delay `y(t) = x(t − τ)`.
@@ -234,10 +252,12 @@ pub struct CubaLif {
 pub struct Delay {
     /// Delay amount(s).
     pub delay: Tensor,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Flatten a contiguous range of dimensions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Flatten {
     /// First dimension to flatten (Python default: 1).
     pub start_dim: i64,
@@ -245,6 +265,8 @@ pub struct Flatten {
     pub end_dim: i64,
     /// Optional input shape used for shape inference / wire `input_type`.
     pub input_type: Option<Vec<usize>>,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Integrator neuron (`I`): `dv/dt = R I`.
@@ -252,6 +274,8 @@ pub struct Flatten {
 pub struct I {
     /// Resistance.
     pub r: Tensor,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Integrate-and-fire neuron (`IF`).
@@ -263,6 +287,8 @@ pub struct If {
     pub v_threshold: Tensor,
     /// Reset potential (optional).
     pub v_reset: Option<Tensor>,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Leaky integrator (`LI`).
@@ -274,6 +300,8 @@ pub struct Li {
     pub r: Tensor,
     /// Leak voltage.
     pub v_leak: Tensor,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Leaky integrate-and-fire (`LIF`).
@@ -289,6 +317,8 @@ pub struct Lif {
     pub v_threshold: Tensor,
     /// Reset potential (optional).
     pub v_reset: Option<Tensor>,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// 2-D sum pooling.
@@ -300,6 +330,8 @@ pub struct SumPool2d {
     pub stride: Tensor,
     /// Padding `(H, W)`.
     pub padding: Tensor,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// 2-D average pooling.
@@ -311,6 +343,8 @@ pub struct AvgPool2d {
     pub stride: Tensor,
     /// Padding `(H, W)`.
     pub padding: Tensor,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 /// Heaviside threshold / surrogate step.
@@ -318,6 +352,8 @@ pub struct AvgPool2d {
 pub struct Threshold {
     /// Threshold value(s).
     pub threshold: Tensor,
+    /// Free-form node metadata (Python `metadata` dict).
+    pub metadata: MetadataMap,
 }
 
 #[cfg(test)]
@@ -340,25 +376,40 @@ mod tests {
     #[test]
     fn all_type_names_match_wire_strings() {
         let cases: Vec<(&str, NirNode)> = vec![
-            ("Input", NirNode::Input(Input { shape: vec![1, 4] })),
-            ("Output", NirNode::Output(Output { shape: vec![1, 2] })),
+            (
+                "Input",
+                NirNode::Input(Input {
+                    shape: vec![1, 4],
+                    metadata: Default::default(),
+                }),
+            ),
+            (
+                "Output",
+                NirNode::Output(Output {
+                    shape: vec![1, 2],
+                    metadata: Default::default(),
+                }),
+            ),
             (
                 "Affine",
                 NirNode::Affine(Affine {
                     weight: sample_weight(),
                     bias: sample_bias(),
+                    metadata: Default::default(),
                 }),
             ),
             (
                 "Linear",
                 NirNode::Linear(Linear {
                     weight: sample_weight(),
+                    metadata: Default::default(),
                 }),
             ),
             (
                 "Scale",
                 NirNode::Scale(Scale {
                     scale: sample_vec3(),
+                    metadata: Default::default(),
                 }),
             ),
             (
@@ -369,8 +420,9 @@ mod tests {
                     padding: Padding::single(0),
                     dilation: vec![1],
                     groups: 1,
-                    bias: None,
+                    bias: Tensor::from_f32(vec![1], vec![0.]).unwrap(),
                     input_shape: Some(10),
+                    metadata: Default::default(),
                 }),
             ),
             (
@@ -381,8 +433,9 @@ mod tests {
                     padding: Padding::Same,
                     dilation: vec![1, 1],
                     groups: 1,
-                    bias: Some(Tensor::from_f32(vec![1], vec![0.]).unwrap()),
+                    bias: Tensor::from_f32(vec![1], vec![0.]).unwrap(),
                     input_shape: Some(vec![28, 28]),
+                    metadata: Default::default(),
                 }),
             ),
             (
@@ -393,6 +446,7 @@ mod tests {
                     r: sample_vec3(),
                     v_leak: Tensor::from_f64(vec![3], vec![0., 0., 0.]).unwrap(),
                     w_in: Tensor::from_f64(vec![3], vec![1., 1., 1.]).unwrap(),
+                    metadata: Default::default(),
                 }),
             ),
             (
@@ -405,12 +459,14 @@ mod tests {
                     v_threshold: Tensor::from_f64(vec![3], vec![1., 1., 1.]).unwrap(),
                     v_reset: None,
                     w_in: Tensor::from_f64(vec![3], vec![1., 1., 1.]).unwrap(),
+                    metadata: Default::default(),
                 }),
             ),
             (
                 "Delay",
                 NirNode::Delay(Delay {
                     delay: Tensor::scalar_f64(1.0),
+                    metadata: Default::default(),
                 }),
             ),
             (
@@ -419,15 +475,23 @@ mod tests {
                     start_dim: 1,
                     end_dim: -1,
                     input_type: Some(vec![1, 4, 4]),
+                    metadata: Default::default(),
                 }),
             ),
-            ("I", NirNode::I(I { r: sample_vec3() })),
+            (
+                "I",
+                NirNode::I(I {
+                    r: sample_vec3(),
+                    metadata: Default::default(),
+                }),
+            ),
             (
                 "IF",
                 NirNode::If(If {
                     r: sample_vec3(),
                     v_threshold: Tensor::from_f64(vec![3], vec![1., 1., 1.]).unwrap(),
                     v_reset: None,
+                    metadata: Default::default(),
                 }),
             ),
             (
@@ -436,6 +500,7 @@ mod tests {
                     tau: sample_vec3(),
                     r: sample_vec3(),
                     v_leak: Tensor::from_f64(vec![3], vec![0., 0., 0.]).unwrap(),
+                    metadata: Default::default(),
                 }),
             ),
             (
@@ -446,6 +511,7 @@ mod tests {
                     v_leak: Tensor::from_f64(vec![3], vec![0., 0., 0.]).unwrap(),
                     v_threshold: Tensor::from_f64(vec![3], vec![1., 1., 1.]).unwrap(),
                     v_reset: Some(Tensor::from_f64(vec![3], vec![0., 0., 0.]).unwrap()),
+                    metadata: Default::default(),
                 }),
             ),
             (
@@ -454,6 +520,7 @@ mod tests {
                     kernel_size: Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
                     stride: Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
                     padding: Tensor::from_i64(vec![2], vec![0, 0]).unwrap(),
+                    metadata: Default::default(),
                 }),
             ),
             (
@@ -462,12 +529,14 @@ mod tests {
                     kernel_size: Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
                     stride: Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
                     padding: Tensor::from_i64(vec![2], vec![0, 0]).unwrap(),
+                    metadata: Default::default(),
                 }),
             ),
             (
                 "Threshold",
                 NirNode::Threshold(Threshold {
                     threshold: Tensor::scalar_f64(1.0),
+                    metadata: Default::default(),
                 }),
             ),
             ("NIRGraph", NirNode::Graph(Box::new(NirGraph::new()))),
@@ -499,6 +568,7 @@ mod tests {
                 v_threshold: Tensor::scalar_f64(1.0),
                 v_reset: None,
                 w_in: Tensor::scalar_f64(1.0),
+                metadata: Default::default(),
             }),
             NirNode::Conv2d(Conv2d {
                 weight: Tensor::from_f32(vec![1, 1, 1, 1], vec![1.]).unwrap(),
@@ -506,16 +576,19 @@ mod tests {
                 padding: Padding::Valid,
                 dilation: vec![1, 1],
                 groups: 1,
-                bias: None,
+                bias: Tensor::from_f32(vec![1], vec![0.]).unwrap(),
                 input_shape: None,
+                metadata: Default::default(),
             }),
             NirNode::I(I {
                 r: Tensor::scalar_f64(1.0),
+                metadata: Default::default(),
             }),
             NirNode::SumPool2d(SumPool2d {
                 kernel_size: Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
                 stride: Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
                 padding: Tensor::from_i64(vec![2], vec![0, 0]).unwrap(),
+                metadata: Default::default(),
             }),
         ]
         .into_iter()

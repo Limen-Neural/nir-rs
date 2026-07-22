@@ -21,12 +21,19 @@
 //! use nir_rs::{NirGraph, NirNode};
 //!
 //! let mut g = NirGraph::new();
-//! g.insert_node("input", NirNode::Input(Input { shape: vec![4] }))?;
+//! g.insert_node(
+//!     "input",
+//!     NirNode::Input(Input {
+//!         shape: vec![4],
+//!         metadata: Default::default(),
+//!     }),
+//! )?;
 //! g.insert_node(
 //!     "fc",
 //!     NirNode::Affine(Affine {
 //!         weight: Tensor::from_f32(vec![2, 4], vec![0.1; 8])?,
 //!         bias: Tensor::from_f32(vec![2], vec![0.0, 0.0])?,
+//!         metadata: Default::default(),
 //!     }),
 //! )?;
 //! g.insert_node(
@@ -37,9 +44,16 @@
 //!         v_leak: Tensor::from_f64(vec![2], vec![0.0, 0.0])?,
 //!         v_threshold: Tensor::from_f64(vec![2], vec![1.0, 1.0])?,
 //!         v_reset: None,
+//!         metadata: Default::default(),
 //!     }),
 //! )?;
-//! g.insert_node("output", NirNode::Output(Output { shape: vec![2] }))?;
+//! g.insert_node(
+//!     "output",
+//!     NirNode::Output(Output {
+//!         shape: vec![2],
+//!         metadata: Default::default(),
+//!     }),
+//! )?;
 //! g.add_edge("input", "fc");
 //! g.add_edge("fc", "lif");
 //! g.add_edge("lif", "output");
@@ -72,4 +86,4 @@ pub mod types;
 pub use error::{NirError, Result};
 pub use graph::NirGraph;
 pub use nodes::NirNode;
-pub use types::{DType, MetadataValue, Tensor, TensorData};
+pub use types::{DType, MetadataMap, MetadataValue, Tensor, TensorData};
