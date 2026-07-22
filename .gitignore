@@ -1,0 +1,19 @@
+# Ignore these AI tools
+.kilo/
+.mimocode/
+.opencode/
+.ai/
+.junie/
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+.zed/
+
+# Agent skills
+.swarm/
+.worktrees/
+
+# Binary
+/target

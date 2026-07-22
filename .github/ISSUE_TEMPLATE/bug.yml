@@ -1,0 +1,25 @@
+name: Bug report
+description: Report incorrect behavior in nir-rs
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Steps, minimal code, or `.nir` fixture if relevant
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+    validations:
+      required: false

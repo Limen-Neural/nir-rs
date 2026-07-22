@@ -15,7 +15,8 @@ name = "nir_rs"
 path = "src/lib.rs"
 
 [dependencies]
-# Add hdf5 later when you start implementing I/O
-# hdf5 = "0.8"
+# HDF5 I/O (v0.3): use the maintained fork via package rename, e.g.
+# hdf5 = { package = "hdf5-metno", version = "0.13", optional = true }
+# Do not depend on the abandoned aldanor/hdf5 0.8 crate.
 
 [dev-dependencies]
