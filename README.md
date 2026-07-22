@@ -3,7 +3,7 @@
 **Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR)**
 
 [![CI](https://github.com/Limen-Neural/nir-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 > Early scaffold of a pure-Rust library for reading, writing, and working with NIR — the standard interchange format for spiking neural networks.
 
