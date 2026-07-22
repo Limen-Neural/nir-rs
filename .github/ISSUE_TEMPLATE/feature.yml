@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose a feature or API change for nir-rs
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+    validations:
+      required: false
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Target milestone area
+      options:
+        - Core IR (graph/nodes)
+        - HDF5 I/O
+        - DX (serde/examples)
+        - Interop / consumers
+        - Unsure
+    validations:
+      required: false
