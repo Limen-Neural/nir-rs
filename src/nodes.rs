@@ -44,8 +44,9 @@ impl Padding {
 /// Closed set of NIR computational nodes.
 ///
 /// Exhaustive matching is intentional for silicon-bridge and other consumers.
+/// This enum is **not** `#[non_exhaustive]` so downstream mappers can cover all
+/// wire types without a wildcard arm (new wire types are a major API change).
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum NirNode {
     /// Graph input port (`type = "Input"`).
     Input(Input),

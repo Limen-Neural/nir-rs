@@ -78,15 +78,21 @@ impl TensorData {
     }
 }
 
-/// Dense, row-major tensor (shape + dtype + contiguous data).
+/// Dense, row-major tensor (shape + contiguous typed data).
 ///
 /// Shape is listed outer-to-inner (C-order), matching typical NumPy layout.
+///
+/// Element dtype is always derived from [`Tensor::data`] via [`Tensor::dtype`] —
+/// there is no separate stored dtype field that can desync from the buffer.
+///
+/// # PartialEq
+///
+/// Equality is exact element-wise (IEEE). In particular, `NaN != NaN`, matching
+/// Rust's default float `PartialEq`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tensor {
     /// Axis lengths.
     pub shape: Vec<usize>,
-    /// Element type (must match [`TensorData`] variant).
-    pub dtype: DType,
     /// Contiguous elements in C-order.
     pub data: TensorData,
 }
@@ -95,9 +101,14 @@ impl Tensor {
     /// Build a tensor from shape and typed data, checking length against shape.
     pub fn new(shape: impl Into<Vec<usize>>, data: TensorData) -> Result<Self> {
         let shape = shape.into();
-        let dtype = data.dtype();
         check_shape_len(&shape, data.len())?;
-        Ok(Self { shape, dtype, data })
+        Ok(Self { shape, data })
+    }
+
+    /// Element dtype of this tensor (derived from [`Tensor::data`]).
+    #[must_use]
+    pub const fn dtype(&self) -> DType {
+        self.data.dtype()
     }
 
     /// `f32` tensor; `data.len()` must equal the product of `shape`.
@@ -121,28 +132,28 @@ impl Tensor {
     }
 
     /// Rank-0 (scalar) `f32` tensor.
+    #[must_use]
     pub fn scalar_f32(value: f32) -> Self {
         Self {
             shape: vec![],
-            dtype: DType::F32,
             data: TensorData::F32(vec![value]),
         }
     }
 
     /// Rank-0 (scalar) `f64` tensor.
+    #[must_use]
     pub fn scalar_f64(value: f64) -> Self {
         Self {
             shape: vec![],
-            dtype: DType::F64,
             data: TensorData::F64(vec![value]),
         }
     }
 
     /// Rank-0 (scalar) `i64` tensor.
+    #[must_use]
     pub fn scalar_i64(value: i64) -> Self {
         Self {
             shape: vec![],
-            dtype: DType::I64,
             data: TensorData::I64(vec![value]),
         }
     }
@@ -201,7 +212,7 @@ mod tests {
     #[test]
     fn from_f32_ok() {
         let t = Tensor::from_f32(vec![2, 3], vec![1., 2., 3., 4., 5., 6.]).unwrap();
-        assert_eq!(t.dtype, DType::F32);
+        assert_eq!(t.dtype(), DType::F32);
         assert_eq!(t.numel(), 6);
         assert_eq!(t.ndim(), 2);
     }
@@ -209,7 +220,7 @@ mod tests {
     #[test]
     fn from_f64_ok() {
         let t = Tensor::from_f64([2], vec![1.0, 2.0]).unwrap();
-        assert_eq!(t.dtype, DType::F64);
+        assert_eq!(t.dtype(), DType::F64);
         assert_eq!(t.numel(), 2);
     }
 
@@ -243,9 +254,9 @@ mod tests {
     #[test]
     fn i64_and_bool_constructors() {
         let i = Tensor::from_i64([2], vec![1, 2]).unwrap();
-        assert_eq!(i.dtype, DType::I64);
+        assert_eq!(i.dtype(), DType::I64);
         let b = Tensor::from_bool([2], vec![true, false]).unwrap();
-        assert_eq!(b.dtype, DType::Bool);
+        assert_eq!(b.dtype(), DType::Bool);
     }
 
     #[test]
