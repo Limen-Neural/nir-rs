@@ -53,6 +53,7 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
 
     check_string_values(graph, &version)?;
     check_conv2d_input_shapes(graph)?;
+    check_compression(opts.compression)?;
 
     let file = File::create(path)
         .map_err(|e| NirError::Io(format!("cannot create {}: {e}", path.display())))?;
@@ -99,6 +100,21 @@ fn check_names_at(graph: &NirGraph, seen: &mut usize) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Reject a deflate level HDF5 will not accept.
+///
+/// [`WriteOptions::with_compression`] clamps, but `compression` is a public
+/// field a caller can set directly. Without this, `H5Pset_deflate` rejects the
+/// level only at dataset-creation time — after `File::create` has truncated
+/// whatever was at the destination.
+fn check_compression(level: Option<u8>) -> Result<()> {
+    match level {
+        Some(level) if level > 9 => Err(NirError::InvalidGraph(format!(
+            "compression level {level} is out of range (expected 0..=9)"
+        ))),
+        _ => Ok(()),
+    }
 }
 
 fn check_metadata_keys(metadata: &MetadataMap) -> Result<()> {

@@ -342,6 +342,26 @@ fn version_with_a_nul_byte_is_rejected_before_the_file_is_created() {
 }
 
 #[test]
+fn out_of_range_compression_is_rejected_before_the_file_is_created() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("existing.nir");
+    nir_rs::io::write(&path, &NirGraph::new()).unwrap();
+    let before = std::fs::metadata(&path).unwrap().len();
+
+    // `with_compression` clamps, so reach the invalid level the only way a
+    // caller can: by setting the public field directly.
+    let mut opts = WriteOptions::default();
+    opts.compression = Some(200);
+
+    assert_err(
+        nir_rs::io::write_with(&path, &NirGraph::new(), &opts),
+        NirError::InvalidGraph,
+        &["compression level 200", "0..=9"],
+    );
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
+}
+
+#[test]
 fn metadata_string_with_a_nul_byte_is_rejected_before_the_file_is_created() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("existing.nir");
