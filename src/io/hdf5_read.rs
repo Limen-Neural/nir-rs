@@ -30,6 +30,9 @@ use hdf5::types::{
 use hdf5::{Dataset, File, Group, LocationToken};
 use std::path::Path;
 
+/// Nesting limit for `NIRGraph` nodes. Real graphs nest a handful of levels.
+const MAX_GRAPH_DEPTH: usize = 64;
+
 /// Read a whole `.nir` file.
 pub(super) fn read(path: &Path) -> Result<NirGraph> {
     let file = open(path)?;
@@ -71,6 +74,7 @@ pub(super) fn read(path: &Path) -> Result<NirGraph> {
 /// Read only `/version`.
 pub(super) fn read_version(path: &Path) -> Result<String> {
     let file = open(path)?;
+    validate_group_links(&file, "/")?;
     let ds = file
         .dataset(KEY_VERSION)
         .map_err(|_| NirError::MissingField(format!("/{KEY_VERSION}")))?;
@@ -100,6 +104,13 @@ fn read_graph_body(
     context: &str,
     visited: &mut Vec<LocationToken>,
 ) -> Result<NirGraph> {
+    // A deep but *acyclic* chain gives every level a unique token, so the cycle
+    // check below cannot stop it; unbounded recursion would abort the process.
+    if visited.len() >= MAX_GRAPH_DEPTH {
+        return Err(NirError::InvalidGraph(format!(
+            "{context}: nested NIRGraph deeper than {MAX_GRAPH_DEPTH} levels"
+        )));
+    }
     let token = group.loc_info()?.token;
     if visited.contains(&token) {
         return Err(NirError::InvalidGraph(format!(
