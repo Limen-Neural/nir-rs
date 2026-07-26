@@ -52,6 +52,13 @@ pub(super) fn read(path: &Path) -> Result<NirGraph> {
         ))
     })?;
 
+    // `/node`'s own members must be cleared before any of them is opened.
+    // `read_graph_body` validates this group too, but only after the `type`
+    // read below — and by then HDF5 would already have opened and read an
+    // external `/node/type`, which is the access the policy forbids. Failing
+    // afterwards is not the same as not looking.
+    validate_group_links(&root, &format!("/{KEY_NODE}"))?;
+
     // `/node` is a serialized NIRGraph. Checking its type is what separates a
     // NIR file from unrelated HDF5 that happens to have a `node` group.
     let root_type = read_string_scalar(

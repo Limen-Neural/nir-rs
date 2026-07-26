@@ -52,6 +52,41 @@ fn external_link_in_the_file_root_is_rejected() {
 }
 
 #[test]
+fn external_node_type_is_rejected_before_it_is_read() {
+    // `/node/type` is opened by `read` itself, before `read_graph_body` gets a
+    // chance to validate the `/node` group. The decoy's `type` holds a value the
+    // type check would reject, so the *message* proves the ordering: if the
+    // external link were followed first, this would fail with "must be a
+    // NIRGraph, found \"NotAGraph\"" — i.e. after the external file had already
+    // been opened and read.
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("type_decoy.h5");
+    {
+        let file = hdf5::File::create(&target).unwrap();
+        let ds = file
+            .new_dataset::<hdf5::types::VarLenUnicode>()
+            .shape(())
+            .create("type")
+            .unwrap();
+        ds.write_scalar(&"NotAGraph".parse::<hdf5::types::VarLenUnicode>().unwrap())
+            .unwrap();
+    }
+
+    let path = tampered(&dir, "external_type.nir", |file| {
+        let node = file.group("node").unwrap();
+        node.unlink("type").unwrap();
+        node.link_external(target.to_str().unwrap(), "/type", "type")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["external link", "type"],
+    );
+}
+
+#[test]
 fn external_link_inside_a_node_group_is_rejected() {
     let dir = TempDir::new().unwrap();
     let target = decoy(&dir);
