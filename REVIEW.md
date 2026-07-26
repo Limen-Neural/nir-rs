@@ -17,7 +17,11 @@ first, or build a hermetic copy:
 
 ```bash
 sudo apt-get install -y libhdf5-dev   # Ubuntu/Debian; brew install hdf5 on macOS
-cargo test --features hdf5,hdf5/static,hdf5/zlib  # vendored source; zlib carries the gzip filter
+# Vendored source; zlib carries the gzip filter. The slash forms enable
+# features of the `hdf5` (hdf5-metno) dependency directly — this is cargo's
+# documented dep/feature syntax, verified with
+# `cargo metadata --features hdf5,hdf5/static,hdf5/zlib` on cargo 1.97.
+cargo test --features hdf5,hdf5/static,hdf5/zlib
 ```
 
 ## Checklist
