@@ -15,7 +15,11 @@ use nir_rs::{NirError, NirGraph, NirNode};
 use tempfile::TempDir;
 
 /// Assert that a Result is an error of the expected variant with a message containing the needle.
-fn assert_err<T>(result: Result<T, NirError>, expected_variant: fn(String) -> NirError, needle: &str) {
+fn assert_err<T>(
+    result: Result<T, NirError>,
+    expected_variant: fn(String) -> NirError,
+    needle: &str,
+) {
     let err = result.unwrap_err();
     // Check the variant by constructing a dummy instance and comparing discriminants
     let dummy = expected_variant(String::new());
@@ -323,7 +327,11 @@ fn node_name_with_a_nul_byte_is_rejected_before_the_file_is_created() {
 
     let mut bad = NirGraph::new();
     bad.insert_node("na\0me", input(vec![1])).unwrap();
-    assert_err(nir_rs::io::write(&path, &bad), NirError::InvalidGraph, "NUL");
+    assert_err(
+        nir_rs::io::write(&path, &bad),
+        NirError::InvalidGraph,
+        "NUL",
+    );
 
     // The rejected write must not have truncated the existing file.
     assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
@@ -390,7 +398,11 @@ fn rank_0_metadata_tensor_is_rejected_as_ambiguous() {
     );
 
     let path = dir.path().join("scalar_metadata.nir");
-    assert_err(nir_rs::io::write(&path, &graph), NirError::InvalidGraph, "rank-0");
+    assert_err(
+        nir_rs::io::write(&path, &graph),
+        NirError::InvalidGraph,
+        "rank-0",
+    );
 
     // With validation off it is written, and decodes as the scalar variant —
     // which is exactly the lossiness the check exists to surface.
@@ -551,7 +563,11 @@ fn metadata_string_with_a_nul_byte_is_rejected_before_the_file_is_created() {
     let mut bad = NirGraph::new();
     bad.metadata
         .insert("note".into(), MetadataValue::String("bad\0value".into()));
-    assert_err(nir_rs::io::write(&path, &bad), NirError::InvalidGraph, "NUL");
+    assert_err(
+        nir_rs::io::write(&path, &bad),
+        NirError::InvalidGraph,
+        "NUL",
+    );
     assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
 }
 
