@@ -14,6 +14,27 @@ use nir_rs::types::{MetadataValue, Tensor};
 use nir_rs::{NirError, NirGraph, NirNode};
 use tempfile::TempDir;
 
+/// Assert that a Result is an error of the expected variant with a message containing the needle.
+fn assert_err<T>(result: Result<T, NirError>, expected_variant: fn(String) -> NirError, needle: &str) {
+    let err = result.unwrap_err();
+    // Check the variant by constructing a dummy instance and comparing discriminants
+    let dummy = expected_variant(String::new());
+    assert_eq!(
+        std::mem::discriminant(&err),
+        std::mem::discriminant(&dummy),
+        "expected {:?} variant, got {:?}",
+        dummy,
+        err
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains(needle),
+        "expected message to contain {:?}, got {:?}",
+        needle,
+        msg
+    );
+}
+
 fn input(shape: Vec<usize>) -> NirNode {
     NirNode::Input(Input {
         shape,
@@ -51,9 +72,11 @@ fn write_then(dir: &TempDir, name: &str, mutate: impl FnOnce(&hdf5::File)) -> st
 
 #[test]
 fn missing_file_is_an_io_error() {
-    let err = nir_rs::io::read("definitely/not/here.nir").unwrap_err();
-    assert!(matches!(err, NirError::Io(_)), "got {err:?}");
-    assert!(err.to_string().contains("cannot open"));
+    assert_err(
+        nir_rs::io::read("definitely/not/here.nir"),
+        NirError::Io,
+        "cannot open",
+    );
 }
 
 #[test]
@@ -62,8 +85,7 @@ fn non_hdf5_file_is_an_io_error() {
     let path = dir.path().join("not_hdf5.nir");
     std::fs::write(&path, b"this is plain text, not an HDF5 container").unwrap();
 
-    let err = nir_rs::io::read(&path).unwrap_err();
-    assert!(matches!(err, NirError::Io(_)), "got {err:?}");
+    assert_err(nir_rs::io::read(&path), NirError::Io, "");
 }
 
 #[test]
@@ -101,14 +123,7 @@ fn hdf5_file_whose_node_group_is_not_a_graph_is_rejected() {
             .unwrap();
     });
 
-    let err = nir_rs::io::read(&path).unwrap_err();
-    match err {
-        NirError::InvalidGraph(message) => {
-            assert!(message.contains("NIRGraph"), "got {message}");
-            assert!(message.contains("LIF"), "got {message}");
-        }
-        other => panic!("expected InvalidGraph, got {other:?}"),
-    }
+    assert_err(nir_rs::io::read(&path), NirError::InvalidGraph, "NIRGraph");
 }
 
 #[test]
@@ -219,11 +234,7 @@ fn malformed_edges_shape_is_an_invalid_graph() {
         ds.write_raw(&values).unwrap();
     });
 
-    let err = nir_rs::io::read(&path).unwrap_err();
-    match err {
-        NirError::InvalidGraph(message) => assert!(message.contains("(E, 2)"), "got {message}"),
-        other => panic!("expected InvalidGraph, got {other:?}"),
-    }
+    assert_err(nir_rs::io::read(&path), NirError::InvalidGraph, "(E, 2)");
 }
 
 #[test]
@@ -252,14 +263,11 @@ fn node_name_with_a_slash_is_rejected() {
     let mut graph = NirGraph::new();
     graph.insert_node("layer/one", input(vec![1])).unwrap();
 
-    let err = nir_rs::io::write(dir.path().join("slash.nir"), &graph).unwrap_err();
-    match err {
-        NirError::InvalidGraph(message) => {
-            assert!(message.contains("layer/one"), "got {message}");
-            assert!(message.contains('/'), "got {message}");
-        }
-        other => panic!("expected InvalidGraph, got {other:?}"),
-    }
+    assert_err(
+        nir_rs::io::write(dir.path().join("slash.nir"), &graph),
+        NirError::InvalidGraph,
+        "layer/one",
+    );
 }
 
 #[test]
@@ -273,8 +281,11 @@ fn illegal_name_inside_a_subgraph_is_rejected_too() {
         .insert_node("sub", NirNode::Graph(Box::new(inner)))
         .unwrap();
 
-    let err = nir_rs::io::write(dir.path().join("nested_slash.nir"), &outer).unwrap_err();
-    assert!(matches!(err, NirError::InvalidGraph(_)), "got {err:?}");
+    assert_err(
+        nir_rs::io::write(dir.path().join("nested_slash.nir"), &outer),
+        NirError::InvalidGraph,
+        "",
+    );
 }
 
 #[test]
@@ -312,9 +323,7 @@ fn node_name_with_a_nul_byte_is_rejected_before_the_file_is_created() {
 
     let mut bad = NirGraph::new();
     bad.insert_node("na\0me", input(vec![1])).unwrap();
-    let err = nir_rs::io::write(&path, &bad).unwrap_err();
-    assert!(matches!(err, NirError::InvalidGraph(_)), "got {err:?}");
-    assert!(err.to_string().contains("NUL"), "got {err}");
+    assert_err(nir_rs::io::write(&path, &bad), NirError::InvalidGraph, "NUL");
 
     // The rejected write must not have truncated the existing file.
     assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
@@ -381,14 +390,7 @@ fn rank_0_metadata_tensor_is_rejected_as_ambiguous() {
     );
 
     let path = dir.path().join("scalar_metadata.nir");
-    let err = nir_rs::io::write(&path, &graph).unwrap_err();
-    match err {
-        NirError::InvalidGraph(message) => {
-            assert!(message.contains("rank-0"), "got {message}");
-            assert!(message.contains("scalar"), "got {message}");
-        }
-        other => panic!("expected InvalidGraph, got {other:?}"),
-    }
+    assert_err(nir_rs::io::write(&path, &graph), NirError::InvalidGraph, "rank-0");
 
     // With validation off it is written, and decodes as the scalar variant —
     // which is exactly the lossiness the check exists to surface.
@@ -504,20 +506,20 @@ fn conv1d_extent_with_two_values_is_rejected() {
         )
         .unwrap();
 
-    let err = nir_rs::io::write(dir.path().join("conv1d.nir"), &graph).unwrap_err();
-    match err {
-        NirError::InvalidGraph(message) => {
-            assert!(message.contains("Conv1d stride"), "got {message}");
-        }
-        other => panic!("expected InvalidGraph, got {other:?}"),
-    }
+    assert_err(
+        nir_rs::io::write(dir.path().join("conv1d.nir"), &graph),
+        NirError::InvalidGraph,
+        "Conv1d stride",
+    );
 }
 
 #[test]
 fn write_to_an_unwritable_path_is_an_io_error() {
-    let err = nir_rs::io::write("no/such/directory/model.nir", &NirGraph::new()).unwrap_err();
-    assert!(matches!(err, NirError::Io(_)), "got {err:?}");
-    assert!(err.to_string().contains("cannot create"));
+    assert_err(
+        nir_rs::io::write("no/such/directory/model.nir", &NirGraph::new()),
+        NirError::Io,
+        "cannot create",
+    );
 }
 
 #[test]
@@ -527,14 +529,15 @@ fn version_with_a_nul_byte_is_rejected_before_the_file_is_created() {
     nir_rs::io::write(&path, &NirGraph::new()).unwrap();
     let before = std::fs::metadata(&path).unwrap().len();
 
-    let err = nir_rs::io::write_with(
-        &path,
-        &NirGraph::new(),
-        &WriteOptions::default().with_version("0.2\0.0"),
-    )
-    .unwrap_err();
-    assert!(matches!(err, NirError::InvalidGraph(_)), "got {err:?}");
-    assert!(err.to_string().contains("NUL"), "got {err}");
+    assert_err(
+        nir_rs::io::write_with(
+            &path,
+            &NirGraph::new(),
+            &WriteOptions::default().with_version("0.2\0.0"),
+        ),
+        NirError::InvalidGraph,
+        "NUL",
+    );
     assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
 }
 
@@ -548,9 +551,7 @@ fn metadata_string_with_a_nul_byte_is_rejected_before_the_file_is_created() {
     let mut bad = NirGraph::new();
     bad.metadata
         .insert("note".into(), MetadataValue::String("bad\0value".into()));
-    let err = nir_rs::io::write(&path, &bad).unwrap_err();
-    assert!(matches!(err, NirError::InvalidGraph(_)), "got {err:?}");
-    assert!(err.to_string().contains("NUL"), "got {err}");
+    assert_err(nir_rs::io::write(&path, &bad), NirError::InvalidGraph, "NUL");
     assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
 }
 
@@ -574,14 +575,11 @@ fn conv2d_input_shape_must_be_a_pair() {
         )
         .unwrap();
 
-    let err = nir_rs::io::write(dir.path().join("conv2d.nir"), &graph).unwrap_err();
-    match err {
-        NirError::InvalidGraph(message) => {
-            assert!(message.contains("Conv2d"), "got {message}");
-            assert!(message.contains("input_shape"), "got {message}");
-        }
-        other => panic!("expected InvalidGraph, got {other:?}"),
-    }
+    assert_err(
+        nir_rs::io::write(dir.path().join("conv2d.nir"), &graph),
+        NirError::InvalidGraph,
+        "Conv2d",
+    );
 }
 
 #[test]

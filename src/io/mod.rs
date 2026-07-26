@@ -76,23 +76,15 @@ mod backend {
     use super::{NirError, NirGraph, Path, Result, WriteOptions};
 
     pub(super) fn read(_path: &Path) -> Result<NirGraph> {
-        Err(disabled("read"))
+        Err(NirError::Unimplemented("io::read (enable feature \"hdf5\")"))
     }
 
     pub(super) fn read_version(_path: &Path) -> Result<String> {
-        Err(disabled("read_version"))
+        Err(NirError::Unimplemented("io::read_version (enable feature \"hdf5\")"))
     }
 
     pub(super) fn write(_path: &Path, _graph: &NirGraph, _opts: &WriteOptions) -> Result<()> {
-        Err(disabled("write"))
-    }
-
-    fn disabled(operation: &str) -> NirError {
-        NirError::Unimplemented(match operation {
-            "read" => "io::read (enable feature \"hdf5\")",
-            "read_version" => "io::read_version (enable feature \"hdf5\")",
-            _ => "io::write (enable feature \"hdf5\")",
-        })
+        Err(NirError::Unimplemented("io::write (enable feature \"hdf5\")"))
     }
 }
 

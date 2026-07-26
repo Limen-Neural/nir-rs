@@ -116,9 +116,13 @@ fn read_graph_body_uncycled(
 ) -> Result<NirGraph> {
     let mut graph = NirGraph::new();
 
+    validate_group_links(group, context)?;
+
     let nodes = group
         .group(KEY_NODES)
         .map_err(|_| NirError::MissingField(format!("{context}/{KEY_NODES}")))?;
+    validate_group_links(&nodes, &format!("{context}/{KEY_NODES}"))?;
+
     // HDF5 iterates links in name order; sorting makes that explicit and
     // keeps repeated reads of the same file identical.
     let mut names = nodes.member_names()?;
@@ -127,6 +131,7 @@ fn read_graph_body_uncycled(
         let node_group = nodes
             .group(&name)
             .map_err(|e| NirError::Io(format!("node {name:?} is not a group: {e}")))?;
+        validate_group_links(&node_group, &name)?;
         let node = read_node(&node_group, &name, visited)?;
         graph.insert_node(name, node)?;
     }
@@ -553,6 +558,75 @@ fn single_int(values: Vec<i64>, context: &str) -> Result<i64> {
 }
 
 // ---------------------------------------------------------------------------
+// Security validation (reject external links and VDS)
+// ---------------------------------------------------------------------------
+
+/// Validate that a group does not contain external links before traversing it.
+///
+/// Checks each member link to ensure it's not an external link that could
+/// reference files outside the current `.nir` file.
+fn validate_group_links(group: &Group, context: &str) -> Result<()> {
+    // The hdf5-rs crate provides link_info() on groups to inspect link types.
+    // We iterate over all members and check each link's type.
+    for name in group.member_names()? {
+        if let Ok(info) = group.link_info(&name) {
+            // LinkInfo exposes link_type() which returns LinkType enum.
+            // LinkType::External indicates H5L_TYPE_EXTERNAL.
+            match info.link_type {
+                hdf5::link::LinkType::External => {
+                    return Err(NirError::InvalidGraph(format!(
+                        "{context}: external link '{name}' is not allowed"
+                    )));
+                }
+                _ => {} // Hard, soft links are fine
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validate that a dataset does not use disallowed link types or storage layouts.
+///
+/// Rejects external links, external storage, and virtual datasets (VDS) to prevent
+/// accessing data outside the `.nir` file. This validation is applied recursively
+/// during metadata and tensor reading.
+fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
+    // Validate storage layout via the dataset creation property list.
+    // The hdf5-rs crate provides access to layout information through dcpl().
+    if let Ok(dcpl) = ds.dcpl() {
+        // The dcpl provides layout() method to check the storage layout type.
+        // hdf5::dataset::Layout enum has: Compact, Contiguous, Chunked, Virtual.
+        // We reject Virtual layouts as they can reference external files.
+        match dcpl.layout() {
+            Ok(hdf5::dataset::Layout::Virtual) => {
+                return Err(NirError::InvalidGraph(format!(
+                    "{context}: virtual dataset (VDS) layout is not allowed"
+                )));
+            }
+            Ok(_) => {} // Compact, Contiguous, Chunked are all fine
+            Err(e) => {
+                // If we can't determine layout, treat it as an error to be safe
+                return Err(NirError::Io(format!(
+                    "{context}: cannot determine dataset layout: {e}"
+                )));
+            }
+        }
+
+        // Check for external storage (H5D_EXTERNAL) via external_count().
+        // External storage means dataset data is stored in external files.
+        if let Ok(ext_count) = dcpl.external_count() {
+            if ext_count > 0 {
+                return Err(NirError::InvalidGraph(format!(
+                    "{context}: external storage is not allowed ({ext_count} external file(s))"
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Metadata
 // ---------------------------------------------------------------------------
 
@@ -567,6 +641,7 @@ fn read_metadata(group: &Group) -> Result<MetadataMap> {
             "{KEY_METADATA}: expected a group, found another link kind: {e}"
         ))
     })?;
+    validate_group_links(&md, KEY_METADATA)?;
     let mut out = MetadataMap::new();
     for key in md.member_names()? {
         let ds = md.dataset(&key).map_err(|e| {
@@ -581,6 +656,7 @@ fn read_metadata(group: &Group) -> Result<MetadataMap> {
 }
 
 fn read_metadata_value(ds: &Dataset, key: &str) -> Result<MetadataValue> {
+    validate_dataset_security(ds, &format!("{KEY_METADATA}.{key}"))?;
     let scalar = ds.shape().is_empty();
     let context = format!("{KEY_METADATA}.{key}");
     let value = match ds.dtype()?.to_descriptor()? {
@@ -616,6 +692,7 @@ fn read_metadata_value(ds: &Dataset, key: &str) -> Result<MetadataValue> {
 /// their width so an `f32` file never silently becomes `f64` (or worse, the
 /// reverse). Anything else is rejected rather than guessed at.
 fn read_tensor(ds: &Dataset, context: &str) -> Result<Tensor> {
+    validate_dataset_security(ds, context)?;
     let descriptor = ds.dtype()?.to_descriptor()?;
     let data = match descriptor {
         Td::Float(FloatSize::U4) => TensorData::F32(ds.read_raw::<f32>()?),

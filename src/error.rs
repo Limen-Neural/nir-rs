@@ -14,7 +14,9 @@ pub type Result<T> = std::result::Result<T, NirError>;
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum NirError {
-    /// Feature not yet implemented (e.g. HDF5 I/O until v0.3).
+    /// Feature not yet implemented.
+    ///
+    /// Returned by HDF5 I/O function stubs when the `hdf5` feature is not enabled.
     #[error("not implemented: {0}")]
     Unimplemented(&'static str),
 

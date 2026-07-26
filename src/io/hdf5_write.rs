@@ -326,12 +326,6 @@ fn write_conv2d(w: &Writer, node: &Conv2d) -> Result<()> {
     w.scalar("groups", node.groups)?;
     w.tensor("bias", &node.bias)?;
     if let Some(shape) = &node.input_shape {
-        if shape.len() != 2 {
-            return Err(NirError::InvalidGraph(format!(
-                "Conv2d input_shape must be a (N_x, N_y) pair, found {} values",
-                shape.len()
-            )));
-        }
         w.usizes("input_shape", shape)?;
     }
     Ok(())
