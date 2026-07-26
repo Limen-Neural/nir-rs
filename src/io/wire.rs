@@ -301,131 +301,17 @@ mod tests {
         ]
     }
 
-    /// One value per `NirNode` variant, in [`WIRE_TYPES`] order.
+    /// Compile-time exhaustiveness guard.
     ///
-    /// Uses an exhaustive match to ensure every variant is represented, so
-    /// adding a new node type fails compilation until both this list and
-    /// [`WIRE_TYPES`] are updated.
-    fn one_of_each() -> Vec<NirNode> {
-        let dummy = NirNode::Input(Input {
-            shape: vec![1],
-            metadata: Default::default(),
-        });
-
-        let variants = match dummy {
-            NirNode::Input(_) => vec![
-                NirNode::Input(Input {
-                    shape: vec![1],
-                    metadata: Default::default(),
-                }),
-                NirNode::Output(Output {
-                    shape: vec![1],
-                    metadata: Default::default(),
-                }),
-                NirNode::Affine(Affine {
-                    weight: v(),
-                    bias: v(),
-                    metadata: Default::default(),
-                }),
-                NirNode::Linear(Linear {
-                    weight: v(),
-                    metadata: Default::default(),
-                }),
-                NirNode::Scale(Scale {
-                    scale: v(),
-                    metadata: Default::default(),
-                }),
-                NirNode::Conv1d(Conv1d {
-                    weight: Tensor::from_f32(vec![1, 1, 3], vec![1., 0., -1.]).unwrap(),
-                    stride: vec![1],
-                    padding: Padding::single(0),
-                    dilation: vec![1],
-                    groups: 1,
-                    bias: Tensor::from_f32([1], vec![0.]).unwrap(),
-                    input_shape: Some(10),
-                    metadata: Default::default(),
-                }),
-                NirNode::Conv2d(Conv2d {
-                    weight: Tensor::from_f32(vec![1, 1, 2, 2], vec![0.; 4]).unwrap(),
-                    stride: vec![1, 1],
-                    padding: Padding::Same,
-                    dilation: vec![1, 1],
-                    groups: 1,
-                    bias: Tensor::from_f32([1], vec![0.]).unwrap(),
-                    input_shape: Some(vec![8, 8]),
-                    metadata: Default::default(),
-                }),
-                NirNode::CubaLi(CubaLi {
-                    tau_syn: v(),
-                    tau_mem: v(),
-                    r: v(),
-                    v_leak: v(),
-                    w_in: None,
-                    metadata: Default::default(),
-                }),
-                NirNode::CubaLif(CubaLif {
-                    tau_syn: v(),
-                    tau_mem: v(),
-                    r: v(),
-                    v_leak: v(),
-                    v_threshold: v(),
-                    v_reset: None,
-                    w_in: None,
-                    metadata: Default::default(),
-                }),
-                NirNode::Delay(Delay {
-                    delay: v(),
-                    metadata: Default::default(),
-                }),
-                NirNode::Flatten(Flatten {
-                    start_dim: 1,
-                    end_dim: -1,
-                    input_type: None,
-                    metadata: Default::default(),
-                }),
-                NirNode::I(I {
-                    r: v(),
-                    metadata: Default::default(),
-                }),
-                NirNode::If(If {
-                    r: v(),
-                    v_threshold: v(),
-                    v_reset: None,
-                    metadata: Default::default(),
-                }),
-                NirNode::Li(Li {
-                    tau: v(),
-                    r: v(),
-                    v_leak: v(),
-                    metadata: Default::default(),
-                }),
-                NirNode::Lif(Lif {
-                    tau: v(),
-                    r: v(),
-                    v_leak: v(),
-                    v_threshold: v(),
-                    v_reset: None,
-                    metadata: Default::default(),
-                }),
-                NirNode::SumPool2d(SumPool2d {
-                    kernel_size: pool(),
-                    stride: pool(),
-                    padding: Tensor::from_i64([2], vec![0, 0]).unwrap(),
-                    metadata: Default::default(),
-                }),
-                NirNode::AvgPool2d(AvgPool2d {
-                    kernel_size: pool(),
-                    stride: pool(),
-                    padding: Tensor::from_i64([2], vec![0, 0]).unwrap(),
-                    metadata: Default::default(),
-                }),
-                NirNode::Threshold(Threshold {
-                    threshold: v(),
-                    metadata: Default::default(),
-                }),
-                NirNode::Graph(Box::new(NirGraph::new())),
-            ],
-            NirNode::Output(_)
+    /// The match has no `_` arm, so adding a `NirNode` variant stops the crate
+    /// compiling right here — the signal to extend [`one_of_each`] and
+    /// [`WIRE_TYPES`] together. It takes a real node rather than matching a
+    /// fixed dummy, which would leave every other arm unreachable and prove
+    /// nothing about coverage.
+    fn assert_variant_covered(node: &NirNode) {
+        match node {
+            NirNode::Input(_)
+            | NirNode::Output(_)
             | NirNode::Affine(_)
             | NirNode::Linear(_)
             | NirNode::Scale(_)
@@ -442,10 +328,39 @@ mod tests {
             | NirNode::SumPool2d(_)
             | NirNode::AvgPool2d(_)
             | NirNode::Threshold(_)
-            | NirNode::Graph(_) => unreachable!("dummy is Input"),
-        };
+            | NirNode::Graph(_) => {}
+        }
+    }
 
-        variants
+    /// One value per `NirNode` variant, in [`WIRE_TYPES`] order.
+    ///
+    /// Assembled from the per-family helpers above so the constructors live in
+    /// one place; `assert_variant_covered` supplies the compile-time coverage.
+    fn one_of_each() -> Vec<NirNode> {
+        let mut nodes = port_and_linear_nodes();
+        nodes.extend(conv_nodes());
+        nodes.extend(cuba_nodes());
+        nodes.push(NirNode::Delay(Delay {
+            delay: v(),
+            metadata: Default::default(),
+        }));
+        nodes.push(NirNode::Flatten(Flatten {
+            start_dim: 1,
+            end_dim: -1,
+            input_type: None,
+            metadata: Default::default(),
+        }));
+        nodes.extend(neuron_nodes());
+        nodes.extend(pool_nodes());
+        nodes.push(NirNode::Threshold(Threshold {
+            threshold: v(),
+            metadata: Default::default(),
+        }));
+        nodes.push(NirNode::Graph(Box::new(NirGraph::new())));
+        for node in &nodes {
+            assert_variant_covered(node);
+        }
+        nodes
     }
 
     #[test]

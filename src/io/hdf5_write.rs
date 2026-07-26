@@ -141,7 +141,10 @@ fn check_graph_string_values(graph: &NirGraph) -> Result<()> {
         if let NirNode::Graph(sub) = node {
             check_graph_string_values(sub)?;
         } else {
-            check_metadata_string_values(node_metadata(node), &format!("metadata of node {name:?}"))?;
+            check_metadata_string_values(
+                node_metadata(node),
+                &format!("metadata of node {name:?}"),
+            )?;
         }
     }
     Ok(())
@@ -257,53 +260,80 @@ fn check_tensor_ranks(graph: &NirGraph) -> Result<()> {
             }
             NirNode::Linear(n) => check_tensor_rank(&n.weight, &node_context, "weight")?,
             NirNode::Scale(n) => check_tensor_rank(&n.scale, &node_context, "scale")?,
-            NirNode::Conv1d(n) => check_tensor_rank(&n.weight, &node_context, "weight")?,
-            NirNode::Conv2d(n) => check_tensor_rank(&n.weight, &node_context, "weight")?,
+            NirNode::Conv1d(n) => {
+                check_tensor_rank(&n.weight, &node_context, "weight")?;
+                check_tensor_rank(&n.bias, &node_context, "bias")?;
+            }
+            NirNode::Conv2d(n) => {
+                check_tensor_rank(&n.weight, &node_context, "weight")?;
+                check_tensor_rank(&n.bias, &node_context, "bias")?;
+            }
             NirNode::CubaLi(n) => {
-                check_tensor_rank(&n.v_leak, &node_context, "v_leak")?;
+                check_tensor_rank(&n.tau_syn, &node_context, "tau_syn")?;
+                check_tensor_rank(&n.tau_mem, &node_context, "tau_mem")?;
                 check_tensor_rank(&n.r, &node_context, "r")?;
+                check_tensor_rank(&n.v_leak, &node_context, "v_leak")?;
+                check_opt_tensor_rank(n.w_in.as_ref(), &node_context, "w_in")?;
             }
             NirNode::CubaLif(n) => {
+                check_tensor_rank(&n.tau_syn, &node_context, "tau_syn")?;
                 check_tensor_rank(&n.tau_mem, &node_context, "tau_mem")?;
+                check_tensor_rank(&n.r, &node_context, "r")?;
                 check_tensor_rank(&n.v_leak, &node_context, "v_leak")?;
                 check_tensor_rank(&n.v_threshold, &node_context, "v_threshold")?;
-                check_tensor_rank(&n.r, &node_context, "r")?;
-                if let Some(t) = &n.v_reset {
-                    check_tensor_rank(t, &node_context, "v_reset")?;
-                }
+                check_opt_tensor_rank(n.v_reset.as_ref(), &node_context, "v_reset")?;
+                check_opt_tensor_rank(n.w_in.as_ref(), &node_context, "w_in")?;
             }
             NirNode::Delay(n) => check_tensor_rank(&n.delay, &node_context, "delay")?,
             NirNode::I(n) => check_tensor_rank(&n.r, &node_context, "r")?,
             NirNode::If(n) => {
                 check_tensor_rank(&n.r, &node_context, "r")?;
                 check_tensor_rank(&n.v_threshold, &node_context, "v_threshold")?;
+                check_opt_tensor_rank(n.v_reset.as_ref(), &node_context, "v_reset")?;
             }
             NirNode::Li(n) => {
                 check_tensor_rank(&n.tau, &node_context, "tau")?;
                 check_tensor_rank(&n.r, &node_context, "r")?;
                 check_tensor_rank(&n.v_leak, &node_context, "v_leak")?;
             }
+            // `Lif` has no `w_in` — that field is CubaLI/CubaLIF only.
             NirNode::Lif(n) => {
                 check_tensor_rank(&n.tau, &node_context, "tau")?;
                 check_tensor_rank(&n.r, &node_context, "r")?;
                 check_tensor_rank(&n.v_leak, &node_context, "v_leak")?;
                 check_tensor_rank(&n.v_threshold, &node_context, "v_threshold")?;
-                if let Some(t) = &n.v_reset {
-                    check_tensor_rank(t, &node_context, "v_reset")?;
-                }
-                if let Some(t) = &n.w_in {
-                    check_tensor_rank(t, &node_context, "w_in")?;
-                }
+                check_opt_tensor_rank(n.v_reset.as_ref(), &node_context, "v_reset")?;
+            }
+            NirNode::SumPool2d(n) => {
+                check_tensor_rank(&n.kernel_size, &node_context, "kernel_size")?;
+                check_tensor_rank(&n.stride, &node_context, "stride")?;
+                check_tensor_rank(&n.padding, &node_context, "padding")?;
+            }
+            NirNode::AvgPool2d(n) => {
+                check_tensor_rank(&n.kernel_size, &node_context, "kernel_size")?;
+                check_tensor_rank(&n.stride, &node_context, "stride")?;
+                check_tensor_rank(&n.padding, &node_context, "padding")?;
             }
             NirNode::Threshold(n) => check_tensor_rank(&n.threshold, &node_context, "threshold")?,
             NirNode::Graph(sub) => check_tensor_ranks(sub)?,
-            _ => {}
+            // Listed rather than swept into `_` so a new variant with tensor
+            // fields fails to compile here instead of silently skipping the
+            // check. `shape` / `input_type` are `Vec<usize>`, not tensors, and
+            // are range-checked by `check_usize_fields`.
+            NirNode::Input(_) | NirNode::Output(_) | NirNode::Flatten(_) => {}
         }
         if !matches!(node, NirNode::Graph(_)) {
             check_metadata_tensor_ranks(node_metadata(node), &node_context)?;
         }
     }
     Ok(())
+}
+
+fn check_opt_tensor_rank(tensor: Option<&Tensor>, context: &str, field: &str) -> Result<()> {
+    match tensor {
+        Some(t) => check_tensor_rank(t, context, field),
+        None => Ok(()),
+    }
 }
 
 fn check_tensor_rank(tensor: &Tensor, context: &str, field: &str) -> Result<()> {

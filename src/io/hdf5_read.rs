@@ -731,8 +731,9 @@ fn single_int(values: Vec<i64>, context: &str) -> Result<i64> {
 /// resolve to external links, so both are rejected.
 fn validate_group_links(group: &Group, context: &str) -> Result<()> {
     let bad_link = group
-        .iter_visit_default(None, |_group, name, info, found: &mut Option<(String, &'static str)>| {
-            match info.link_type {
+        .iter_visit_default(
+            None,
+            |_group, name, info, found: &mut Option<(String, &'static str)>| match info.link_type {
                 hdf5::LinkType::External => {
                     *found = Some((name.to_owned(), "external"));
                     false
@@ -742,8 +743,8 @@ fn validate_group_links(group: &Group, context: &str) -> Result<()> {
                     false
                 }
                 hdf5::LinkType::Hard => true,
-            }
-        })
+            },
+        )
         .map_err(|e| NirError::Io(format!("{context}: cannot inspect group links: {e}")))?;
     if let Some((name, kind)) = bad_link {
         return Err(NirError::InvalidGraph(format!(
