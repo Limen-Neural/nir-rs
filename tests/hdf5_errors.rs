@@ -14,29 +14,40 @@ use nir_rs::types::{MetadataValue, Tensor};
 use nir_rs::{NirError, NirGraph, NirNode};
 use tempfile::TempDir;
 
-/// Assert that a Result is an error of the expected variant with a message containing the needle.
-fn assert_err<T: std::fmt::Debug>(
+/// Assert that `result` failed with `expected_variant`, and that its message
+/// mentions every one of `needles`.
+///
+/// `needles` is a slice rather than a single `&str` so that a test can demand
+/// several things of one message, and so that "check the variant only" has to
+/// be written as an explicit empty slice — an accidental `""` would otherwise
+/// pass vacuously, since `str::contains("")` is always true.
+fn assert_err<T>(
     result: Result<T, NirError>,
     expected_variant: fn(String) -> NirError,
-    needle: &str,
+    needles: &[&str],
 ) {
-    let err = result.unwrap_err();
-    // Check the variant by constructing a dummy instance and comparing discriminants
+    let Err(err) = result else {
+        panic!("expected an error, got Ok");
+    };
+    // Compare discriminants against a dummy so the variant is checked without
+    // depending on the payload.
     let dummy = expected_variant(String::new());
     assert_eq!(
         std::mem::discriminant(&err),
         std::mem::discriminant(&dummy),
-        "expected {:?} variant, got {:?}",
-        dummy,
-        err
+        "expected {dummy:?} variant, got {err:?}"
     );
     let msg = err.to_string();
-    assert!(
-        msg.contains(needle),
-        "expected message to contain {:?}, got {:?}",
-        needle,
-        msg
-    );
+    for needle in needles {
+        assert!(
+            !needle.is_empty(),
+            "empty needle is vacuous; pass &[] to skip the message check"
+        );
+        assert!(
+            msg.contains(needle),
+            "expected message to contain {needle:?}, got {msg:?}"
+        );
+    }
 }
 
 fn input(shape: Vec<usize>) -> NirNode {
@@ -79,7 +90,7 @@ fn missing_file_is_an_io_error() {
     assert_err(
         nir_rs::io::read("definitely/not/here.nir"),
         NirError::Io,
-        "cannot open",
+        &["cannot open"],
     );
 }
 
@@ -89,7 +100,7 @@ fn non_hdf5_file_is_an_io_error() {
     let path = dir.path().join("not_hdf5.nir");
     std::fs::write(&path, b"this is plain text, not an HDF5 container").unwrap();
 
-    assert_err(nir_rs::io::read(&path), NirError::Io, "");
+    assert_err(nir_rs::io::read(&path), NirError::Io, &[]);
 }
 
 #[test]
@@ -127,7 +138,12 @@ fn hdf5_file_whose_node_group_is_not_a_graph_is_rejected() {
             .unwrap();
     });
 
-    assert_err(nir_rs::io::read(&path), NirError::InvalidGraph, "NIRGraph");
+    // The message must name both what was expected and what was actually found.
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["NIRGraph", "LIF"],
+    );
 }
 
 #[test]
@@ -238,7 +254,7 @@ fn malformed_edges_shape_is_an_invalid_graph() {
         ds.write_raw(&values).unwrap();
     });
 
-    assert_err(nir_rs::io::read(&path), NirError::InvalidGraph, "(E, 2)");
+    assert_err(nir_rs::io::read(&path), NirError::InvalidGraph, &["(E, 2)"]);
 }
 
 #[test]
@@ -270,7 +286,7 @@ fn node_name_with_a_slash_is_rejected() {
     assert_err(
         nir_rs::io::write(dir.path().join("slash.nir"), &graph),
         NirError::InvalidGraph,
-        "layer/one",
+        &["layer/one"],
     );
 }
 
@@ -288,7 +304,7 @@ fn illegal_name_inside_a_subgraph_is_rejected_too() {
     assert_err(
         nir_rs::io::write(dir.path().join("nested_slash.nir"), &outer),
         NirError::InvalidGraph,
-        "",
+        &["node name", "bad/name"],
     );
 }
 
@@ -330,7 +346,7 @@ fn node_name_with_a_nul_byte_is_rejected_before_the_file_is_created() {
     assert_err(
         nir_rs::io::write(&path, &bad),
         NirError::InvalidGraph,
-        "NUL",
+        &["NUL"],
     );
 
     // The rejected write must not have truncated the existing file.
@@ -401,7 +417,7 @@ fn rank_0_metadata_tensor_is_rejected_as_ambiguous() {
     assert_err(
         nir_rs::io::write(&path, &graph),
         NirError::InvalidGraph,
-        "rank-0",
+        &["rank-0"],
     );
 
     // With validation off it is written, and decodes as the scalar variant —
@@ -518,11 +534,44 @@ fn conv1d_extent_with_two_values_is_rejected() {
         )
         .unwrap();
 
+    let path = dir.path().join("conv1d.nir");
     assert_err(
-        nir_rs::io::write(dir.path().join("conv1d.nir"), &graph),
+        nir_rs::io::write(&path, &graph),
         NirError::InvalidGraph,
-        "Conv1d stride",
+        &["Conv1d", "conv", "stride"],
     );
+    // The arity is checked up front, so a rejected graph never gets as far as
+    // truncating the destination.
+    assert!(!path.exists(), "a rejected write must not leave a file");
+}
+
+#[test]
+fn conv2d_extent_with_three_values_is_rejected_before_the_file_is_created() {
+    let dir = TempDir::new().unwrap();
+    let mut graph = NirGraph::new();
+    graph
+        .insert_node(
+            "conv",
+            NirNode::Conv2d(nir_rs::nodes::Conv2d {
+                weight: Tensor::from_f32(vec![1, 1, 2, 2], vec![0.; 4]).unwrap(),
+                stride: vec![1, 1, 1],
+                padding: nir_rs::nodes::Padding::pair(0, 0),
+                dilation: vec![1, 1],
+                groups: 1,
+                bias: Tensor::from_f32([1], vec![0.]).unwrap(),
+                input_shape: None,
+                metadata: Default::default(),
+            }),
+        )
+        .unwrap();
+
+    let path = dir.path().join("conv2d.nir");
+    assert_err(
+        nir_rs::io::write(&path, &graph),
+        NirError::InvalidGraph,
+        &["Conv2d", "conv", "stride"],
+    );
+    assert!(!path.exists(), "a rejected write must not leave a file");
 }
 
 #[test]
@@ -530,7 +579,7 @@ fn write_to_an_unwritable_path_is_an_io_error() {
     assert_err(
         nir_rs::io::write("no/such/directory/model.nir", &NirGraph::new()),
         NirError::Io,
-        "cannot create",
+        &["cannot create"],
     );
 }
 
@@ -548,7 +597,7 @@ fn version_with_a_nul_byte_is_rejected_before_the_file_is_created() {
             &WriteOptions::default().with_version("0.2\0.0"),
         ),
         NirError::InvalidGraph,
-        "NUL",
+        &["NUL"],
     );
     assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
 }
@@ -566,7 +615,7 @@ fn metadata_string_with_a_nul_byte_is_rejected_before_the_file_is_created() {
     assert_err(
         nir_rs::io::write(&path, &bad),
         NirError::InvalidGraph,
-        "NUL",
+        &["NUL"],
     );
     assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
 }
@@ -594,7 +643,7 @@ fn conv2d_input_shape_must_be_a_pair() {
     assert_err(
         nir_rs::io::write(dir.path().join("conv2d.nir"), &graph),
         NirError::InvalidGraph,
-        "Conv2d",
+        &["Conv2d"],
     );
 }
 
@@ -679,5 +728,155 @@ fn nested_graph_hard_link_cycle_is_rejected() {
             assert!(message.contains("cycle"), "got {message}");
         }
         other => panic!("expected InvalidGraph, got {other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Untrusted-file guards
+// ---------------------------------------------------------------------------
+//
+// HDF5 resolves external links, external raw storage and virtual-dataset
+// sources against the host filesystem, which is how a crafted model file turns
+// a reader into an arbitrary-file-read primitive (the Keras advisories
+// GHSA-3m4q-jmj6-r34q / CVE-2026-12480 are exactly this). `read` rejects all
+// three. The cases below construct each one so the guard is actually executed
+// rather than merely present.
+
+/// Build a well-formed file, then let `mutate` add something hostile to it.
+fn tampered(dir: &TempDir, name: &str, mutate: impl FnOnce(&hdf5::File)) -> std::path::PathBuf {
+    write_then(dir, name, mutate)
+}
+
+/// A second HDF5 file standing in for the attacker's target.
+fn decoy(dir: &TempDir) -> std::path::PathBuf {
+    let path = dir.path().join("decoy.h5");
+    let file = hdf5::File::create(&path).unwrap();
+    let ds = file
+        .new_dataset::<f32>()
+        .shape([2])
+        .create("secret")
+        .unwrap();
+    ds.write_raw(&[1.0f32, 2.0]).unwrap();
+    path
+}
+
+#[test]
+fn external_link_in_the_file_root_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let target = decoy(&dir);
+    let path = tampered(&dir, "external_root.nir", |file| {
+        file.link_external(target.to_str().unwrap(), "/secret", "elsewhere")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["external link", "elsewhere"],
+    );
+}
+
+#[test]
+fn external_link_inside_a_node_group_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let target = decoy(&dir);
+    let path = tampered(&dir, "external_node.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.link_external(target.to_str().unwrap(), "/secret", "shape_alias")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["external link"],
+    );
+}
+
+#[test]
+fn external_storage_dataset_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    // Raw data held in a plain file outside the container.
+    let raw = dir.path().join("raw.bin");
+    std::fs::write(&raw, vec![0u8; 8]).unwrap();
+
+    let path = tampered(&dir, "external_storage.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+        node.new_dataset::<i64>()
+            .external(raw.to_str().unwrap(), 0, 8)
+            .shape([1])
+            .create("shape")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["external storage"],
+    );
+}
+
+#[test]
+fn virtual_dataset_is_rejected() {
+    // The VDS bypass: a guard that only checks external storage misses this.
+    let dir = TempDir::new().unwrap();
+    let target = decoy(&dir);
+
+    let path = tampered(&dir, "virtual.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+        node.new_dataset::<f32>()
+            .virtual_map(target.to_str().unwrap(), "/secret", 2, .., 2, ..)
+            .shape([2])
+            .create("shape")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["virtual dataset"],
+    );
+}
+
+#[test]
+fn a_virtual_string_dataset_is_rejected_too() {
+    // String datasets go through a different reader, so `/version` and the
+    // `type` fields need the same guard as tensors.
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("decoy_strings.h5");
+    {
+        let file = hdf5::File::create(&target).unwrap();
+        let ds = file
+            .new_dataset::<f32>()
+            .shape([1])
+            .create("secret")
+            .unwrap();
+        ds.write_raw(&[1.0f32]).unwrap();
+    }
+
+    let path = tampered(&dir, "virtual_string.nir", |file| {
+        file.unlink("version").unwrap();
+        file.new_dataset::<f32>()
+            .virtual_map(target.to_str().unwrap(), "/secret", 1, .., 1, ..)
+            .shape([1])
+            .create("version")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read_version(&path),
+        NirError::InvalidGraph,
+        &["virtual dataset"],
+    );
+}
+
+#[test]
+fn ordinary_files_still_pass_the_guards() {
+    // The guards must not reject the real thing.
+    for name in ["lif_norse.nir", "cnn_sinabs.nir"] {
+        nir_rs::io::read(format!("tests/fixtures/{name}"))
+            .unwrap_or_else(|e| panic!("{name} should still read: {e}"));
     }
 }

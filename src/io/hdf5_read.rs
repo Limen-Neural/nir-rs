@@ -23,6 +23,7 @@ use crate::nodes::{
     Linear, NirNode, Output, Padding, Scale, SumPool2d, Threshold,
 };
 use crate::types::{MetadataMap, MetadataValue, Tensor, TensorData};
+use hdf5::plist::dataset_create::Layout;
 use hdf5::types::{
     FixedAscii, FixedUnicode, FloatSize, IntSize, TypeDescriptor as Td, VarLenAscii, VarLenUnicode,
 };
@@ -32,6 +33,10 @@ use std::path::Path;
 /// Read a whole `.nir` file.
 pub(super) fn read(path: &Path) -> Result<NirGraph> {
     let file = open(path)?;
+    // Check the file root before following `/node` or `/version`: opening an
+    // external link is what leaves the container, so the check has to happen
+    // on the link, not on the group it resolves to.
+    validate_group_links(&file, "/")?;
     let root = file.group(KEY_NODE).map_err(|_| {
         NirError::MissingField(format!(
             "/{KEY_NODE} (not a NIR graph file: {})",
@@ -602,6 +607,10 @@ fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
             "{context}: cannot read dataset creation property list: {e}"
         ))
     })?;
+
+    // External storage keeps a dataset's raw data in non-HDF5 files that the
+    // library reads transparently, so a crafted `.nir` could name any path the
+    // process can read.
     let external = dcpl.external();
     if !external.is_empty() {
         return Err(NirError::InvalidGraph(format!(
@@ -609,6 +618,21 @@ fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
             external.len()
         )));
     }
+
+    // A virtual dataset draws its data from source files the same way, and is
+    // the documented bypass for guards that only check external storage
+    // (CVE-2026-12480). `Layout::Virtual` only exists when the linked libhdf5
+    // is >= 1.10, so match the layouts that are always present and reject the
+    // rest rather than naming the cfg-gated variant.
+    if !matches!(
+        ds.layout(),
+        Layout::Compact | Layout::Contiguous | Layout::Chunked
+    ) {
+        return Err(NirError::InvalidGraph(format!(
+            "{context}: virtual dataset layouts are not allowed"
+        )));
+    }
+
     Ok(())
 }
 
@@ -743,6 +767,11 @@ fn read_string_scalar(ds: &Dataset, context: &str) -> Result<String> {
 /// read through a capacity ladder because `FixedAscii<N>` is const-generic:
 /// HDF5 converts the on-disk width up to the requested one.
 fn read_strings(ds: &Dataset, context: &str) -> Result<Vec<String>> {
+    // `/version`, every `type`, `edges` and symbolic `padding` arrive here, so
+    // this is where the external-storage and virtual-layout policy has to
+    // apply to string data as well as to tensors.
+    validate_dataset_security(ds, context)?;
+
     macro_rules! read_fixed {
         ($ty:ident, $width:expr, $($cap:literal),+) => {
             $(if $width <= $cap {

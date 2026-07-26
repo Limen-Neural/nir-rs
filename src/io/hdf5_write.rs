@@ -57,7 +57,14 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
 
     let root = file.create_group(KEY_NODE)?;
     write_string(&root, KEY_TYPE, "NIRGraph")?;
-    write_graph_body(&Writer::new(&root, opts), graph)
+    write_graph_body(&Writer::new(&root, opts), graph)?;
+
+    // HDF5 buffers metadata and raw data, so a failure while committing them —
+    // a full filesystem, for instance — would otherwise surface during `Drop`,
+    // where it cannot be returned. Flushing here is what makes `Ok(())` mean
+    // the bytes actually reached the file.
+    file.flush()
+        .map_err(|e| NirError::Io(format!("cannot flush {}: {e}", path.display())))
 }
 
 /// Reject every caller-supplied string that HDF5 cannot use as a link name,
@@ -115,23 +122,73 @@ fn check_metadata_string_values(metadata: &MetadataMap, context: &str) -> Result
     Ok(())
 }
 
-/// `Conv2d.input_shape` is a spatial pair on the wire; other lengths are invalid.
+/// Reject convolution fields whose arity or range the wire cannot carry.
+///
+/// Everything here fails during `write_graph_body` too, but only *after*
+/// `File::create` has truncated the destination — so a rejected graph would
+/// destroy an existing model. Checking up front keeps that from happening.
 fn check_conv2d_input_shapes(graph: &NirGraph) -> Result<()> {
     for (name, node) in &graph.nodes {
         match node {
+            NirNode::Conv1d(conv) => {
+                // Conv1d extents are bare scalars on the wire.
+                check_extent_arity(name, "Conv1d", "stride", conv.stride.len(), &[1])?;
+                check_extent_arity(name, "Conv1d", "dilation", conv.dilation.len(), &[1])?;
+                if let Padding::Explicit(extents) = &conv.padding {
+                    check_extent_arity(name, "Conv1d", "padding", extents.len(), &[1])?;
+                }
+                if let Some(extent) = conv.input_shape {
+                    check_extent_range(name, "Conv1d", "input_shape", extent)?;
+                }
+            }
             NirNode::Conv2d(conv) => {
-                if let Some(shape) = &conv.input_shape
-                    && shape.len() != 2
-                {
-                    return Err(NirError::InvalidGraph(format!(
-                        "Conv2d {name:?} input_shape must be a (N_x, N_y) pair, found {} values",
-                        shape.len()
-                    )));
+                // Conv2d extents are pairs; a single value is the scalar form
+                // and is expanded to a pair by the writer.
+                check_extent_arity(name, "Conv2d", "stride", conv.stride.len(), &[1, 2])?;
+                check_extent_arity(name, "Conv2d", "dilation", conv.dilation.len(), &[1, 2])?;
+                if let Padding::Explicit(extents) = &conv.padding {
+                    check_extent_arity(name, "Conv2d", "padding", extents.len(), &[1, 2])?;
+                }
+                if let Some(shape) = &conv.input_shape {
+                    check_extent_arity(name, "Conv2d", "input_shape", shape.len(), &[2])?;
+                    for extent in shape {
+                        check_extent_range(name, "Conv2d", "input_shape", *extent)?;
+                    }
                 }
             }
             NirNode::Graph(sub) => check_conv2d_input_shapes(sub)?,
             _ => {}
         }
+    }
+    Ok(())
+}
+
+fn check_extent_arity(
+    node: &str,
+    kind: &str,
+    field: &str,
+    found: usize,
+    allowed: &[usize],
+) -> Result<()> {
+    if allowed.contains(&found) {
+        return Ok(());
+    }
+    let expected = match allowed {
+        [1] => "exactly one extent".to_owned(),
+        [2] => "a (N_x, N_y) pair".to_owned(),
+        _ => "one or two extents".to_owned(),
+    };
+    Err(NirError::InvalidGraph(format!(
+        "{kind} {node:?} {field} must hold {expected}, found {found} values"
+    )))
+}
+
+/// `usize` is wider than the `i64` the wire uses on 64-bit targets.
+fn check_extent_range(node: &str, kind: &str, field: &str, extent: usize) -> Result<()> {
+    if i64::try_from(extent).is_err() {
+        return Err(NirError::InvalidTensor(format!(
+            "{kind} {node:?} {field}: extent {extent} does not fit in i64"
+        )));
     }
     Ok(())
 }
