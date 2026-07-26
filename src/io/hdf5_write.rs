@@ -36,11 +36,14 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
     // Validate before touching the filesystem so a rejected graph never leaves
     // a half-written file behind. Name legality is not optional — HDF5 cannot
     // represent the rejected names at all.
+    // Depth first: `validate_structure` recurses through nested subgraphs
+    // without a bound, so an over-deep graph would overflow the stack before
+    // the guard inside `check_names` could reject it.
+    check_names(graph)?;
     if opts.validate {
         graph.validate_structure()?;
         check_representable(graph)?;
     }
-    check_names(graph)?;
 
     let version = opts
         .version
@@ -74,16 +77,17 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
 /// fails only at link-creation time — after an existing file at the
 /// destination has already been truncated.
 fn check_names(graph: &NirGraph) -> Result<()> {
-    check_names_at(graph, 1)
+    check_names_at(graph, &mut 0)
 }
 
-/// `depth` counts the root, matching the reader's bound so a graph this crate
-/// writes is always one it can read back.
-fn check_names_at(graph: &NirGraph, depth: usize) -> Result<()> {
-    if depth > super::hdf5_read::MAX_GRAPH_DEPTH {
+/// `seen` counts every graph including the root, matching the reader's bound so
+/// a graph this crate writes is always one it can read back.
+fn check_names_at(graph: &NirGraph, seen: &mut usize) -> Result<()> {
+    *seen += 1;
+    if *seen > super::hdf5_read::MAX_NESTED_GRAPHS {
         return Err(NirError::InvalidGraph(format!(
-            "nested NIRGraph deeper than {} levels",
-            super::hdf5_read::MAX_GRAPH_DEPTH
+            "more than {} nested NIRGraph groups",
+            super::hdf5_read::MAX_NESTED_GRAPHS
         )));
     }
     check_metadata_keys(&graph.metadata)?;
@@ -91,7 +95,7 @@ fn check_names_at(graph: &NirGraph, depth: usize) -> Result<()> {
         wire::check_link_name("node name", name)?;
         check_metadata_keys(node_metadata(node))?;
         if let NirNode::Graph(sub) = node {
-            check_names_at(sub, depth + 1)?;
+            check_names_at(sub, seen)?;
         }
     }
     Ok(())

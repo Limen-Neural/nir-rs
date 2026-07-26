@@ -30,10 +30,13 @@ use hdf5::types::{
 use hdf5::{Dataset, File, Group, LocationToken};
 use std::path::Path;
 
-/// Nesting limit for `NIRGraph` nodes, counting the root. Real graphs nest a
-/// handful of levels. The writer enforces the same bound, so this crate never
-/// emits a file it would then refuse to read.
-pub(super) const MAX_GRAPH_DEPTH: usize = 64;
+/// Total `NIRGraph` groups decoded from one file, counting the root.
+///
+/// Bounds total work rather than depth, which covers both failure modes: an
+/// unbounded chain would overflow the stack, and hard-link aliases could
+/// re-expand a shared subtree exponentially. The writer enforces the same
+/// bound, so this crate never emits a file it would then refuse to read.
+pub(super) const MAX_NESTED_GRAPHS: usize = 1024;
 
 /// Read a whole `.nir` file.
 pub(super) fn read(path: &Path) -> Result<NirGraph> {
@@ -106,28 +109,30 @@ fn read_graph_body(
     context: &str,
     visited: &mut Vec<LocationToken>,
 ) -> Result<NirGraph> {
-    // A deep but *acyclic* chain gives every level a unique token, so the cycle
-    // check below cannot stop it; unbounded recursion would abort the process.
-    if visited.len() >= MAX_GRAPH_DEPTH {
+    // A deep but *acyclic* chain gives every level a unique token, so the
+    // repeat check below cannot stop it; unbounded recursion would abort the
+    // process.
+    if visited.len() >= MAX_NESTED_GRAPHS {
         return Err(NirError::InvalidGraph(format!(
-            "{context}: nested NIRGraph deeper than {MAX_GRAPH_DEPTH} levels"
+            "{context}: more than {MAX_NESTED_GRAPHS} nested NIRGraph groups"
         )));
     }
     let token = group.loc_info()?.token;
     if visited.contains(&token) {
         return Err(NirError::InvalidGraph(format!(
-            "{context}: nested NIRGraph hard-link cycle detected"
+            "{context}: nested NIRGraph group is already being decoded (hard-link cycle or alias)"
         )));
     }
+    // Kept for the whole read, not popped on exit. Popping would allow a
+    // "diamond" of hard-links to the same subgraph, and two aliases per level
+    // re-expand the shared subtree, so a few dozen groups can decode into
+    // exponentially many graphs and exhaust memory. Every graph object is
+    // therefore decoded at most once per file.
     visited.push(token);
-    // Pop on every exit path so a diamond of hard-links (same subgraph reached
-    // via two parents) is allowed, while a link back to an ancestor is not.
-    let result = read_graph_body_uncycled(group, context, visited);
-    visited.pop();
-    result
+    read_graph_body_inner(group, context, visited)
 }
 
-fn read_graph_body_uncycled(
+fn read_graph_body_inner(
     group: &Group,
     context: &str,
     visited: &mut Vec<LocationToken>,
