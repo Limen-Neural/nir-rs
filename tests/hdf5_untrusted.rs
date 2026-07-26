@@ -35,18 +35,27 @@ fn decoy(dir: &TempDir) -> std::path::PathBuf {
     path
 }
 
-#[test]
-fn external_link_in_the_file_root_is_rejected() {
+/// Run one external-link case: the decoy's `/secret` is linked into the
+/// container at `parent`/`link_name`, and reading the graph must refuse it.
+fn assert_external_link_rejected(parent: &str, name: &str, link_name: &str, needles: &[&str]) {
     let dir = TempDir::new().unwrap();
     let target = decoy(&dir);
-    let path = tampered(&dir, "external_root.nir", |file| {
-        file.link_external(target.to_str().unwrap(), "/secret", "elsewhere")
+    let path = tampered(&dir, name, |file| {
+        file.group(parent)
+            .unwrap()
+            .link_external(target.to_str().unwrap(), "/secret", link_name)
             .unwrap();
     });
 
-    assert_err(
-        nir_rs::io::read(&path),
-        NirError::InvalidGraph,
+    assert_err(nir_rs::io::read(&path), NirError::InvalidGraph, needles);
+}
+
+#[test]
+fn external_link_in_the_file_root_is_rejected() {
+    assert_external_link_rejected(
+        "/",
+        "external_root.nir",
+        "elsewhere",
         &["external link", "elsewhere"],
     );
 }
@@ -88,17 +97,10 @@ fn external_node_type_is_rejected_before_it_is_read() {
 
 #[test]
 fn external_link_inside_a_node_group_is_rejected() {
-    let dir = TempDir::new().unwrap();
-    let target = decoy(&dir);
-    let path = tampered(&dir, "external_node.nir", |file| {
-        let node = file.group("node/nodes/input").unwrap();
-        node.link_external(target.to_str().unwrap(), "/secret", "shape_alias")
-            .unwrap();
-    });
-
-    assert_err(
-        nir_rs::io::read(&path),
-        NirError::InvalidGraph,
+    assert_external_link_rejected(
+        "node/nodes/input",
+        "external_node.nir",
+        "shape_alias",
         &["external link"],
     );
 }

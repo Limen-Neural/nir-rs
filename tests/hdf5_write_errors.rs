@@ -251,66 +251,72 @@ fn subgraph_carrying_a_version_is_rejected() {
     assert_eq!(sub.version, None);
 }
 
-#[test]
-fn conv1d_extent_with_two_values_is_rejected() {
-    // Conv1d writes scalars on the wire, so a two-element stride has no valid
-    // encoding and must fail loudly rather than silently drop a value.
-    let dir = TempDir::new().unwrap();
-    let mut graph = NirGraph::new();
-    graph
-        .insert_node(
-            "conv",
-            NirNode::Conv1d(nir_rs::nodes::Conv1d {
-                weight: Tensor::from_f32(vec![1, 1, 3], vec![1., 0., -1.]).unwrap(),
-                stride: vec![1, 1],
-                padding: nir_rs::nodes::Padding::single(0),
-                dilation: vec![1],
-                groups: 1,
-                bias: Tensor::from_f32([1], vec![0.]).unwrap(),
-                input_shape: None,
-                metadata: Default::default(),
-            }),
-        )
-        .unwrap();
+/// A `Conv1d` that is valid except for the field under test.
+fn conv1d(stride: Vec<i64>) -> NirNode {
+    NirNode::Conv1d(nir_rs::nodes::Conv1d {
+        weight: Tensor::from_f32(vec![1, 1, 3], vec![1., 0., -1.]).unwrap(),
+        stride,
+        padding: nir_rs::nodes::Padding::single(0),
+        dilation: vec![1],
+        groups: 1,
+        bias: Tensor::from_f32([1], vec![0.]).unwrap(),
+        input_shape: None,
+        metadata: Default::default(),
+    })
+}
 
-    let path = dir.path().join("conv1d.nir");
+/// A `Conv2d` that is valid except for the field under test.
+fn conv2d(
+    stride: Vec<i64>,
+    padding: nir_rs::nodes::Padding,
+    input_shape: Option<Vec<usize>>,
+) -> NirNode {
+    NirNode::Conv2d(nir_rs::nodes::Conv2d {
+        weight: Tensor::from_f32(vec![1, 1, 2, 2], vec![0.; 4]).unwrap(),
+        stride,
+        padding,
+        dilation: vec![1, 1],
+        groups: 1,
+        bias: Tensor::from_f32([1], vec![0.]).unwrap(),
+        input_shape,
+        metadata: Default::default(),
+    })
+}
+
+/// Writing `graph` must be rejected with `needles`, and — because every arity
+/// check is a preflight — the rejected write must not leave a file behind.
+fn assert_write_rejected(graph: &NirGraph, name: &str, needles: &[&str]) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join(name);
     assert_err(
-        nir_rs::io::write(&path, &graph),
+        nir_rs::io::write(&path, graph),
         NirError::InvalidGraph,
-        &["Conv1d", "conv", "stride"],
+        needles,
     );
-    // The arity is checked up front, so a rejected graph never gets as far as
-    // truncating the destination.
     assert!(!path.exists(), "a rejected write must not leave a file");
 }
 
 #[test]
+fn conv1d_extent_with_two_values_is_rejected() {
+    // Conv1d writes scalars on the wire, so a two-element stride has no valid
+    // encoding and must fail loudly rather than silently drop a value.
+    let mut graph = NirGraph::new();
+    graph.insert_node("conv", conv1d(vec![1, 1])).unwrap();
+
+    assert_write_rejected(&graph, "conv1d.nir", &["Conv1d", "conv", "stride"]);
+}
+
+#[test]
 fn conv2d_extent_with_three_values_is_rejected_before_the_file_is_created() {
-    let dir = TempDir::new().unwrap();
     let mut graph = NirGraph::new();
     graph
         .insert_node(
             "conv",
-            NirNode::Conv2d(nir_rs::nodes::Conv2d {
-                weight: Tensor::from_f32(vec![1, 1, 2, 2], vec![0.; 4]).unwrap(),
-                stride: vec![1, 1, 1],
-                padding: nir_rs::nodes::Padding::pair(0, 0),
-                dilation: vec![1, 1],
-                groups: 1,
-                bias: Tensor::from_f32([1], vec![0.]).unwrap(),
-                input_shape: None,
-                metadata: Default::default(),
-            }),
+            conv2d(vec![1, 1, 1], nir_rs::nodes::Padding::pair(0, 0), None),
         )
         .unwrap();
 
-    let path = dir.path().join("conv2d.nir");
-    assert_err(
-        nir_rs::io::write(&path, &graph),
-        NirError::InvalidGraph,
-        &["Conv2d", "conv", "stride"],
-    );
-    assert!(!path.exists(), "a rejected write must not leave a file");
+    assert_write_rejected(&graph, "conv2d.nir", &["Conv2d", "conv", "stride"]);
 }
 
 #[test]
@@ -381,29 +387,15 @@ fn metadata_string_with_a_nul_byte_is_rejected_before_the_file_is_created() {
 
 #[test]
 fn conv2d_input_shape_must_be_a_pair() {
-    let dir = TempDir::new().unwrap();
     let mut graph = NirGraph::new();
     graph
         .insert_node(
             "conv",
-            NirNode::Conv2d(nir_rs::nodes::Conv2d {
-                weight: Tensor::from_f32(vec![1, 1, 2, 2], vec![0.; 4]).unwrap(),
-                stride: vec![1, 1],
-                padding: nir_rs::nodes::Padding::Valid,
-                dilation: vec![1, 1],
-                groups: 1,
-                bias: Tensor::from_f32([1], vec![0.]).unwrap(),
-                input_shape: Some(vec![8]),
-                metadata: Default::default(),
-            }),
+            conv2d(vec![1, 1], nir_rs::nodes::Padding::Valid, Some(vec![8])),
         )
         .unwrap();
 
-    assert_err(
-        nir_rs::io::write(dir.path().join("conv2d.nir"), &graph),
-        NirError::InvalidGraph,
-        &["Conv2d"],
-    );
+    assert_write_rejected(&graph, "conv2d.nir", &["Conv2d"]);
 }
 
 #[test]
