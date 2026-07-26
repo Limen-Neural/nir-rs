@@ -32,13 +32,25 @@ jobs:
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
+      # Required by the optional `hdf5` feature (hdf5-metno links libhdf5).
+      # Ubuntu's package registers hdf5.pc, so pkg-config finds it unaided.
+      - name: Install libhdf5
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libhdf5-dev
+
       - name: Check formatting
         run: cargo fmt --check
 
       - name: Clippy (lint)
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Run tests
+      # The graph model must stay usable without the native dependency, which
+      # is what consumers get from a plain `cargo add nir-rs`.
+      - name: Run tests (default features, no libhdf5)
+        run: cargo test
+
+      - name: Run tests (all features)
         run: cargo test --all-features
 
       - name: Verify documentation

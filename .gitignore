@@ -8,7 +8,10 @@
 # IDE
 .vscode/
 .idea/
-.cursor/
+.cursor/*
+# Cloud-agent / Docker env must be committed so agents build from the Dockerfile.
+!.cursor/environment.json
+!.cursor/Dockerfile
 .zed/
 
 # Agent skills

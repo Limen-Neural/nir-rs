@@ -1,0 +1,15 @@
+{
+  "name": "nir-rs",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "install": "rustc --version && pkg-config --exists hdf5 && cargo fetch",
+  "terminals": [
+    {
+      "name": "shell",
+      "command": "bash",
+      "description": "Interactive shell with Rust + libhdf5 ready for cargo test --all-features"
+    }
+  ]
+}

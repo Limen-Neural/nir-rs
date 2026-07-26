@@ -4,14 +4,24 @@
 //!
 //! NIR is a framework-agnostic graph format for spiking neural networks
 //! (analogous to ONNX for conventional nets). This crate provides a typed
-//! in-memory graph model; HDF5 `.nir` read/write lands in **v0.3**.
+//! in-memory graph model plus HDF5 `.nir` read/write that interoperates with
+//! the Python reference implementation.
 //!
 //! # Status
 //!
-//! **v0.2 — Core IR**: closed [`NirNode`] enum (wire-accurate type strings),
-//! [`NirGraph`] with ordered nodes/edges, [`Tensor`] / metadata types, and
-//! structured [`NirError`]. HDF5 I/O remains unimplemented
-//! ([`io::read`] / [`io::write`] return [`NirError::Unimplemented`]).
+//! **v0.3 — HDF5 I/O**: [`io::read`] / [`io::write`] handle the `.nir` wire
+//! format, on top of the v0.2 core — the closed [`NirNode`] enum (wire-accurate
+//! type strings), [`NirGraph`] with ordered nodes/edges, [`Tensor`] / metadata
+//! types, and structured [`NirError`].
+//!
+//! I/O lives behind the opt-in **`hdf5`** feature because it links the native
+//! libhdf5 library; the graph model itself has no system dependencies. See the
+//! [`io`] module for the feature gate, the file layout, and the version-string
+//! policy.
+//!
+//! ```toml
+//! nir-rs = { version = "0.3", features = ["hdf5"] }
+//! ```
 //!
 //! # Example
 //!
@@ -58,6 +68,10 @@
 //! g.add_edge("fc", "lif");
 //! g.add_edge("lif", "output");
 //! g.validate_structure()?;
+//!
+//! // With `features = ["hdf5"]`, the graph exchanges as a `.nir` file:
+//! // nir_rs::io::write("model.nir", &g)?;
+//! // let reloaded = nir_rs::io::read("model.nir")?;
 //! # Ok::<(), nir_rs::NirError>(())
 //! ```
 //!
