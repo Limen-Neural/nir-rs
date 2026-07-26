@@ -185,6 +185,49 @@ fn a_virtual_string_dataset_is_rejected_too() {
 }
 
 #[test]
+fn soft_link_is_rejected() {
+    // Soft links can resolve to external targets, so they are banned at the
+    // same gate as external links. A sibling alias under `nodes/` is the
+    // realistic place for one to appear.
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "soft_link.nir", |file| {
+        file.group("node/nodes")
+            .unwrap()
+            .link_soft("input", "alias")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["soft link", "alias"],
+    );
+}
+
+#[test]
+fn oversized_dataset_is_rejected() {
+    // Explicit element×decoded-width product above MAX_DATASET_BYTES (800 MB).
+    // 101M i64 values would decode to ~808 MB; creating the dataspace alone is
+    // enough — rejection happens before `read_raw`. Complements the
+    // fixed-string / narrow-integer cases that catch under-counting modes.
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "oversized.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+        node.new_dataset::<i64>()
+            .shape([101_000_000])
+            .create("shape")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["exceeds limit"],
+    );
+}
+
+#[test]
 fn ordinary_files_still_pass_the_guards() {
     // The guards must not reject the real thing.
     for name in ["lif_norse.nir", "cnn_sinabs.nir"] {

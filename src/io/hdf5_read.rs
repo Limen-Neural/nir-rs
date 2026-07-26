@@ -105,11 +105,11 @@ fn decoded_element_bytes(descriptor: &Td) -> usize {
 }
 
 // The ladder is spelled out again in the `read_fixed!` calls inside
-// `read_strings`, because the macro needs literals. Pin them here so a change
-// to one side fails the build rather than silently mischarging the guard.
+// `read_strings_unchecked`, because the macro needs literals. Pin them here so
+// a change to one side fails the build rather than silently mischarging the guard.
 const _: () = assert!(
     FIXED_STRING_CAPS[0] == 64 && FIXED_STRING_CAPS[1] == 256 && FIXED_STRING_CAPS[2] == 4096,
-    "FIXED_STRING_CAPS and the read_fixed! rungs in read_strings must match"
+    "FIXED_STRING_CAPS and the read_fixed! rungs in read_strings_unchecked must match"
 );
 
 /// Read a whole `.nir` file.
@@ -255,6 +255,8 @@ fn read_graph_body_inner(
 
 fn read_edges(ds: &Dataset) -> Result<Vec<(String, String)>> {
     validate_dataset_security(ds, KEY_EDGES)?;
+    // h5py encodes an empty edge list as a zero-length dataset whose element
+    // type is float, not string; treat any empty dataset as "no edges".
     if ds.size() == 0 {
         return Ok(Vec::new());
     }
@@ -264,7 +266,8 @@ fn read_edges(ds: &Dataset) -> Result<Vec<(String, String)>> {
             "{KEY_EDGES} must have shape (E, 2), found {shape:?}"
         )));
     }
-    let flat = read_strings(ds, KEY_EDGES)?;
+    // Already validated above; skip the second property-list walk.
+    let flat = read_strings_unchecked(ds, KEY_EDGES)?;
     Ok(flat
         .chunks_exact(2)
         .map(|pair| (pair[0].clone(), pair[1].clone()))
@@ -901,7 +904,8 @@ fn read_metadata_value(ds: &Dataset, key: &str) -> Result<MetadataValue> {
     let context = format!("{KEY_METADATA}.{key}");
     let value = match ds.dtype()?.to_descriptor()? {
         Td::VarLenUnicode | Td::VarLenAscii | Td::FixedAscii(_) | Td::FixedUnicode(_) => {
-            MetadataValue::String(read_string_scalar(ds, key)?)
+            // Security was checked above; only the cardinality gate remains.
+            MetadataValue::String(read_string_scalar_validated(ds, key)?)
         }
         Td::Boolean if scalar => MetadataValue::Bool(ds.read_scalar::<bool>()?),
         Td::Float(_) if scalar => MetadataValue::F64(ds.read_scalar::<f64>()?),
@@ -985,13 +989,19 @@ fn is_string(ds: &Dataset) -> Result<bool> {
 
 fn read_string_scalar(ds: &Dataset, context: &str) -> Result<String> {
     validate_dataset_security(ds, context)?;
+    read_string_scalar_validated(ds, context)
+}
+
+/// Cardinality check + decode for a string dataset that has already passed
+/// [`validate_dataset_security`].
+fn read_string_scalar_validated(ds: &Dataset, context: &str) -> Result<String> {
     let size = ds.size();
     if size != 1 {
         return Err(NirError::Io(format!(
             "{context}: expected a single string, found {size} elements"
         )));
     }
-    let mut values = read_strings(ds, context)?;
+    let mut values = read_strings_unchecked(ds, context)?;
     match values.len() {
         1 => Ok(values.remove(0)),
         n => Err(NirError::Io(format!(
@@ -1000,18 +1010,14 @@ fn read_string_scalar(ds: &Dataset, context: &str) -> Result<String> {
     }
 }
 
-/// Read every element of a string dataset, in C order.
+/// Decode a string dataset without re-running [`validate_dataset_security`].
 ///
-/// h5py can emit any of the four HDF5 string flavors depending on version and
-/// how the value was passed, so all four are handled. Fixed-length strings are
-/// read through a capacity ladder because `FixedAscii<N>` is const-generic:
-/// HDF5 converts the on-disk width up to the requested one.
-fn read_strings(ds: &Dataset, context: &str) -> Result<Vec<String>> {
-    // `/version`, every `type`, `edges` and symbolic `padding` arrive here, so
-    // this is where the external-storage and virtual-layout policy has to
-    // apply to string data as well as to tensors.
-    validate_dataset_security(ds, context)?;
-
+/// Callers that already inspected the property list (edges, scalar strings)
+/// use this so the HDF5 walk is not repeated for the same dataset. The sole
+/// entry points that still need a validating wrapper are
+/// [`read_string_scalar`] and the edges path, both of which call
+/// `validate_dataset_security` themselves first.
+fn read_strings_unchecked(ds: &Dataset, context: &str) -> Result<Vec<String>> {
     macro_rules! read_fixed {
         ($ty:ident, $width:expr, $($cap:literal),+) => {
             $(if $width <= $cap {

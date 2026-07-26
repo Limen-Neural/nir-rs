@@ -301,50 +301,40 @@ mod tests {
         ]
     }
 
-    /// Compile-time notification that a `NirNode` variant was added.
+    /// Stable index of a `NirNode` variant, in [`WIRE_TYPES`] order.
     ///
-    /// The match has no `_` arm, so a new variant stops the crate compiling
-    /// here. That is all it guarantees: the fix is *reviewed*, not that the
-    /// lists get updated — adding the variant to this arm satisfies the
-    /// compiler on its own, and two lists that both omit it still compare
-    /// equal in `wire_types_matches_every_node_variant`.
-    ///
-    /// Closing that gap properly needs the variants, their wire strings and
-    /// their sample values generated from one definition, which means a macro
-    /// owning `NirNode` itself — stable Rust has no way to enumerate an enum's
-    /// variants otherwise. Out of scope here; the compile error plus the
-    /// name-vs-`WIRE_TYPES` comparison is the practical net.
-    ///
-    /// It takes a real node rather than matching a fixed dummy, which would
-    /// leave every other arm unreachable and prove nothing at all.
-    fn assert_variant_covered(node: &NirNode) {
+    /// Exhaustive: a new variant is a compile error here. Combined with the
+    /// length check in `wire_types_matches_every_node_variant`, neither
+    /// `WIRE_TYPES` nor `one_of_each` can silently omit a variant — updating
+    /// only this match (or only `type_name`) is not enough to keep the test green.
+    fn variant_index(node: &NirNode) -> usize {
         match node {
-            NirNode::Input(_)
-            | NirNode::Output(_)
-            | NirNode::Affine(_)
-            | NirNode::Linear(_)
-            | NirNode::Scale(_)
-            | NirNode::Conv1d(_)
-            | NirNode::Conv2d(_)
-            | NirNode::CubaLi(_)
-            | NirNode::CubaLif(_)
-            | NirNode::Delay(_)
-            | NirNode::Flatten(_)
-            | NirNode::I(_)
-            | NirNode::If(_)
-            | NirNode::Li(_)
-            | NirNode::Lif(_)
-            | NirNode::SumPool2d(_)
-            | NirNode::AvgPool2d(_)
-            | NirNode::Threshold(_)
-            | NirNode::Graph(_) => {}
+            NirNode::Input(_) => 0,
+            NirNode::Output(_) => 1,
+            NirNode::Affine(_) => 2,
+            NirNode::Linear(_) => 3,
+            NirNode::Scale(_) => 4,
+            NirNode::Conv1d(_) => 5,
+            NirNode::Conv2d(_) => 6,
+            NirNode::CubaLi(_) => 7,
+            NirNode::CubaLif(_) => 8,
+            NirNode::Delay(_) => 9,
+            NirNode::Flatten(_) => 10,
+            NirNode::I(_) => 11,
+            NirNode::If(_) => 12,
+            NirNode::Li(_) => 13,
+            NirNode::Lif(_) => 14,
+            NirNode::SumPool2d(_) => 15,
+            NirNode::AvgPool2d(_) => 16,
+            NirNode::Threshold(_) => 17,
+            NirNode::Graph(_) => 18,
         }
     }
 
     /// One value per `NirNode` variant, in [`WIRE_TYPES`] order.
     ///
     /// Assembled from the per-family helpers above so the constructors live in
-    /// one place; `assert_variant_covered` supplies the compile-time coverage.
+    /// one place; [`variant_index`] supplies the compile-time coverage.
     fn one_of_each() -> Vec<NirNode> {
         let mut nodes = port_and_linear_nodes();
         nodes.extend(conv_nodes());
@@ -366,18 +356,37 @@ mod tests {
             metadata: Default::default(),
         }));
         nodes.push(NirNode::Graph(Box::new(NirGraph::new())));
-        for node in &nodes {
-            assert_variant_covered(node);
-        }
         nodes
     }
 
     #[test]
     fn wire_types_matches_every_node_variant() {
-        let names: Vec<&str> = one_of_each().iter().map(NirNode::type_name).collect();
-        assert_eq!(
-            names, WIRE_TYPES,
-            "WIRE_TYPES must list exactly the NirNode variants, in order"
+        // Independent of `one_of_each`: the index match is exhaustive, so a new
+        // variant forces both this constant and the sample list to grow.
+        const VARIANT_COUNT: usize = 19;
+        assert_eq!(WIRE_TYPES.len(), VARIANT_COUNT);
+
+        let nodes = one_of_each();
+        assert_eq!(nodes.len(), VARIANT_COUNT);
+
+        let mut seen = [false; VARIANT_COUNT];
+        for node in &nodes {
+            let i = variant_index(node);
+            assert!(
+                i < VARIANT_COUNT,
+                "variant_index {i} is outside VARIANT_COUNT"
+            );
+            assert!(!seen[i], "duplicate sample for variant index {i}");
+            seen[i] = true;
+            assert_eq!(
+                node.type_name(),
+                WIRE_TYPES[i],
+                "sample at index {i} must match WIRE_TYPES"
+            );
+        }
+        assert!(
+            seen.iter().all(|&s| s),
+            "one_of_each must cover every variant index"
         );
     }
 
