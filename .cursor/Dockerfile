@@ -10,8 +10,6 @@ RUN apt-get update \
         libhdf5-dev \
         build-essential \
         ca-certificates \
-        clang \
-        llvm-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN rustup component add clippy rustfmt
@@ -19,7 +17,9 @@ RUN rustup component add clippy rustfmt
 # Passwordless sudo is required by some Cursor cloud-agent tooling.
 RUN useradd -m -s /bin/bash ubuntu \
     && echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ubuntu \
-    && chmod 0440 /etc/sudoers.d/ubuntu
+    && chmod 0440 /etc/sudoers.d/ubuntu \
+    && mkdir -p /workspace \
+    && chown ubuntu:ubuntu /workspace
 
 USER ubuntu
 WORKDIR /workspace

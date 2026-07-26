@@ -54,8 +54,8 @@ pub enum NirError {
 
     /// Filesystem or HDF5 library failure while reading or writing a `.nir` file.
     ///
-    /// The underlying `hdf5::Error` / `std::io::Error` is rendered into the
-    /// message rather than carried, so [`NirError`] stays `Clone + Eq`.
+    /// The underlying `hdf5::Error` is rendered into the message rather than
+    /// carried, so [`NirError`] stays `Clone + Eq`.
     #[error("io error: {0}")]
     Io(String),
 }

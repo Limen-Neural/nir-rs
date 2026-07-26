@@ -118,22 +118,26 @@ const DEFAULT_COMPRESSION: u8 = 4;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct WriteOptions {
-    /// Deflate (gzip) level for array datasets, clamped to `0..=9`.
+    /// Deflate (gzip) level for array datasets, must be in `0..=9`.
     ///
     /// `None` writes arrays uncompressed. Scalar datasets are never
     /// compressed — HDF5 cannot chunk them, and chunking is a prerequisite for
-    /// any filter.
+    /// any filter. Values above 9 are rejected; use [`Self::with_compression`]
+    /// to clamp automatically.
     pub compression: Option<u8>,
     /// Version string to write, overriding [`NirGraph::version`].
     pub version: Option<String>,
-    /// Run [`NirGraph::validate_structure`] before writing. Defaults to `true`.
+    /// Run [`NirGraph::validate_structure`] and lossless-representation checks
+    /// before writing. Defaults to `true`.
     ///
-    /// Set this to `false` to rewrite a graph whose edges do not all resolve.
-    /// Such files exist in the wild — upstream's own
-    /// `braille_noDelay_bias_zero_subgraph.nir` has a subgraph edge naming a
-    /// node that is not in that subgraph — and [`read`] loads them faithfully,
-    /// so writing them back has to be possible. The resulting file will not
-    /// load in Python `nir.read` with its default type checking.
+    /// Set this to `false` to rewrite a graph whose edges do not all resolve,
+    /// or that contains values the wire format cannot preserve (nested graph
+    /// versions, rank-0 metadata tensors). Such files exist in the wild —
+    /// upstream's own `braille_noDelay_bias_zero_subgraph.nir` has a subgraph
+    /// edge naming a node that is not in that subgraph — and [`read`] loads
+    /// them faithfully, so writing them back has to be possible. The resulting
+    /// file will not load in Python `nir.read` with its default type checking,
+    /// and may lose or change the unrepresentable values on readback.
     pub validate: bool,
 }
 

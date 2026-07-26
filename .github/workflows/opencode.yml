@@ -6,23 +6,40 @@ on:
   pull_request_review_comment:
     types: [created]
 
-concurrency:
-  group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+    steps:
+      - name: Check permissions and command
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = context.payload.comment.body;
+            const commandPattern = /(?:^|\s)\/(?:oc|opencode)(?:\s|$)/;
+
+            if (!commandPattern.test(comment)) {
+              core.setOutput('allowed', 'false');
+              return;
+            }
+
+            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.actor
+            });
+
+            const allowed = ['write', 'maintain', 'admin'].includes(permission.permission);
+            core.setOutput('allowed', String(allowed));
+
   opencode:
-    # The command check alone would let ANY commenter reach a job holding
-    # OPENCODE_API_KEY, contents: write and id-token: write. Gate on the
-    # commenter's association with the repository first.
-    if: |
-      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
-      (
-        contains(github.event.comment.body, ' /oc') ||
-        startsWith(github.event.comment.body, '/oc') ||
-        contains(github.event.comment.body, ' /opencode') ||
-        startsWith(github.event.comment.body, '/opencode')
-      )
+    needs: gate
+    if: needs.gate.outputs.allowed == 'true'
+    concurrency:
+      group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
       id-token: write

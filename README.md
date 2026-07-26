@@ -101,20 +101,18 @@ fixed by upstream. Files written here load in Python `nir.read`, and files
 written by `nir.write` load here.
 
 ```rust
-# #[cfg(feature = "hdf5")]
-# fn main() -> nir_rs::Result<()> {
-let graph = nir_rs::io::read("model.nir")?;
-for (name, node) in &graph.nodes {
-    println!("{name}: {}", node.type_name());
+fn main() -> nir_rs::Result<()> {
+    let graph = nir_rs::io::read("model.nir")?;
+    for (name, node) in &graph.nodes {
+        println!("{name}: {}", node.type_name());
+    }
+    nir_rs::io::write("copy.nir", &graph)?;
+    Ok(())
 }
-nir_rs::io::write("copy.nir", &graph)?;
-# Ok(())
-# }
 ```
 
 I/O is behind the opt-in **`hdf5`** feature, which links the native libhdf5
-library — the graph model itself stays dependency-free so consumers that only
-build graphs (or want a zero-dep default) are unaffected:
+library. Without this feature, the crate requires no system dependencies:
 
 | Platform | System dependency |
 |----------|-------------------|
@@ -126,10 +124,12 @@ Without the feature, `io::read` / `io::write` still exist and return
 `NirError::Unimplemented`, so downstream code compiles either way.
 
 Round-trip fidelity is graph-level, not byte-level: node names and types,
-ordered edges, and exact parameter values and dtypes are preserved, while HDF5
-details such as group ordering and chunk layout may differ from h5py. Absent
-optional fields (`v_reset`, `w_in`) are filled with the same defaults Python
-uses, so a graph read here matches what `nir.read` produces in memory.
+ordered edges, and exact parameter values are preserved, while HDF5 details
+such as group ordering and chunk layout may differ from h5py. In-memory dtypes
+(`f32`, `f64`, `i64`, `bool`) round-trip exactly; narrower on-disk integer
+types are widened to `i64` on read. Absent optional fields (`v_reset`, `w_in`)
+are filled with the same defaults Python uses, so a graph read here matches
+what `nir.read` produces in memory.
 
 ### Develop
 

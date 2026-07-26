@@ -52,7 +52,8 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
         .unwrap_or_else(|| DEFAULT_NIR_VERSION.to_owned());
 
     check_string_values(graph, &version)?;
-    check_conv2d_input_shapes(graph)?;
+    check_usize_fields(graph)?;
+    check_tensor_ranks(graph)?;
     check_compression(opts.compression)?;
 
     let file = File::create(path)
@@ -137,9 +138,10 @@ fn check_graph_string_values(graph: &NirGraph) -> Result<()> {
         wire::check_hdf5_string("edge destination", dst)?;
     }
     for (name, node) in &graph.nodes {
-        check_metadata_string_values(node_metadata(node), &format!("metadata of node {name:?}"))?;
         if let NirNode::Graph(sub) = node {
             check_graph_string_values(sub)?;
+        } else {
+            check_metadata_string_values(node_metadata(node), &format!("metadata of node {name:?}"))?;
         }
     }
     Ok(())
@@ -154,17 +156,34 @@ fn check_metadata_string_values(metadata: &MetadataMap, context: &str) -> Result
     Ok(())
 }
 
-/// Reject convolution fields whose arity or range the wire cannot carry.
+/// Reject usize fields and convolution extents that the wire cannot carry.
 ///
 /// Everything here fails during `write_graph_body` too, but only *after*
 /// `File::create` has truncated the destination — so a rejected graph would
 /// destroy an existing model. Checking up front keeps that from happening.
-fn check_conv2d_input_shapes(graph: &NirGraph) -> Result<()> {
+fn check_usize_fields(graph: &NirGraph) -> Result<()> {
     for (name, node) in &graph.nodes {
         match node {
+            NirNode::Input(n) => {
+                for extent in &n.shape {
+                    check_extent_range(&format!("Input {name:?}"), "shape", *extent)?;
+                }
+            }
+            NirNode::Output(n) => {
+                for extent in &n.shape {
+                    check_extent_range(&format!("Output {name:?}"), "shape", *extent)?;
+                }
+            }
+            NirNode::Flatten(n) => {
+                if let Some(shape) = &n.input_type {
+                    for extent in shape {
+                        check_extent_range(&format!("Flatten {name:?}"), "input_type", *extent)?;
+                    }
+                }
+            }
             NirNode::Conv1d(conv) => check_conv1d_extents(&format!("Conv1d {name:?}"), conv)?,
             NirNode::Conv2d(conv) => check_conv2d_extents(&format!("Conv2d {name:?}"), conv)?,
-            NirNode::Graph(sub) => check_conv2d_input_shapes(sub)?,
+            NirNode::Graph(sub) => check_usize_fields(sub)?,
             _ => {}
         }
     }
@@ -222,6 +241,86 @@ fn check_extent_range(who: &str, field: &str, extent: usize) -> Result<()> {
         return Err(NirError::InvalidTensor(format!(
             "{who} {field}: extent {extent} does not fit in i64"
         )));
+    }
+    Ok(())
+}
+
+/// Reject tensors whose rank exceeds HDF5's 32-dimension limit.
+fn check_tensor_ranks(graph: &NirGraph) -> Result<()> {
+    check_metadata_tensor_ranks(&graph.metadata, "graph metadata")?;
+    for (name, node) in &graph.nodes {
+        let node_context = format!("node {name:?}");
+        match node {
+            NirNode::Affine(n) => {
+                check_tensor_rank(&n.weight, &node_context, "weight")?;
+                check_tensor_rank(&n.bias, &node_context, "bias")?;
+            }
+            NirNode::Linear(n) => check_tensor_rank(&n.weight, &node_context, "weight")?,
+            NirNode::Scale(n) => check_tensor_rank(&n.scale, &node_context, "scale")?,
+            NirNode::Conv1d(n) => check_tensor_rank(&n.weight, &node_context, "weight")?,
+            NirNode::Conv2d(n) => check_tensor_rank(&n.weight, &node_context, "weight")?,
+            NirNode::CubaLi(n) => {
+                check_tensor_rank(&n.v_leak, &node_context, "v_leak")?;
+                check_tensor_rank(&n.r, &node_context, "r")?;
+            }
+            NirNode::CubaLif(n) => {
+                check_tensor_rank(&n.tau_mem, &node_context, "tau_mem")?;
+                check_tensor_rank(&n.v_leak, &node_context, "v_leak")?;
+                check_tensor_rank(&n.v_threshold, &node_context, "v_threshold")?;
+                check_tensor_rank(&n.r, &node_context, "r")?;
+                if let Some(t) = &n.v_reset {
+                    check_tensor_rank(t, &node_context, "v_reset")?;
+                }
+            }
+            NirNode::Delay(n) => check_tensor_rank(&n.delay, &node_context, "delay")?,
+            NirNode::I(n) => check_tensor_rank(&n.r, &node_context, "r")?,
+            NirNode::If(n) => {
+                check_tensor_rank(&n.r, &node_context, "r")?;
+                check_tensor_rank(&n.v_threshold, &node_context, "v_threshold")?;
+            }
+            NirNode::Li(n) => {
+                check_tensor_rank(&n.tau, &node_context, "tau")?;
+                check_tensor_rank(&n.r, &node_context, "r")?;
+                check_tensor_rank(&n.v_leak, &node_context, "v_leak")?;
+            }
+            NirNode::Lif(n) => {
+                check_tensor_rank(&n.tau, &node_context, "tau")?;
+                check_tensor_rank(&n.r, &node_context, "r")?;
+                check_tensor_rank(&n.v_leak, &node_context, "v_leak")?;
+                check_tensor_rank(&n.v_threshold, &node_context, "v_threshold")?;
+                if let Some(t) = &n.v_reset {
+                    check_tensor_rank(t, &node_context, "v_reset")?;
+                }
+                if let Some(t) = &n.w_in {
+                    check_tensor_rank(t, &node_context, "w_in")?;
+                }
+            }
+            NirNode::Threshold(n) => check_tensor_rank(&n.threshold, &node_context, "threshold")?,
+            NirNode::Graph(sub) => check_tensor_ranks(sub)?,
+            _ => {}
+        }
+        if !matches!(node, NirNode::Graph(_)) {
+            check_metadata_tensor_ranks(node_metadata(node), &node_context)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_tensor_rank(tensor: &Tensor, context: &str, field: &str) -> Result<()> {
+    let rank = tensor.shape().len();
+    if rank > 32 {
+        return Err(NirError::InvalidTensor(format!(
+            "{context} {field}: rank {rank} exceeds HDF5 limit of 32"
+        )));
+    }
+    Ok(())
+}
+
+fn check_metadata_tensor_ranks(metadata: &MetadataMap, context: &str) -> Result<()> {
+    for (key, value) in metadata {
+        if let MetadataValue::Tensor(t) = value {
+            check_tensor_rank(t, context, &format!("metadata.{key}"))?;
+        }
     }
     Ok(())
 }

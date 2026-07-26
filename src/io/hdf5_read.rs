@@ -38,6 +38,13 @@ use std::path::Path;
 /// bound, so this crate never emits a file it would then refuse to read.
 pub(super) const MAX_NESTED_GRAPHS: usize = 1024;
 
+/// Maximum element count for any single dataset read.
+///
+/// Protects against memory exhaustion from attacker-controlled datasets.
+/// 100M elements × 8 bytes (f64/i64) = 800 MB per dataset, well within
+/// reason for real models while preventing unbounded allocation.
+const MAX_DATASET_ELEMENTS: usize = 100_000_000;
+
 /// Read a whole `.nir` file.
 pub(super) fn read(path: &Path) -> Result<NirGraph> {
     let file = open(path)?;
@@ -75,10 +82,15 @@ pub(super) fn read(path: &Path) -> Result<NirGraph> {
 
     let mut graph = read_graph_body(&root, &format!("/{KEY_NODE}"), &mut Vec::new())?;
     graph.metadata = read_metadata(&root)?;
-    // A missing /version is not an error; `read_version` is the strict accessor.
-    graph.version = match file.dataset(KEY_VERSION) {
-        Ok(ds) => Some(read_string_scalar(&ds, KEY_VERSION)?),
-        Err(_) => None,
+    graph.version = if file.link_exists(KEY_VERSION) {
+        let ds = file.dataset(KEY_VERSION).map_err(|e| {
+            NirError::Io(format!(
+                "/{KEY_VERSION}: expected a dataset, found another link kind: {e}"
+            ))
+        })?;
+        Some(read_string_scalar(&ds, KEY_VERSION)?)
+    } else {
+        None
     };
     Ok(graph)
 }
@@ -175,8 +187,7 @@ fn read_graph_body_inner(
 }
 
 fn read_edges(ds: &Dataset) -> Result<Vec<(String, String)>> {
-    // h5py encodes an empty edge list as a zero-length dataset whose element
-    // type is float, not string; treat any empty dataset as "no edges".
+    validate_dataset_security(ds, KEY_EDGES)?;
     if ds.size() == 0 {
         return Ok(Vec::new());
     }
@@ -714,28 +725,29 @@ fn single_int(values: Vec<i64>, context: &str) -> Result<i64> {
 // Security validation (reject external links and VDS)
 // ---------------------------------------------------------------------------
 
-/// Validate that a group does not contain external links before traversing it.
+/// Validate that a group does not contain external or soft links before traversing it.
 ///
-/// Checks each member link to ensure it's not an external link that could
-/// reference files outside the current `.nir` file.
+/// Checks each member link to ensure it's a hard link only. Soft links can
+/// resolve to external links, so both are rejected.
 fn validate_group_links(group: &Group, context: &str) -> Result<()> {
-    // H5L_TYPE_EXTERNAL links reference objects in other files; hard and soft
-    // links stay inside this one, so they are fine. `iter_visit_default`
-    // visits the group's immediate members; returning false stops the scan
-    // early once an external link is found.
-    let external = group
-        .iter_visit_default(None, |_group, name, info, found: &mut Option<String>| {
-            if info.link_type == hdf5::LinkType::External {
-                *found = Some(name.to_owned());
-                false
-            } else {
-                true
+    let bad_link = group
+        .iter_visit_default(None, |_group, name, info, found: &mut Option<(String, &'static str)>| {
+            match info.link_type {
+                hdf5::LinkType::External => {
+                    *found = Some((name.to_owned(), "external"));
+                    false
+                }
+                hdf5::LinkType::Soft => {
+                    *found = Some((name.to_owned(), "soft"));
+                    false
+                }
+                hdf5::LinkType::Hard => true,
             }
         })
         .map_err(|e| NirError::Io(format!("{context}: cannot inspect group links: {e}")))?;
-    if let Some(name) = external {
+    if let Some((name, kind)) = bad_link {
         return Err(NirError::InvalidGraph(format!(
-            "{context}: external link '{name}' is not allowed"
+            "{context}: {kind} link '{name}' is not allowed"
         )));
     }
     Ok(())
@@ -753,9 +765,6 @@ fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
         ))
     })?;
 
-    // External storage keeps a dataset's raw data in non-HDF5 files that the
-    // library reads transparently, so a crafted `.nir` could name any path the
-    // process can read.
     let external = dcpl.external();
     if !external.is_empty() {
         return Err(NirError::InvalidGraph(format!(
@@ -764,17 +773,19 @@ fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
         )));
     }
 
-    // A virtual dataset draws its data from source files the same way, and is
-    // the documented bypass for guards that only check external storage
-    // (CVE-2026-12480). `Layout::Virtual` only exists when the linked libhdf5
-    // is >= 1.10, so match the layouts that are always present and reject the
-    // rest rather than naming the cfg-gated variant.
     if !matches!(
         ds.layout(),
         Layout::Compact | Layout::Contiguous | Layout::Chunked
     ) {
         return Err(NirError::InvalidGraph(format!(
             "{context}: virtual dataset layouts are not allowed"
+        )));
+    }
+
+    let size = ds.size();
+    if size > MAX_DATASET_ELEMENTS {
+        return Err(NirError::InvalidGraph(format!(
+            "{context}: dataset has {size} elements, exceeds limit of {MAX_DATASET_ELEMENTS}"
         )));
     }
 
@@ -896,6 +907,13 @@ fn is_string(ds: &Dataset) -> Result<bool> {
 }
 
 fn read_string_scalar(ds: &Dataset, context: &str) -> Result<String> {
+    validate_dataset_security(ds, context)?;
+    let size = ds.size();
+    if size != 1 {
+        return Err(NirError::Io(format!(
+            "{context}: expected a single string, found {size} elements"
+        )));
+    }
     let mut values = read_strings(ds, context)?;
     match values.len() {
         1 => Ok(values.remove(0)),

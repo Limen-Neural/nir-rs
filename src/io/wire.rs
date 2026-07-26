@@ -303,31 +303,149 @@ mod tests {
 
     /// One value per `NirNode` variant, in [`WIRE_TYPES`] order.
     ///
-    /// The groups are concatenated in wire order and interleaved with the two
-    /// standalone nodes so `wire_types_matches_every_node_variant` can compare
-    /// the two lists positionally.
+    /// Uses an exhaustive match to ensure every variant is represented, so
+    /// adding a new node type fails compilation until both this list and
+    /// [`WIRE_TYPES`] are updated.
     fn one_of_each() -> Vec<NirNode> {
-        let mut nodes = port_and_linear_nodes();
-        nodes.extend(conv_nodes());
-        nodes.extend(cuba_nodes());
-        nodes.push(NirNode::Delay(Delay {
-            delay: v(),
+        let dummy = NirNode::Input(Input {
+            shape: vec![1],
             metadata: Default::default(),
-        }));
-        nodes.push(NirNode::Flatten(Flatten {
-            start_dim: 1,
-            end_dim: -1,
-            input_type: None,
-            metadata: Default::default(),
-        }));
-        nodes.extend(neuron_nodes());
-        nodes.extend(pool_nodes());
-        nodes.push(NirNode::Threshold(Threshold {
-            threshold: v(),
-            metadata: Default::default(),
-        }));
-        nodes.push(NirNode::Graph(Box::new(NirGraph::new())));
-        nodes
+        });
+
+        let variants = match dummy {
+            NirNode::Input(_) => vec![
+                NirNode::Input(Input {
+                    shape: vec![1],
+                    metadata: Default::default(),
+                }),
+                NirNode::Output(Output {
+                    shape: vec![1],
+                    metadata: Default::default(),
+                }),
+                NirNode::Affine(Affine {
+                    weight: v(),
+                    bias: v(),
+                    metadata: Default::default(),
+                }),
+                NirNode::Linear(Linear {
+                    weight: v(),
+                    metadata: Default::default(),
+                }),
+                NirNode::Scale(Scale {
+                    scale: v(),
+                    metadata: Default::default(),
+                }),
+                NirNode::Conv1d(Conv1d {
+                    weight: Tensor::from_f32(vec![1, 1, 3], vec![1., 0., -1.]).unwrap(),
+                    stride: vec![1],
+                    padding: Padding::single(0),
+                    dilation: vec![1],
+                    groups: 1,
+                    bias: Tensor::from_f32([1], vec![0.]).unwrap(),
+                    input_shape: Some(10),
+                    metadata: Default::default(),
+                }),
+                NirNode::Conv2d(Conv2d {
+                    weight: Tensor::from_f32(vec![1, 1, 2, 2], vec![0.; 4]).unwrap(),
+                    stride: vec![1, 1],
+                    padding: Padding::Same,
+                    dilation: vec![1, 1],
+                    groups: 1,
+                    bias: Tensor::from_f32([1], vec![0.]).unwrap(),
+                    input_shape: Some(vec![8, 8]),
+                    metadata: Default::default(),
+                }),
+                NirNode::CubaLi(CubaLi {
+                    tau_syn: v(),
+                    tau_mem: v(),
+                    r: v(),
+                    v_leak: v(),
+                    w_in: None,
+                    metadata: Default::default(),
+                }),
+                NirNode::CubaLif(CubaLif {
+                    tau_syn: v(),
+                    tau_mem: v(),
+                    r: v(),
+                    v_leak: v(),
+                    v_threshold: v(),
+                    v_reset: None,
+                    w_in: None,
+                    metadata: Default::default(),
+                }),
+                NirNode::Delay(Delay {
+                    delay: v(),
+                    metadata: Default::default(),
+                }),
+                NirNode::Flatten(Flatten {
+                    start_dim: 1,
+                    end_dim: -1,
+                    input_type: None,
+                    metadata: Default::default(),
+                }),
+                NirNode::I(I {
+                    r: v(),
+                    metadata: Default::default(),
+                }),
+                NirNode::If(If {
+                    r: v(),
+                    v_threshold: v(),
+                    v_reset: None,
+                    metadata: Default::default(),
+                }),
+                NirNode::Li(Li {
+                    tau: v(),
+                    r: v(),
+                    v_leak: v(),
+                    metadata: Default::default(),
+                }),
+                NirNode::Lif(Lif {
+                    tau: v(),
+                    r: v(),
+                    v_leak: v(),
+                    v_threshold: v(),
+                    v_reset: None,
+                    metadata: Default::default(),
+                }),
+                NirNode::SumPool2d(SumPool2d {
+                    kernel_size: pool(),
+                    stride: pool(),
+                    padding: Tensor::from_i64([2], vec![0, 0]).unwrap(),
+                    metadata: Default::default(),
+                }),
+                NirNode::AvgPool2d(AvgPool2d {
+                    kernel_size: pool(),
+                    stride: pool(),
+                    padding: Tensor::from_i64([2], vec![0, 0]).unwrap(),
+                    metadata: Default::default(),
+                }),
+                NirNode::Threshold(Threshold {
+                    threshold: v(),
+                    metadata: Default::default(),
+                }),
+                NirNode::Graph(Box::new(NirGraph::new())),
+            ],
+            NirNode::Output(_)
+            | NirNode::Affine(_)
+            | NirNode::Linear(_)
+            | NirNode::Scale(_)
+            | NirNode::Conv1d(_)
+            | NirNode::Conv2d(_)
+            | NirNode::CubaLi(_)
+            | NirNode::CubaLif(_)
+            | NirNode::Delay(_)
+            | NirNode::Flatten(_)
+            | NirNode::I(_)
+            | NirNode::If(_)
+            | NirNode::Li(_)
+            | NirNode::Lif(_)
+            | NirNode::SumPool2d(_)
+            | NirNode::AvgPool2d(_)
+            | NirNode::Threshold(_)
+            | NirNode::Graph(_) => unreachable!("dummy is Input"),
+        };
+
+        variants
     }
 
     #[test]
