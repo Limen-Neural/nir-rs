@@ -609,6 +609,56 @@ fn defaulted_v_reset_is_written_back_explicitly() {
 }
 
 #[test]
+fn a_single_conv2d_extent_is_expanded_to_a_pair() {
+    // Python promotes a scalar `s` to `(s, s)` in Conv2d.__post_init__, so the
+    // single-value form must reach the wire as a length-2 tuple rather than a
+    // length-1 array no upstream writer produces.
+    let mut graph = NirGraph::new();
+    graph.version = Some(nir_rs::io::DEFAULT_NIR_VERSION.into());
+    graph
+        .insert_node(
+            "conv",
+            NirNode::Conv2d(Conv2d {
+                weight: Tensor::from_f32(vec![1, 1, 2, 2], vec![0.5; 4]).unwrap(),
+                stride: vec![2],
+                padding: Padding::Explicit(vec![1]),
+                dilation: vec![3],
+                groups: 1,
+                bias: Tensor::from_f32([1], vec![0.]).unwrap(),
+                input_shape: None,
+                metadata: Default::default(),
+            }),
+        )
+        .unwrap();
+
+    let dir = TempDir::new().unwrap();
+    let path = scratch(&dir, "conv2d_scalar_extents.nir");
+    nir_rs::io::write(&path, &graph).unwrap();
+
+    let file = hdf5::File::open(&path).unwrap();
+    let conv = file.group("node/nodes/conv").unwrap();
+    for field in ["stride", "dilation", "padding"] {
+        assert_eq!(
+            conv.dataset(field).unwrap().shape(),
+            [2],
+            "{field} should be a pair on the wire"
+        );
+    }
+
+    let NirNode::Conv2d(decoded) = nir_rs::io::read(&path)
+        .unwrap()
+        .get("conv")
+        .unwrap()
+        .clone()
+    else {
+        panic!("expected Conv2d");
+    };
+    assert_eq!(decoded.stride, [2, 2]);
+    assert_eq!(decoded.dilation, [3, 3]);
+    assert_eq!(decoded.padding, Padding::pair(1, 1));
+}
+
+#[test]
 fn fixed_length_strings_from_other_producers_are_readable() {
     // This crate writes variable-length UTF-8, but h5py has historically
     // encoded lists of `str` as fixed-length bytes, so the reader accepts both.

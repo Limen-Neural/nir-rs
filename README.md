@@ -58,8 +58,13 @@ Not published to crates.io yet. Use a git or path dependency:
 ```toml
 [dependencies]
 nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "Main" }
+```
 
-# ... or with HDF5 `.nir` I/O (see "File I/O" below for the system dependency):
+To also get HDF5 `.nir` I/O, enable the `hdf5` feature (see [File I/O](#file-io)
+for the system dependency it brings):
+
+```toml
+[dependencies]
 nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "Main", features = ["hdf5"] }
 ```
 

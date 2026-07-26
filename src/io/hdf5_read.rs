@@ -39,7 +39,21 @@ pub(super) fn read(path: &Path) -> Result<NirGraph> {
         ))
     })?;
 
-    let mut graph = read_graph_body(&root)?;
+    // `/node` is a serialized NIRGraph. Checking its type is what separates a
+    // NIR file from unrelated HDF5 that happens to have a `node` group.
+    let root_type = read_string_scalar(
+        &root
+            .dataset(KEY_TYPE)
+            .map_err(|_| NirError::MissingField(format!("/{KEY_NODE}/{KEY_TYPE}")))?,
+        KEY_NODE,
+    )?;
+    if root_type != "NIRGraph" {
+        return Err(NirError::InvalidGraph(format!(
+            "/{KEY_NODE} must be a NIRGraph, found {root_type:?}"
+        )));
+    }
+
+    let mut graph = read_graph_body(&root, &format!("/{KEY_NODE}"))?;
     graph.metadata = read_metadata(&root)?;
     // A missing /version is not an error; `read_version` is the strict accessor.
     graph.version = match file.dataset(KEY_VERSION) {
@@ -69,28 +83,35 @@ fn open(path: &Path) -> Result<File> {
 /// Read a graph's `nodes` and `edges`, leaving metadata to the caller.
 ///
 /// Split out because a nested `NIRGraph` node and the root graph share this
-/// body but source their metadata from different places.
-fn read_graph_body(group: &Group) -> Result<NirGraph> {
+/// body but source their metadata from different places. `context` is the
+/// group's path, used to say *which* graph a missing key belongs to.
+///
+/// Both keys are **required**, matching upstream `NIRGraph.from_dict`, which
+/// asserts their presence even for an empty graph. Defaulting a missing
+/// `edges` to "no connections" would turn a truncated file into a silently
+/// disconnected model.
+fn read_graph_body(group: &Group, context: &str) -> Result<NirGraph> {
     let mut graph = NirGraph::new();
 
-    if let Ok(nodes) = group.group(KEY_NODES) {
-        // HDF5 iterates links in name order; sorting makes that explicit and
-        // keeps repeated reads of the same file identical.
-        let mut names = nodes.member_names()?;
-        names.sort();
-        for name in names {
-            let node_group = nodes
-                .group(&name)
-                .map_err(|e| NirError::Io(format!("node {name:?} is not a group: {e}")))?;
-            let node = read_node(&node_group, &name)?;
-            graph.insert_node(name, node)?;
-        }
+    let nodes = group
+        .group(KEY_NODES)
+        .map_err(|_| NirError::MissingField(format!("{context}/{KEY_NODES}")))?;
+    // HDF5 iterates links in name order; sorting makes that explicit and
+    // keeps repeated reads of the same file identical.
+    let mut names = nodes.member_names()?;
+    names.sort();
+    for name in names {
+        let node_group = nodes
+            .group(&name)
+            .map_err(|e| NirError::Io(format!("node {name:?} is not a group: {e}")))?;
+        let node = read_node(&node_group, &name)?;
+        graph.insert_node(name, node)?;
     }
 
-    graph.edges = match group.dataset(KEY_EDGES) {
-        Ok(ds) => read_edges(&ds)?,
-        Err(_) => Vec::new(),
-    };
+    let edges = group
+        .dataset(KEY_EDGES)
+        .map_err(|_| NirError::MissingField(format!("{context}/{KEY_EDGES}")))?;
+    graph.edges = read_edges(&edges)?;
 
     Ok(graph)
 }
@@ -146,7 +167,7 @@ fn read_node(group: &Group, name: &str) -> Result<NirNode> {
         "AvgPool2d" => NirNode::AvgPool2d(read_avg_pool2d(&r, metadata)?),
         "Threshold" => NirNode::Threshold(read_threshold(&r, metadata)?),
         "NIRGraph" => {
-            let mut sub = read_graph_body(group)?;
+            let mut sub = read_graph_body(group, name)?;
             sub.metadata = metadata;
             NirNode::Graph(Box::new(sub))
         }

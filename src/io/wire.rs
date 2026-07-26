@@ -105,7 +105,12 @@ pub fn padding_from_wire_str(s: &str) -> Result<Padding> {
 ///
 /// HDF5 splits paths on `/`, so a node name containing one would silently
 /// create a nested group and change the graph on the next read. `.` and `..`
-/// are reserved path components, and an empty name has no valid encoding.
+/// are reserved path components, link names are C strings and so cannot carry
+/// an embedded NUL, and an empty name has no valid encoding.
+///
+/// Callers should run this **before** creating the destination file: every
+/// rejected name fails at group-creation time otherwise, by which point an
+/// existing file has already been truncated.
 ///
 /// # Errors
 ///
@@ -117,6 +122,11 @@ pub fn check_node_name(name: &str) -> Result<()> {
     if name.contains('/') {
         return Err(NirError::InvalidGraph(format!(
             "node name {name:?} must not contain '/' (HDF5 path separator)"
+        )));
+    }
+    if name.contains('\0') {
+        return Err(NirError::InvalidGraph(format!(
+            "node name {name:?} must not contain a NUL byte (HDF5 link names are C strings)"
         )));
     }
     if name == "." || name == ".." {
@@ -342,7 +352,7 @@ mod tests {
 
     #[test]
     fn illegal_node_names_are_rejected() {
-        for bad in ["", "a/b", ".", ".."] {
+        for bad in ["", "a/b", ".", "..", "nul\0inside"] {
             let err = check_node_name(bad).unwrap_err();
             assert!(
                 matches!(err, NirError::InvalidGraph(_)),

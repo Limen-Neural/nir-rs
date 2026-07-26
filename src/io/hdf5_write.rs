@@ -38,6 +38,7 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
     // represent the rejected names at all.
     if opts.validate {
         graph.validate_structure()?;
+        check_no_nested_versions(graph)?;
     }
     check_names(graph)?;
 
@@ -62,6 +63,28 @@ fn check_names(graph: &NirGraph) -> Result<()> {
         wire::check_node_name(name)?;
         if let NirNode::Graph(sub) = node {
             check_names(sub)?;
+        }
+    }
+    Ok(())
+}
+
+/// Reject a version string on a nested subgraph.
+///
+/// The wire format has exactly one `/version`, at the root, so a version set
+/// on a `NirNode::Graph` has nowhere to go. Writing it silently would make
+/// `read(write(g)) != g` for the caller's own graph; saying so is better than
+/// dropping the value. Callers who genuinely want it dropped can turn the
+/// check off with [`WriteOptions::with_validation`].
+fn check_no_nested_versions(graph: &NirGraph) -> Result<()> {
+    for (name, node) in &graph.nodes {
+        if let NirNode::Graph(sub) = node {
+            if sub.version.is_some() {
+                return Err(NirError::InvalidGraph(format!(
+                    "subgraph {name:?} carries a version, but the wire format has \
+                     only the root /version; clear it or set it on the root graph"
+                )));
+            }
+            check_no_nested_versions(sub)?;
         }
     }
     Ok(())
@@ -316,6 +339,22 @@ enum Rank {
     Two,
 }
 
+impl Rank {
+    fn node_type(self) -> &'static str {
+        match self {
+            Self::One => "Conv1d",
+            Self::Two => "Conv2d",
+        }
+    }
+
+    fn expected_extents(self) -> &'static str {
+        match self {
+            Self::One => "exactly one extent",
+            Self::Two => "one or two extents",
+        }
+    }
+}
+
 /// A destination group paired with the options that govern how datasets in it
 /// are stored, so field writers need only a name and a value.
 struct Writer<'a> {
@@ -364,16 +403,23 @@ impl<'a> Writer<'a> {
         self.array(name, &[converted.len()], &converted)
     }
 
+    /// Write a convolution extent in the shape its rank requires.
+    ///
+    /// `Conv1d` extents are bare scalars upstream. `Conv2d` extents are always
+    /// length-2 tuples: Python's `__post_init__` promotes a scalar `s` to
+    /// `(s, s)`, so a single value here is the scalar form and is expanded the
+    /// same way rather than written as a length-1 array Python never produces.
     fn conv_extent(&self, name: &str, values: &[i64], rank: Rank) -> Result<()> {
-        match rank {
-            Rank::One => match values {
-                [only] => self.scalar(name, *only),
-                other => Err(NirError::InvalidGraph(format!(
-                    "Conv1d {name} must hold exactly one extent, found {}",
-                    other.len()
-                ))),
-            },
-            Rank::Two => self.array(name, &[values.len()], values),
+        match (rank, values) {
+            (Rank::One, [only]) => self.scalar(name, *only),
+            (Rank::Two, &[only]) => self.array(name, &[2], &[only, only]),
+            (Rank::Two, [_, _]) => self.array(name, &[values.len()], values),
+            (rank, other) => Err(NirError::InvalidGraph(format!(
+                "{} {name} must hold {}, found {} values",
+                rank.node_type(),
+                rank.expected_extents(),
+                other.len()
+            ))),
         }
     }
 

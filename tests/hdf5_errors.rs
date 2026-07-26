@@ -86,6 +86,67 @@ fn hdf5_file_without_a_node_group_is_rejected() {
 }
 
 #[test]
+fn hdf5_file_whose_node_group_is_not_a_graph_is_rejected() {
+    // A `node` group alone does not make a file NIR; `/node/type` decides.
+    let dir = TempDir::new().unwrap();
+    let path = write_then(&dir, "wrong_root_type.nir", |file| {
+        let root = file.group("node").unwrap();
+        root.unlink("type").unwrap();
+        let ds = root
+            .new_dataset::<hdf5::types::VarLenUnicode>()
+            .shape(())
+            .create("type")
+            .unwrap();
+        ds.write_scalar(&"LIF".parse::<hdf5::types::VarLenUnicode>().unwrap())
+            .unwrap();
+    });
+
+    let err = nir_rs::io::read(&path).unwrap_err();
+    match err {
+        NirError::InvalidGraph(message) => {
+            assert!(message.contains("NIRGraph"), "got {message}");
+            assert!(message.contains("LIF"), "got {message}");
+        }
+        other => panic!("expected InvalidGraph, got {other:?}"),
+    }
+}
+
+#[test]
+fn root_without_a_type_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let path = write_then(&dir, "no_root_type.nir", |file| {
+        file.group("node").unwrap().unlink("type").unwrap();
+    });
+
+    let err = nir_rs::io::read(&path).unwrap_err();
+    assert_eq!(err, NirError::MissingField("/node/type".into()));
+}
+
+#[test]
+fn missing_edges_is_an_error_rather_than_a_disconnected_graph() {
+    // Upstream `NIRGraph.from_dict` asserts the key is present even for an
+    // empty graph, so a truncated file must not decode as "no connections".
+    let dir = TempDir::new().unwrap();
+    let path = write_then(&dir, "no_edges.nir", |file| {
+        file.group("node").unwrap().unlink("edges").unwrap();
+    });
+
+    let err = nir_rs::io::read(&path).unwrap_err();
+    assert_eq!(err, NirError::MissingField("/node/edges".into()));
+}
+
+#[test]
+fn missing_nodes_group_is_an_error() {
+    let dir = TempDir::new().unwrap();
+    let path = write_then(&dir, "no_nodes.nir", |file| {
+        file.group("node").unwrap().unlink("nodes").unwrap();
+    });
+
+    let err = nir_rs::io::read(&path).unwrap_err();
+    assert_eq!(err, NirError::MissingField("/node/nodes".into()));
+}
+
+#[test]
 fn unknown_node_type_is_reported_verbatim() {
     let dir = TempDir::new().unwrap();
     let path = write_then(&dir, "unknown_type.nir", |file| {
@@ -236,6 +297,66 @@ fn dangling_edge_is_rejected_unless_validation_is_disabled() {
     )
     .unwrap();
     assert_eq!(nir_rs::io::read(&path).unwrap().edges, graph.edges);
+}
+
+#[test]
+fn node_name_with_a_nul_byte_is_rejected_before_the_file_is_created() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("existing.nir");
+
+    // Something valuable is already at the destination.
+    let mut good = NirGraph::new();
+    good.insert_node("input", input(vec![1])).unwrap();
+    nir_rs::io::write(&path, &good).unwrap();
+    let before = std::fs::metadata(&path).unwrap().len();
+
+    let mut bad = NirGraph::new();
+    bad.insert_node("na\0me", input(vec![1])).unwrap();
+    let err = nir_rs::io::write(&path, &bad).unwrap_err();
+    assert!(matches!(err, NirError::InvalidGraph(_)), "got {err:?}");
+    assert!(err.to_string().contains("NUL"), "got {err}");
+
+    // The rejected write must not have truncated the existing file.
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
+    assert_eq!(nir_rs::io::read(&path).unwrap().len(), 1);
+}
+
+#[test]
+fn subgraph_carrying_a_version_is_rejected() {
+    // The wire format has a single root `/version`, so a nested one would be
+    // silently dropped on write and absent again on read.
+    let dir = TempDir::new().unwrap();
+    let mut inner = NirGraph::new();
+    inner.version = Some("0.2.0".into());
+    inner.insert_node("input", input(vec![1])).unwrap();
+
+    let mut outer = NirGraph::new();
+    outer
+        .insert_node("sub", NirNode::Graph(Box::new(inner)))
+        .unwrap();
+
+    let path = dir.path().join("nested_version.nir");
+    let err = nir_rs::io::write(&path, &outer).unwrap_err();
+    match err {
+        NirError::InvalidGraph(message) => {
+            assert!(message.contains("sub"), "got {message}");
+            assert!(message.contains("version"), "got {message}");
+        }
+        other => panic!("expected InvalidGraph, got {other:?}"),
+    }
+
+    // Opting out of validation writes it anyway, dropping the nested version.
+    nir_rs::io::write_with(
+        &path,
+        &outer,
+        &WriteOptions::default().with_validation(false),
+    )
+    .unwrap();
+    let decoded = nir_rs::io::read(&path).unwrap();
+    let NirNode::Graph(sub) = decoded.get("sub").unwrap() else {
+        panic!("expected a nested graph");
+    };
+    assert_eq!(sub.version, None);
 }
 
 #[test]
