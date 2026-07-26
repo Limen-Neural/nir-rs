@@ -38,7 +38,7 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
     // represent the rejected names at all.
     if opts.validate {
         graph.validate_structure()?;
-        check_no_nested_versions(graph)?;
+        check_representable(graph)?;
     }
     check_names(graph)?;
 
@@ -57,10 +57,17 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
     write_graph_body(&Writer::new(&root, opts), graph)
 }
 
-/// Reject node names that HDF5 cannot represent as a link, at any nesting depth.
+/// Reject every caller-supplied string that HDF5 cannot use as a link name,
+/// at any nesting depth.
+///
+/// This runs before `File::create`, because a name rejected by HDF5 itself
+/// fails only at link-creation time — after an existing file at the
+/// destination has already been truncated.
 fn check_names(graph: &NirGraph) -> Result<()> {
+    check_metadata_keys(&graph.metadata)?;
     for (name, node) in &graph.nodes {
-        wire::check_node_name(name)?;
+        wire::check_link_name("node name", name)?;
+        check_metadata_keys(node_metadata(node))?;
         if let NirNode::Graph(sub) = node {
             check_names(sub)?;
         }
@@ -68,26 +75,77 @@ fn check_names(graph: &NirGraph) -> Result<()> {
     Ok(())
 }
 
-/// Reject a version string on a nested subgraph.
+fn check_metadata_keys(metadata: &MetadataMap) -> Result<()> {
+    for key in metadata.keys() {
+        wire::check_link_name("metadata key", key)?;
+    }
+    Ok(())
+}
+
+/// Reject in-memory values the wire format cannot carry back unchanged.
 ///
-/// The wire format has exactly one `/version`, at the root, so a version set
-/// on a `NirNode::Graph` has nowhere to go. Writing it silently would make
-/// `read(write(g)) != g` for the caller's own graph; saying so is better than
-/// dropping the value. Callers who genuinely want it dropped can turn the
-/// check off with [`WriteOptions::with_validation`].
-fn check_no_nested_versions(graph: &NirGraph) -> Result<()> {
+/// Both cases below would otherwise make `read(write(g)) != g` for the
+/// caller's own graph, silently. Callers who want the value dropped anyway can
+/// turn the check off with [`WriteOptions::with_validation`].
+fn check_representable(graph: &NirGraph) -> Result<()> {
+    check_metadata_values(&graph.metadata, "graph metadata")?;
     for (name, node) in &graph.nodes {
+        check_metadata_values(node_metadata(node), &format!("metadata of node {name:?}"))?;
         if let NirNode::Graph(sub) = node {
+            // The wire format has exactly one `/version`, at the root, so a
+            // version on a nested graph has nowhere to go.
             if sub.version.is_some() {
                 return Err(NirError::InvalidGraph(format!(
                     "subgraph {name:?} carries a version, but the wire format has \
                      only the root /version; clear it or set it on the root graph"
                 )));
             }
-            check_no_nested_versions(sub)?;
+            check_representable(sub)?;
         }
     }
     Ok(())
+}
+
+/// A rank-0 metadata tensor is indistinguishable on the wire from a plain
+/// [`MetadataValue::F64`] / `I64` / `Bool`, so it would decode as the scalar
+/// variant instead of a tensor.
+fn check_metadata_values(metadata: &MetadataMap, context: &str) -> Result<()> {
+    for (key, value) in metadata {
+        if let MetadataValue::Tensor(t) = value
+            && t.shape().is_empty()
+        {
+            return Err(NirError::InvalidGraph(format!(
+                "{context}: {key:?} is a rank-0 tensor, which the wire format cannot \
+                 tell apart from a scalar; use MetadataValue::F64/I64/Bool instead"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// The metadata map of any node, including a nested graph's own.
+fn node_metadata(node: &NirNode) -> &MetadataMap {
+    match node {
+        NirNode::Input(n) => &n.metadata,
+        NirNode::Output(n) => &n.metadata,
+        NirNode::Affine(n) => &n.metadata,
+        NirNode::Linear(n) => &n.metadata,
+        NirNode::Scale(n) => &n.metadata,
+        NirNode::Conv1d(n) => &n.metadata,
+        NirNode::Conv2d(n) => &n.metadata,
+        NirNode::CubaLi(n) => &n.metadata,
+        NirNode::CubaLif(n) => &n.metadata,
+        NirNode::Delay(n) => &n.metadata,
+        NirNode::Flatten(n) => &n.metadata,
+        NirNode::I(n) => &n.metadata,
+        NirNode::If(n) => &n.metadata,
+        NirNode::Li(n) => &n.metadata,
+        NirNode::Lif(n) => &n.metadata,
+        NirNode::SumPool2d(n) => &n.metadata,
+        NirNode::AvgPool2d(n) => &n.metadata,
+        NirNode::Threshold(n) => &n.metadata,
+        NirNode::Graph(sub) => &sub.metadata,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -139,29 +197,29 @@ fn write_node(w: &Writer, node: &NirNode) -> Result<()> {
         return write_graph_body(w, sub);
     }
 
-    let metadata = match node {
-        NirNode::Input(n) => write_input(w, n).map(|()| &n.metadata),
-        NirNode::Output(n) => write_output(w, n).map(|()| &n.metadata),
-        NirNode::Affine(n) => write_affine(w, n).map(|()| &n.metadata),
-        NirNode::Linear(n) => write_linear(w, n).map(|()| &n.metadata),
-        NirNode::Scale(n) => write_scale(w, n).map(|()| &n.metadata),
-        NirNode::Conv1d(n) => write_conv1d(w, n).map(|()| &n.metadata),
-        NirNode::Conv2d(n) => write_conv2d(w, n).map(|()| &n.metadata),
-        NirNode::CubaLi(n) => write_cuba_li(w, n).map(|()| &n.metadata),
-        NirNode::CubaLif(n) => write_cuba_lif(w, n).map(|()| &n.metadata),
-        NirNode::Delay(n) => write_delay(w, n).map(|()| &n.metadata),
-        NirNode::Flatten(n) => write_flatten(w, n).map(|()| &n.metadata),
-        NirNode::I(n) => write_i(w, n).map(|()| &n.metadata),
-        NirNode::If(n) => write_if(w, n).map(|()| &n.metadata),
-        NirNode::Li(n) => write_li(w, n).map(|()| &n.metadata),
-        NirNode::Lif(n) => write_lif(w, n).map(|()| &n.metadata),
-        NirNode::SumPool2d(n) => write_sum_pool2d(w, n).map(|()| &n.metadata),
-        NirNode::AvgPool2d(n) => write_avg_pool2d(w, n).map(|()| &n.metadata),
-        NirNode::Threshold(n) => write_threshold(w, n).map(|()| &n.metadata),
+    match node {
+        NirNode::Input(n) => write_input(w, n)?,
+        NirNode::Output(n) => write_output(w, n)?,
+        NirNode::Affine(n) => write_affine(w, n)?,
+        NirNode::Linear(n) => write_linear(w, n)?,
+        NirNode::Scale(n) => write_scale(w, n)?,
+        NirNode::Conv1d(n) => write_conv1d(w, n)?,
+        NirNode::Conv2d(n) => write_conv2d(w, n)?,
+        NirNode::CubaLi(n) => write_cuba_li(w, n)?,
+        NirNode::CubaLif(n) => write_cuba_lif(w, n)?,
+        NirNode::Delay(n) => write_delay(w, n)?,
+        NirNode::Flatten(n) => write_flatten(w, n)?,
+        NirNode::I(n) => write_i(w, n)?,
+        NirNode::If(n) => write_if(w, n)?,
+        NirNode::Li(n) => write_li(w, n)?,
+        NirNode::Lif(n) => write_lif(w, n)?,
+        NirNode::SumPool2d(n) => write_sum_pool2d(w, n)?,
+        NirNode::AvgPool2d(n) => write_avg_pool2d(w, n)?,
+        NirNode::Threshold(n) => write_threshold(w, n)?,
         NirNode::Graph(_) => unreachable!("handled above"),
-    }?;
+    }
 
-    write_metadata(w, metadata)
+    write_metadata(w, node_metadata(node))
 }
 
 // ---------------------------------------------------------------------------

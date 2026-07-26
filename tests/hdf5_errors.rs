@@ -10,7 +10,7 @@
 
 use nir_rs::io::WriteOptions;
 use nir_rs::nodes::{Input, Output};
-use nir_rs::types::Tensor;
+use nir_rs::types::{MetadataValue, Tensor};
 use nir_rs::{NirError, NirGraph, NirNode};
 use tempfile::TempDir;
 
@@ -319,6 +319,129 @@ fn node_name_with_a_nul_byte_is_rejected_before_the_file_is_created() {
     // The rejected write must not have truncated the existing file.
     assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
     assert_eq!(nir_rs::io::read(&path).unwrap().len(), 1);
+}
+
+#[test]
+fn metadata_key_with_a_slash_is_rejected_before_the_file_is_created() {
+    // Metadata keys become HDF5 link names too, so they need the same
+    // preflight as node names — otherwise the failure lands after truncation.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("existing.nir");
+
+    let mut good = NirGraph::new();
+    good.insert_node("input", input(vec![1])).unwrap();
+    nir_rs::io::write(&path, &good).unwrap();
+    let before = std::fs::metadata(&path).unwrap().len();
+
+    let mut bad = NirGraph::new();
+    bad.metadata
+        .insert("nested/key".into(), MetadataValue::String("boom".into()));
+    let err = nir_rs::io::write(&path, &bad).unwrap_err();
+    match err {
+        NirError::InvalidGraph(message) => {
+            assert!(message.contains("metadata key"), "got {message}");
+            assert!(message.contains("nested/key"), "got {message}");
+        }
+        other => panic!("expected InvalidGraph, got {other:?}"),
+    }
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
+}
+
+#[test]
+fn node_metadata_keys_are_checked_too() {
+    let dir = TempDir::new().unwrap();
+    let mut node_metadata = nir_rs::types::MetadataMap::new();
+    node_metadata.insert("bad\0key".into(), MetadataValue::I64(1));
+
+    let mut graph = NirGraph::new();
+    graph
+        .insert_node(
+            "input",
+            NirNode::Input(Input {
+                shape: vec![1],
+                metadata: node_metadata,
+            }),
+        )
+        .unwrap();
+
+    let err = nir_rs::io::write(dir.path().join("bad_node_key.nir"), &graph).unwrap_err();
+    assert!(err.to_string().contains("metadata key"), "got {err}");
+    assert!(err.to_string().contains("NUL"), "got {err}");
+}
+
+#[test]
+fn rank_0_metadata_tensor_is_rejected_as_ambiguous() {
+    // A rank-0 tensor and a MetadataValue::F64 are the same dataset on the
+    // wire, so the tensor would decode back as the scalar variant.
+    let dir = TempDir::new().unwrap();
+    let mut graph = NirGraph::new();
+    graph.metadata.insert(
+        "scalar".into(),
+        MetadataValue::Tensor(Tensor::scalar_f32(1.5)),
+    );
+
+    let path = dir.path().join("scalar_metadata.nir");
+    let err = nir_rs::io::write(&path, &graph).unwrap_err();
+    match err {
+        NirError::InvalidGraph(message) => {
+            assert!(message.contains("rank-0"), "got {message}");
+            assert!(message.contains("scalar"), "got {message}");
+        }
+        other => panic!("expected InvalidGraph, got {other:?}"),
+    }
+
+    // With validation off it is written, and decodes as the scalar variant —
+    // which is exactly the lossiness the check exists to surface.
+    nir_rs::io::write_with(
+        &path,
+        &graph,
+        &WriteOptions::default().with_validation(false),
+    )
+    .unwrap();
+    assert_eq!(
+        nir_rs::io::read(&path).unwrap().metadata.get("scalar"),
+        Some(&MetadataValue::F64(1.5))
+    );
+}
+
+#[test]
+fn optional_field_of_the_wrong_link_kind_is_not_treated_as_absent() {
+    // A `v_reset` group is malformed, not missing: defaulting it to zeros
+    // would silently change the model.
+    let dir = TempDir::new().unwrap();
+    let mut graph = NirGraph::new();
+    graph
+        .insert_node(
+            "lif",
+            NirNode::Lif(nir_rs::nodes::Lif {
+                tau: Tensor::from_f64([1], vec![10.0]).unwrap(),
+                r: Tensor::from_f64([1], vec![1.0]).unwrap(),
+                v_leak: Tensor::from_f64([1], vec![0.0]).unwrap(),
+                v_threshold: Tensor::from_f64([1], vec![1.0]).unwrap(),
+                v_reset: None,
+                metadata: Default::default(),
+            }),
+        )
+        .unwrap();
+
+    let path = dir.path().join("bad_v_reset.nir");
+    nir_rs::io::write(&path, &graph).unwrap();
+    {
+        let file = hdf5::File::open_rw(&path).unwrap();
+        file.group("node/nodes/lif")
+            .unwrap()
+            .create_group("v_reset")
+            .unwrap();
+    }
+
+    let err = nir_rs::io::read(&path).unwrap_err();
+    match err {
+        NirError::Io(message) => {
+            assert!(message.contains("lif.v_reset"), "got {message}");
+            assert!(message.contains("expected a dataset"), "got {message}");
+        }
+        other => panic!("expected Io, got {other:?}"),
+    }
 }
 
 #[test]

@@ -242,8 +242,10 @@ pub fn write(path: impl AsRef<Path>, graph: &NirGraph) -> Result<()> {
 /// # Errors
 ///
 /// - [`NirError::MissingNode`] / [`NirError::DuplicateEdge`] /
-///   [`NirError::InvalidGraph`] if the graph does not validate, or a node name
-///   is not a legal HDF5 link name (see [`wire::check_node_name`])
+///   [`NirError::InvalidGraph`] if the graph does not validate, if a node name
+///   or metadata key is not a legal HDF5 link name (see
+///   [`wire::check_link_name`]), or if it holds a value the wire format cannot
+///   carry back unchanged (a nested graph version, or a rank-0 metadata tensor)
 /// - [`NirError::Io`] if the file cannot be created or a dataset cannot be
 ///   written
 /// - [`NirError::Unimplemented`] if the `hdf5` feature is off

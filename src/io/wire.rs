@@ -101,37 +101,41 @@ pub fn padding_from_wire_str(s: &str) -> Result<Padding> {
     }
 }
 
-/// Check that `name` can be used as an HDF5 link name for a graph node.
+/// Check that `name` can be used as an HDF5 link name.
 ///
-/// HDF5 splits paths on `/`, so a node name containing one would silently
-/// create a nested group and change the graph on the next read. `.` and `..`
-/// are reserved path components, link names are C strings and so cannot carry
-/// an embedded NUL, and an empty name has no valid encoding.
+/// Applies to every caller-supplied string that becomes a link in the file:
+/// graph node names and metadata keys. HDF5 splits paths on `/`, so a name
+/// containing one would silently nest and change the graph on the next read;
+/// `.` and `..` are reserved path components; link names are C strings and so
+/// cannot carry an embedded NUL; and an empty name has no valid encoding.
 ///
-/// Callers should run this **before** creating the destination file: every
-/// rejected name fails at group-creation time otherwise, by which point an
-/// existing file has already been truncated.
+/// Callers should run this **before** creating the destination file. Every
+/// rejected name otherwise fails at link-creation time, by which point an
+/// existing file at that path has already been truncated.
+///
+/// `kind` names what is being checked (`"node name"`, `"metadata key"`) and
+/// appears in the error.
 ///
 /// # Errors
 ///
 /// Returns [`NirError::InvalidGraph`] describing the offending name.
-pub fn check_node_name(name: &str) -> Result<()> {
+pub fn check_link_name(kind: &str, name: &str) -> Result<()> {
     if name.is_empty() {
-        return Err(NirError::InvalidGraph("node name must not be empty".into()));
+        return Err(NirError::InvalidGraph(format!("{kind} must not be empty")));
     }
     if name.contains('/') {
         return Err(NirError::InvalidGraph(format!(
-            "node name {name:?} must not contain '/' (HDF5 path separator)"
+            "{kind} {name:?} must not contain '/' (HDF5 path separator)"
         )));
     }
     if name.contains('\0') {
         return Err(NirError::InvalidGraph(format!(
-            "node name {name:?} must not contain a NUL byte (HDF5 link names are C strings)"
+            "{kind} {name:?} must not contain a NUL byte (HDF5 link names are C strings)"
         )));
     }
     if name == "." || name == ".." {
         return Err(NirError::InvalidGraph(format!(
-            "node name {name:?} is a reserved HDF5 path component"
+            "{kind} {name:?} is a reserved HDF5 path component"
         )));
     }
     Ok(())
@@ -346,18 +350,24 @@ mod tests {
     #[test]
     fn node_names_with_dots_are_allowed() {
         // Real upstream fixtures use names like "lif1.lif".
-        assert!(check_node_name("lif1.lif").is_ok());
-        assert!(check_node_name("0").is_ok());
+        assert!(check_link_name("node name", "lif1.lif").is_ok());
+        assert!(check_link_name("node name", "0").is_ok());
     }
 
     #[test]
-    fn illegal_node_names_are_rejected() {
+    fn illegal_link_names_are_rejected() {
         for bad in ["", "a/b", ".", "..", "nul\0inside"] {
-            let err = check_node_name(bad).unwrap_err();
+            let err = check_link_name("node name", bad).unwrap_err();
             assert!(
                 matches!(err, NirError::InvalidGraph(_)),
                 "{bad:?} should be rejected"
             );
         }
+    }
+
+    #[test]
+    fn the_kind_label_appears_in_the_error() {
+        let err = check_link_name("metadata key", "a/b").unwrap_err();
+        assert!(err.to_string().contains("metadata key"), "got {err}");
     }
 }

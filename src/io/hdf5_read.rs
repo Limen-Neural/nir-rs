@@ -400,10 +400,26 @@ impl NodeReader<'_> {
         format!("{}.{field}", self.name)
     }
 
+    /// The dataset for an optional field, or [`None`] when it is absent.
+    ///
+    /// A link that *exists* but is not a dataset is an error rather than an
+    /// absent field: treating a malformed `v_reset` group as "not there" would
+    /// silently synthesize a default and change the model.
+    fn optional(&self, field: &str) -> Result<Option<Dataset>> {
+        if !self.group.link_exists(field) {
+            return Ok(None);
+        }
+        self.group.dataset(field).map(Some).map_err(|e| {
+            NirError::Io(format!(
+                "{}: expected a dataset, found another link kind: {e}",
+                self.context(field)
+            ))
+        })
+    }
+
     fn required(&self, field: &str) -> Result<Dataset> {
-        self.group
-            .dataset(field)
-            .map_err(|_| NirError::MissingField(self.context(field)))
+        self.optional(field)?
+            .ok_or_else(|| NirError::MissingField(self.context(field)))
     }
 
     fn tensor(&self, field: &str) -> Result<Tensor> {
@@ -411,9 +427,9 @@ impl NodeReader<'_> {
     }
 
     fn opt_tensor(&self, field: &str) -> Result<Option<Tensor>> {
-        match self.group.dataset(field) {
-            Ok(ds) => read_tensor(&ds, &self.context(field)).map(Some),
-            Err(_) => Ok(None),
+        match self.optional(field)? {
+            Some(ds) => read_tensor(&ds, &self.context(field)).map(Some),
+            None => Ok(None),
         }
     }
 
@@ -421,17 +437,21 @@ impl NodeReader<'_> {
         read_ints(&self.required(field)?, &self.context(field))
     }
 
+    fn opt_ints(&self, field: &str) -> Result<Option<Vec<i64>>> {
+        match self.optional(field)? {
+            Some(ds) => read_ints(&ds, &self.context(field)).map(Some),
+            None => Ok(None),
+        }
+    }
+
     fn int_scalar(&self, field: &str) -> Result<i64> {
         single_int(self.ints(field)?, &self.context(field))
     }
 
     fn opt_int_scalar(&self, field: &str) -> Result<Option<i64>> {
-        match self.group.dataset(field) {
-            Ok(ds) => {
-                let context = self.context(field);
-                single_int(read_ints(&ds, &context)?, &context).map(Some)
-            }
-            Err(_) => Ok(None),
+        match self.opt_ints(field)? {
+            Some(values) => single_int(values, &self.context(field)).map(Some),
+            None => Ok(None),
         }
     }
 
@@ -440,12 +460,9 @@ impl NodeReader<'_> {
     }
 
     fn opt_usizes(&self, field: &str) -> Result<Option<Vec<usize>>> {
-        match self.group.dataset(field) {
-            Ok(ds) => {
-                let context = self.context(field);
-                to_usizes(read_ints(&ds, &context)?, &context).map(Some)
-            }
-            Err(_) => Ok(None),
+        match self.opt_ints(field)? {
+            Some(values) => to_usizes(values, &self.context(field)).map(Some),
+            None => Ok(None),
         }
     }
 
