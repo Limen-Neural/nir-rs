@@ -613,12 +613,9 @@ fn validate_group_links(group: &Group, context: &str) -> Result<()> {
 
 /// Validate that a dataset does not use disallowed storage layouts.
 ///
-/// Rejects external storage (H5D_EXTERNAL) so dataset data cannot be pulled
-/// from files outside the `.nir` file. Fail closed when the dataset creation
-/// property list cannot be read. Note: hdf5-metno 0.14 does not compile its
-/// `Layout::Virtual` variant, so VDS layouts cannot be detected through the
-/// high-level API; external links and external storage are the enforced
-/// boundaries.
+/// Rejects external storage (H5D_EXTERNAL) and virtual (VDS) layouts, so a
+/// dataset's raw data can only come from inside the `.nir` file itself. Fails
+/// closed when the dataset creation property list cannot be read.
 fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
     let dcpl = ds.dcpl().map_err(|e| {
         NirError::Io(format!(
