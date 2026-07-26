@@ -48,6 +48,9 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
         .or_else(|| graph.version.clone())
         .unwrap_or_else(|| DEFAULT_NIR_VERSION.to_owned());
 
+    check_string_values(graph, &version)?;
+    check_conv2d_input_shapes(graph)?;
+
     let file = File::create(path)
         .map_err(|e| NirError::Io(format!("cannot create {}: {e}", path.display())))?;
     write_string(&file, KEY_VERSION, &version)?;
@@ -78,6 +81,57 @@ fn check_names(graph: &NirGraph) -> Result<()> {
 fn check_metadata_keys(metadata: &MetadataMap) -> Result<()> {
     for key in metadata.keys() {
         wire::check_link_name("metadata key", key)?;
+    }
+    Ok(())
+}
+
+/// Reject HDF5 string payloads that would fail after the file is truncated.
+fn check_string_values(graph: &NirGraph, version: &str) -> Result<()> {
+    wire::check_hdf5_string("version", version)?;
+    check_graph_string_values(graph)
+}
+
+fn check_graph_string_values(graph: &NirGraph) -> Result<()> {
+    check_metadata_string_values(&graph.metadata, "graph metadata")?;
+    for (src, dst) in &graph.edges {
+        wire::check_hdf5_string("edge source", src)?;
+        wire::check_hdf5_string("edge destination", dst)?;
+    }
+    for (name, node) in &graph.nodes {
+        check_metadata_string_values(node_metadata(node), &format!("metadata of node {name:?}"))?;
+        if let NirNode::Graph(sub) = node {
+            check_graph_string_values(sub)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_metadata_string_values(metadata: &MetadataMap, context: &str) -> Result<()> {
+    for (key, value) in metadata {
+        if let MetadataValue::String(s) = value {
+            wire::check_hdf5_string(&format!("{context} {key:?}"), s)?;
+        }
+    }
+    Ok(())
+}
+
+/// `Conv2d.input_shape` is a spatial pair on the wire; other lengths are invalid.
+fn check_conv2d_input_shapes(graph: &NirGraph) -> Result<()> {
+    for (name, node) in &graph.nodes {
+        match node {
+            NirNode::Conv2d(conv) => {
+                if let Some(shape) = &conv.input_shape
+                    && shape.len() != 2
+                {
+                    return Err(NirError::InvalidGraph(format!(
+                        "Conv2d {name:?} input_shape must be a (N_x, N_y) pair, found {} values",
+                        shape.len()
+                    )));
+                }
+            }
+            NirNode::Graph(sub) => check_conv2d_input_shapes(sub)?,
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -272,6 +326,12 @@ fn write_conv2d(w: &Writer, node: &Conv2d) -> Result<()> {
     w.scalar("groups", node.groups)?;
     w.tensor("bias", &node.bias)?;
     if let Some(shape) = &node.input_shape {
+        if shape.len() != 2 {
+            return Err(NirError::InvalidGraph(format!(
+                "Conv2d input_shape must be a (N_x, N_y) pair, found {} values",
+                shape.len()
+            )));
+        }
         w.usizes("input_shape", shape)?;
     }
     Ok(())

@@ -141,6 +141,24 @@ pub fn check_link_name(kind: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Check that `value` can be stored in an HDF5 string dataset.
+///
+/// Link names and string payloads share the C-string constraint: an embedded
+/// NUL cannot be encoded. Call this **before** creating the destination file,
+/// alongside [`check_link_name`].
+///
+/// # Errors
+///
+/// Returns [`NirError::InvalidGraph`] when `value` contains a NUL byte.
+pub fn check_hdf5_string(kind: &str, value: &str) -> Result<()> {
+    if value.contains('\0') {
+        return Err(NirError::InvalidGraph(format!(
+            "{kind} {value:?} must not contain a NUL byte (HDF5 strings are C strings)"
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,5 +387,13 @@ mod tests {
     fn the_kind_label_appears_in_the_error() {
         let err = check_link_name("metadata key", "a/b").unwrap_err();
         assert!(err.to_string().contains("metadata key"), "got {err}");
+    }
+
+    #[test]
+    fn nul_bytes_in_string_values_are_rejected() {
+        let err = check_hdf5_string("version", "0.2\0.0").unwrap_err();
+        assert!(matches!(err, NirError::InvalidGraph(_)));
+        assert!(err.to_string().contains("version"), "got {err}");
+        assert!(err.to_string().contains("NUL"), "got {err}");
     }
 }

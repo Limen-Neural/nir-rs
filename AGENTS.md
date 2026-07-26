@@ -47,6 +47,15 @@ cargo doc --no-deps --all-features
 `--all-features` enables `hdf5`, which links libhdf5: install `libhdf5-dev`
 (Ubuntu) or `hdf5` (Homebrew) first.
 
+### Dev container / cloud agent
+
+The repo ships a Dockerfile-backed environment so agents and local editors start
+with Rust 1.97 + `libhdf5-dev` already installed:
+
+- Cloud agents: [`.cursor/environment.json`](.cursor/environment.json) →
+  [`.cursor/Dockerfile`](.cursor/Dockerfile)
+- VS Code / Cursor Desktop: [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json)
+
 **No Python.** Wire compatibility is verified by reading real `.nir` files
 vendored from upstream under `tests/fixtures/` — do not add Python scripts,
 Python test harnesses, or a Python step to CI.

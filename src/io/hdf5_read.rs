@@ -26,7 +26,7 @@ use crate::types::{MetadataMap, MetadataValue, Tensor, TensorData};
 use hdf5::types::{
     FixedAscii, FixedUnicode, FloatSize, IntSize, TypeDescriptor as Td, VarLenAscii, VarLenUnicode,
 };
-use hdf5::{Dataset, File, Group};
+use hdf5::{Dataset, File, Group, LocationToken};
 use std::path::Path;
 
 /// Read a whole `.nir` file.
@@ -53,7 +53,7 @@ pub(super) fn read(path: &Path) -> Result<NirGraph> {
         )));
     }
 
-    let mut graph = read_graph_body(&root, &format!("/{KEY_NODE}"))?;
+    let mut graph = read_graph_body(&root, &format!("/{KEY_NODE}"), &mut Vec::new())?;
     graph.metadata = read_metadata(&root)?;
     // A missing /version is not an error; `read_version` is the strict accessor.
     graph.version = match file.dataset(KEY_VERSION) {
@@ -90,7 +90,30 @@ fn open(path: &Path) -> Result<File> {
 /// asserts their presence even for an empty graph. Defaulting a missing
 /// `edges` to "no connections" would turn a truncated file into a silently
 /// disconnected model.
-fn read_graph_body(group: &Group, context: &str) -> Result<NirGraph> {
+fn read_graph_body(
+    group: &Group,
+    context: &str,
+    visited: &mut Vec<LocationToken>,
+) -> Result<NirGraph> {
+    let token = group.loc_info()?.token;
+    if visited.contains(&token) {
+        return Err(NirError::InvalidGraph(format!(
+            "{context}: nested NIRGraph hard-link cycle detected"
+        )));
+    }
+    visited.push(token);
+    // Pop on every exit path so a diamond of hard-links (same subgraph reached
+    // via two parents) is allowed, while a link back to an ancestor is not.
+    let result = read_graph_body_uncycled(group, context, visited);
+    visited.pop();
+    result
+}
+
+fn read_graph_body_uncycled(
+    group: &Group,
+    context: &str,
+    visited: &mut Vec<LocationToken>,
+) -> Result<NirGraph> {
     let mut graph = NirGraph::new();
 
     let nodes = group
@@ -104,7 +127,7 @@ fn read_graph_body(group: &Group, context: &str) -> Result<NirGraph> {
         let node_group = nodes
             .group(&name)
             .map_err(|e| NirError::Io(format!("node {name:?} is not a group: {e}")))?;
-        let node = read_node(&node_group, &name)?;
+        let node = read_node(&node_group, &name, visited)?;
         graph.insert_node(name, node)?;
     }
 
@@ -139,7 +162,7 @@ fn read_edges(ds: &Dataset) -> Result<Vec<(String, String)>> {
 // Node dispatch
 // ---------------------------------------------------------------------------
 
-fn read_node(group: &Group, name: &str) -> Result<NirNode> {
+fn read_node(group: &Group, name: &str, visited: &mut Vec<LocationToken>) -> Result<NirNode> {
     let type_ds = group
         .dataset(KEY_TYPE)
         .map_err(|_| NirError::MissingField(format!("{name}.{KEY_TYPE}")))?;
@@ -167,7 +190,7 @@ fn read_node(group: &Group, name: &str) -> Result<NirNode> {
         "AvgPool2d" => NirNode::AvgPool2d(read_avg_pool2d(&r, metadata)?),
         "Threshold" => NirNode::Threshold(read_threshold(&r, metadata)?),
         "NIRGraph" => {
-            let mut sub = read_graph_body(group, name)?;
+            let mut sub = read_graph_body(group, name, visited)?;
             sub.metadata = metadata;
             NirNode::Graph(Box::new(sub))
         }
@@ -534,9 +557,16 @@ fn single_int(values: Vec<i64>, context: &str) -> Result<i64> {
 // ---------------------------------------------------------------------------
 
 fn read_metadata(group: &Group) -> Result<MetadataMap> {
-    let Ok(md) = group.group(KEY_METADATA) else {
+    // Absent is fine (empty map). A present link of the wrong kind — e.g. a
+    // dataset named `metadata` — is an error, not silent data loss.
+    if !group.link_exists(KEY_METADATA) {
         return Ok(MetadataMap::new());
-    };
+    }
+    let md = group.group(KEY_METADATA).map_err(|e| {
+        NirError::Io(format!(
+            "{KEY_METADATA}: expected a group, found another link kind: {e}"
+        ))
+    })?;
     let mut out = MetadataMap::new();
     for key in md.member_names()? {
         let ds = md.dataset(&key).map_err(|e| {
@@ -552,14 +582,26 @@ fn read_metadata(group: &Group) -> Result<MetadataMap> {
 
 fn read_metadata_value(ds: &Dataset, key: &str) -> Result<MetadataValue> {
     let scalar = ds.shape().is_empty();
+    let context = format!("{KEY_METADATA}.{key}");
     let value = match ds.dtype()?.to_descriptor()? {
         Td::VarLenUnicode | Td::VarLenAscii | Td::FixedAscii(_) | Td::FixedUnicode(_) => {
             MetadataValue::String(read_string_scalar(ds, key)?)
         }
         Td::Boolean if scalar => MetadataValue::Bool(ds.read_scalar::<bool>()?),
         Td::Float(_) if scalar => MetadataValue::F64(ds.read_scalar::<f64>()?),
-        Td::Integer(_) | Td::Unsigned(_) if scalar => MetadataValue::I64(ds.read_scalar::<i64>()?),
-        _ => MetadataValue::Tensor(read_tensor(ds, &format!("{KEY_METADATA}.{key}"))?),
+        Td::Integer(_) if scalar => MetadataValue::I64(ds.read_scalar::<i64>()?),
+        Td::Unsigned(IntSize::U8) if scalar => {
+            // Same checked conversion as tensor `u64` payloads — HDF5's own
+            // i64 cast can saturate above i64::MAX.
+            let v = ds.read_scalar::<u64>()?;
+            MetadataValue::I64(i64::try_from(v).map_err(|_| {
+                NirError::InvalidTensor(format!("{context}: u64 value {v} does not fit in i64"))
+            })?)
+        }
+        Td::Unsigned(IntSize::U1 | IntSize::U2 | IntSize::U4) if scalar => {
+            MetadataValue::I64(ds.read_scalar::<i64>()?)
+        }
+        _ => MetadataValue::Tensor(read_tensor(ds, &context)?),
     };
     Ok(value)
 }
