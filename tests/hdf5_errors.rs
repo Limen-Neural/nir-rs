@@ -15,7 +15,7 @@ use nir_rs::{NirError, NirGraph, NirNode};
 use tempfile::TempDir;
 
 /// Assert that a Result is an error of the expected variant with a message containing the needle.
-fn assert_err<T>(
+fn assert_err<T: std::fmt::Debug>(
     result: Result<T, NirError>,
     expected_variant: fn(String) -> NirError,
     needle: &str,

@@ -566,63 +566,47 @@ fn single_int(values: Vec<i64>, context: &str) -> Result<i64> {
 /// Checks each member link to ensure it's not an external link that could
 /// reference files outside the current `.nir` file.
 fn validate_group_links(group: &Group, context: &str) -> Result<()> {
-    // The hdf5-rs crate provides link_info() on groups to inspect link types.
-    // We iterate over all members and check each link's type.
-    for name in group.member_names()? {
-        if let Ok(info) = group.link_info(&name) {
-            // LinkInfo exposes link_type() which returns LinkType enum.
-            // LinkType::External indicates H5L_TYPE_EXTERNAL.
-            match info.link_type {
-                hdf5::link::LinkType::External => {
-                    return Err(NirError::InvalidGraph(format!(
-                        "{context}: external link '{name}' is not allowed"
-                    )));
-                }
-                _ => {} // Hard, soft links are fine
+    // H5L_TYPE_EXTERNAL links reference objects in other files; hard and soft
+    // links stay inside this one, so they are fine. `iter_visit_default`
+    // visits the group's immediate members; returning false stops the scan
+    // early once an external link is found.
+    let external = group
+        .iter_visit_default(None, |_group, name, info, found: &mut Option<String>| {
+            if info.link_type == hdf5::LinkType::External {
+                *found = Some(name.to_owned());
+                false
+            } else {
+                true
             }
-        }
+        })
+        .map_err(|e| NirError::Io(format!("{context}: cannot inspect group links: {e}")))?;
+    if let Some(name) = external {
+        return Err(NirError::InvalidGraph(format!(
+            "{context}: external link '{name}' is not allowed"
+        )));
     }
     Ok(())
 }
 
-/// Validate that a dataset does not use disallowed link types or storage layouts.
+/// Validate that a dataset does not use disallowed storage layouts.
 ///
-/// Rejects external links, external storage, and virtual datasets (VDS) to prevent
-/// accessing data outside the `.nir` file. This validation is applied recursively
-/// during metadata and tensor reading.
+/// Rejects external storage (H5D_EXTERNAL) so dataset data cannot be pulled
+/// from files outside the `.nir` file. Fail closed when the dataset creation
+/// property list cannot be read. Note: hdf5-metno 0.14 does not compile its
+/// `Layout::Virtual` variant, so VDS layouts cannot be detected through the
+/// high-level API; external links and external storage are the enforced
+/// boundaries.
 fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
-    // Validate storage layout via the dataset creation property list.
-    // The hdf5-rs crate provides access to layout information through dcpl().
-    if let Ok(dcpl) = ds.dcpl() {
-        // The dcpl provides layout() method to check the storage layout type.
-        // hdf5::dataset::Layout enum has: Compact, Contiguous, Chunked, Virtual.
-        // We reject Virtual layouts as they can reference external files.
-        match dcpl.layout() {
-            Ok(hdf5::dataset::Layout::Virtual) => {
-                return Err(NirError::InvalidGraph(format!(
-                    "{context}: virtual dataset (VDS) layout is not allowed"
-                )));
-            }
-            Ok(_) => {} // Compact, Contiguous, Chunked are all fine
-            Err(e) => {
-                // If we can't determine layout, treat it as an error to be safe
-                return Err(NirError::Io(format!(
-                    "{context}: cannot determine dataset layout: {e}"
-                )));
-            }
-        }
-
-        // Check for external storage (H5D_EXTERNAL) via external_count().
-        // External storage means dataset data is stored in external files.
-        if let Ok(ext_count) = dcpl.external_count() {
-            if ext_count > 0 {
-                return Err(NirError::InvalidGraph(format!(
-                    "{context}: external storage is not allowed ({ext_count} external file(s))"
-                )));
-            }
-        }
+    let dcpl = ds.dcpl().map_err(|e| {
+        NirError::Io(format!("{context}: cannot read dataset creation property list: {e}"))
+    })?;
+    let external = dcpl.external();
+    if !external.is_empty() {
+        return Err(NirError::InvalidGraph(format!(
+            "{context}: external storage is not allowed ({} external file(s))",
+            external.len()
+        )));
     }
-
     Ok(())
 }
 
