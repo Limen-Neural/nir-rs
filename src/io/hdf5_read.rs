@@ -598,7 +598,9 @@ fn validate_group_links(group: &Group, context: &str) -> Result<()> {
 /// boundaries.
 fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
     let dcpl = ds.dcpl().map_err(|e| {
-        NirError::Io(format!("{context}: cannot read dataset creation property list: {e}"))
+        NirError::Io(format!(
+            "{context}: cannot read dataset creation property list: {e}"
+        ))
     })?;
     let external = dcpl.external();
     if !external.is_empty() {
