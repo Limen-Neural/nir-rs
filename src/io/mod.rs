@@ -52,10 +52,49 @@ mod hdf5_write;
 use crate::graph::NirGraph;
 use std::path::Path;
 
-// `NirError` is constructed only in the feature-off bodies below, but the
-// rustdoc links in this module reference it in both builds.
+// `NirError` is constructed only by the feature-off backend, but the rustdoc
+// links throughout this module reference it in both builds.
 #[cfg_attr(feature = "hdf5", allow(unused_imports))]
 use crate::error::{NirError, Result};
+
+/// The three primitives the public functions delegate to.
+///
+/// Selecting the implementation once, here, is what keeps `#[cfg]` out of the
+/// public functions below — they have one body each regardless of features.
+#[cfg(feature = "hdf5")]
+mod backend {
+    pub(super) use super::hdf5_read::{read, read_version};
+    pub(super) use super::hdf5_write::write;
+}
+
+/// Stand-ins used when the `hdf5` feature is off.
+///
+/// The signatures match the real backend so the public API is identical in
+/// both builds; only the outcome differs.
+#[cfg(not(feature = "hdf5"))]
+mod backend {
+    use super::{NirError, NirGraph, Path, Result, WriteOptions};
+
+    pub(super) fn read(_path: &Path) -> Result<NirGraph> {
+        Err(disabled("read"))
+    }
+
+    pub(super) fn read_version(_path: &Path) -> Result<String> {
+        Err(disabled("read_version"))
+    }
+
+    pub(super) fn write(_path: &Path, _graph: &NirGraph, _opts: &WriteOptions) -> Result<()> {
+        Err(disabled("write"))
+    }
+
+    fn disabled(operation: &str) -> NirError {
+        NirError::Unimplemented(match operation {
+            "read" => "io::read (enable feature \"hdf5\")",
+            "read_version" => "io::read_version (enable feature \"hdf5\")",
+            _ => "io::write (enable feature \"hdf5\")",
+        })
+    }
+}
 
 /// Version string written to `/version` when a graph carries none.
 ///
@@ -159,17 +198,7 @@ impl WriteOptions {
 /// # Ok::<(), nir_rs::NirError>(())
 /// ```
 pub fn read(path: impl AsRef<Path>) -> Result<NirGraph> {
-    #[cfg(feature = "hdf5")]
-    {
-        hdf5_read::read(path.as_ref())
-    }
-    #[cfg(not(feature = "hdf5"))]
-    {
-        let _ = path;
-        Err(NirError::Unimplemented(
-            "hdf5 read (enable feature \"hdf5\")",
-        ))
-    }
+    backend::read(path.as_ref())
 }
 
 /// Read only the `/version` string from a `.nir` file.
@@ -179,17 +208,7 @@ pub fn read(path: impl AsRef<Path>) -> Result<NirGraph> {
 /// [`NirError::MissingField`] when the file has no `/version` dataset;
 /// otherwise as [`read`].
 pub fn read_version(path: impl AsRef<Path>) -> Result<String> {
-    #[cfg(feature = "hdf5")]
-    {
-        hdf5_read::read_version(path.as_ref())
-    }
-    #[cfg(not(feature = "hdf5"))]
-    {
-        let _ = path;
-        Err(NirError::Unimplemented(
-            "hdf5 read_version (enable feature \"hdf5\")",
-        ))
-    }
+    backend::read_version(path.as_ref())
 }
 
 /// Write a NIR graph to a `.nir` (HDF5) path, truncating any existing file.
@@ -229,17 +248,7 @@ pub fn write(path: impl AsRef<Path>, graph: &NirGraph) -> Result<()> {
 ///   written
 /// - [`NirError::Unimplemented`] if the `hdf5` feature is off
 pub fn write_with(path: impl AsRef<Path>, graph: &NirGraph, opts: &WriteOptions) -> Result<()> {
-    #[cfg(feature = "hdf5")]
-    {
-        hdf5_write::write(path.as_ref(), graph, opts)
-    }
-    #[cfg(not(feature = "hdf5"))]
-    {
-        let (_, _, _) = (path, graph, opts);
-        Err(NirError::Unimplemented(
-            "hdf5 write (enable feature \"hdf5\")",
-        ))
-    }
+    backend::write(path.as_ref(), graph, opts)
 }
 
 #[cfg(test)]

@@ -54,32 +54,12 @@ fn vec3_f64(values: [f64; 3]) -> Tensor {
     Tensor::from_f64([3], values.to_vec()).unwrap()
 }
 
-/// A graph containing one of every wire node type, wired in a single chain so
-/// it also validates. Node kinds that cannot legally follow one another are
-/// still fine here: `validate_structure` checks endpoints, not shapes.
-fn graph_with_every_node_type() -> NirGraph {
-    let mut inner = NirGraph::new();
-    inner
-        .insert_node(
-            "in",
-            NirNode::Input(Input {
-                shape: vec![3],
-                metadata: Default::default(),
-            }),
-        )
-        .unwrap();
-    inner
-        .insert_node(
-            "out",
-            NirNode::Output(Output {
-                shape: vec![3],
-                metadata: Default::default(),
-            }),
-        )
-        .unwrap();
-    inner.add_edge("in", "out");
+/// Named nodes are built in wire-type groups so each builder stays small and
+/// the reason a node is in the fixture is local to it.
+type NamedNodes = Vec<(&'static str, NirNode)>;
 
-    let nodes: Vec<(&str, NirNode)> = vec![
+fn port_and_linear_nodes() -> NamedNodes {
+    vec![
         (
             "input",
             NirNode::Input(Input {
@@ -109,6 +89,14 @@ fn graph_with_every_node_type() -> NirGraph {
                 metadata: Default::default(),
             }),
         ),
+    ]
+}
+
+/// Both convolutions appear twice: once with explicit integer padding and a
+/// known `input_shape`, once with a symbolic mode and none, so the writer's
+/// string-vs-integer padding branches are both exercised.
+fn conv_nodes() -> NamedNodes {
+    vec![
         (
             "conv1d",
             NirNode::Conv1d(Conv1d {
@@ -161,6 +149,11 @@ fn graph_with_every_node_type() -> NirGraph {
                 metadata: Default::default(),
             }),
         ),
+    ]
+}
+
+fn neuron_nodes() -> NamedNodes {
+    vec![
         (
             "cuba_li",
             NirNode::CubaLi(CubaLi {
@@ -182,31 +175,6 @@ fn graph_with_every_node_type() -> NirGraph {
                 v_threshold: vec3_f64([1., 1., 1.]),
                 v_reset: Some(vec3_f64([0.1, 0.2, 0.3])),
                 w_in: Some(vec3_f64([1., 1., 1.])),
-                metadata: Default::default(),
-            }),
-        ),
-        (
-            "delay",
-            NirNode::Delay(Delay {
-                delay: vec3_f64([1., 2., 3.]),
-                metadata: Default::default(),
-            }),
-        ),
-        (
-            "flatten",
-            NirNode::Flatten(Flatten {
-                start_dim: 1,
-                end_dim: -1,
-                input_type: Some(vec![1, 4, 4]),
-                metadata: Default::default(),
-            }),
-        ),
-        (
-            "flatten_bare",
-            NirNode::Flatten(Flatten {
-                start_dim: 0,
-                end_dim: 2,
-                input_type: None,
                 metadata: Default::default(),
             }),
         ),
@@ -246,6 +214,14 @@ fn graph_with_every_node_type() -> NirGraph {
                 metadata: Default::default(),
             }),
         ),
+    ]
+}
+
+/// Pooling, plus the leaf nodes that have no family of their own. `flatten`
+/// appears twice so both the present and absent `input_type` are covered, and
+/// `threshold` is the only rank-0 tensor in the graph.
+fn pool_and_leaf_nodes() -> NamedNodes {
+    vec![
         (
             "sum_pool",
             NirNode::SumPool2d(SumPool2d {
@@ -265,27 +241,88 @@ fn graph_with_every_node_type() -> NirGraph {
             }),
         ),
         (
+            "delay",
+            NirNode::Delay(Delay {
+                delay: vec3_f64([1., 2., 3.]),
+                metadata: Default::default(),
+            }),
+        ),
+        (
+            "flatten",
+            NirNode::Flatten(Flatten {
+                start_dim: 1,
+                end_dim: -1,
+                input_type: Some(vec![1, 4, 4]),
+                metadata: Default::default(),
+            }),
+        ),
+        (
+            "flatten_bare",
+            NirNode::Flatten(Flatten {
+                start_dim: 0,
+                end_dim: 2,
+                input_type: None,
+                metadata: Default::default(),
+            }),
+        ),
+        (
             "threshold",
             NirNode::Threshold(Threshold {
                 threshold: Tensor::scalar_f64(0.75),
                 metadata: Default::default(),
             }),
         ),
-        ("subgraph", NirNode::Graph(Box::new(inner))),
-        (
-            "output",
+    ]
+}
+
+/// A minimal valid graph, used as the nested `NIRGraph` node.
+fn subgraph() -> NirGraph {
+    let mut inner = NirGraph::new();
+    inner
+        .insert_node(
+            "in",
+            NirNode::Input(Input {
+                shape: vec![3],
+                metadata: Default::default(),
+            }),
+        )
+        .unwrap();
+    inner
+        .insert_node(
+            "out",
             NirNode::Output(Output {
                 shape: vec![3],
                 metadata: Default::default(),
             }),
-        ),
-    ];
+        )
+        .unwrap();
+    inner.add_edge("in", "out");
+    inner
+}
+
+/// A graph containing one of every wire node type, wired in a single chain so
+/// it also validates. Node kinds that cannot legally follow one another are
+/// still fine here: `validate_structure` checks endpoints, not shapes.
+fn graph_with_every_node_type() -> NirGraph {
+    let mut nodes = port_and_linear_nodes();
+    nodes.extend(conv_nodes());
+    nodes.extend(neuron_nodes());
+    nodes.extend(pool_and_leaf_nodes());
+    nodes.push(("subgraph", NirNode::Graph(Box::new(subgraph()))));
+    nodes.push((
+        "output",
+        NirNode::Output(Output {
+            shape: vec![3],
+            metadata: Default::default(),
+        }),
+    ));
 
     let mut graph = NirGraph::new();
-    graph.version = Some("1.0.8".into());
+    graph.version = Some(nir_rs::io::DEFAULT_NIR_VERSION.into());
     for (name, node) in nodes {
         graph.insert_node(name, node).unwrap();
     }
+    // Chain every node in insertion order so the graph validates.
     let names: Vec<String> = graph.nodes.keys().cloned().collect();
     for pair in names.windows(2) {
         graph.add_edge(&pair[0], &pair[1]);

@@ -11,6 +11,9 @@
 //! The only normalization performed is documented on [`super::read`]: element
 //! types are widened losslessly into [`DType`](crate::DType), and absent
 //! optional fields are filled with the upstream Python defaults.
+//!
+//! [`read_node`] is a flat dispatch table over the wire `type` string; the
+//! per-type functions below it own one node kind each.
 
 use super::wire::{self, KEY_EDGES, KEY_METADATA, KEY_NODE, KEY_NODES, KEY_TYPE, KEY_VERSION};
 use crate::error::{NirError, Result};
@@ -60,7 +63,7 @@ fn open(path: &Path) -> Result<File> {
 }
 
 // ---------------------------------------------------------------------------
-// Graph and node structure
+// Graph structure
 // ---------------------------------------------------------------------------
 
 /// Read a graph's `nodes` and `edges`, leaving metadata to the caller.
@@ -111,146 +114,37 @@ fn read_edges(ds: &Dataset) -> Result<Vec<(String, String)>> {
         .collect())
 }
 
+// ---------------------------------------------------------------------------
+// Node dispatch
+// ---------------------------------------------------------------------------
+
 fn read_node(group: &Group, name: &str) -> Result<NirNode> {
     let type_ds = group
         .dataset(KEY_TYPE)
         .map_err(|_| NirError::MissingField(format!("{name}.{KEY_TYPE}")))?;
     let ty = read_string_scalar(&type_ds, name)?;
     let metadata = read_metadata(group)?;
+    let r = NodeReader { group, name };
 
     let node = match ty.as_str() {
-        "Input" => NirNode::Input(Input {
-            shape: usizes(group, "shape", name)?,
-            metadata,
-        }),
-        "Output" => NirNode::Output(Output {
-            shape: usizes(group, "shape", name)?,
-            metadata,
-        }),
-        "Affine" => NirNode::Affine(Affine {
-            weight: tensor(group, "weight", name)?,
-            bias: tensor(group, "bias", name)?,
-            metadata,
-        }),
-        "Linear" => NirNode::Linear(Linear {
-            weight: tensor(group, "weight", name)?,
-            metadata,
-        }),
-        "Scale" => NirNode::Scale(Scale {
-            scale: tensor(group, "scale", name)?,
-            metadata,
-        }),
-        "Conv1d" => NirNode::Conv1d(Conv1d {
-            weight: tensor(group, "weight", name)?,
-            stride: ints(group, "stride", name)?,
-            padding: read_padding(group, name)?,
-            dilation: ints(group, "dilation", name)?,
-            groups: int_scalar(group, "groups", name)?,
-            bias: tensor(group, "bias", name)?,
-            input_shape: match opt_usizes(group, "input_shape", name)? {
-                Some(dims) => Some(single_dim(dims, name, "input_shape")?),
-                None => None,
-            },
-            metadata,
-        }),
-        "Conv2d" => NirNode::Conv2d(Conv2d {
-            weight: tensor(group, "weight", name)?,
-            stride: ints(group, "stride", name)?,
-            padding: read_padding(group, name)?,
-            dilation: ints(group, "dilation", name)?,
-            groups: int_scalar(group, "groups", name)?,
-            bias: tensor(group, "bias", name)?,
-            input_shape: opt_usizes(group, "input_shape", name)?,
-            metadata,
-        }),
-        "CubaLI" => {
-            let v_leak = tensor(group, "v_leak", name)?;
-            NirNode::CubaLi(CubaLi {
-                tau_syn: tensor(group, "tau_syn", name)?,
-                tau_mem: tensor(group, "tau_mem", name)?,
-                r: tensor(group, "r", name)?,
-                w_in: Some(opt_tensor(group, "w_in", name)?.unwrap_or_else(|| v_leak.ones_like())),
-                v_leak,
-                metadata,
-            })
-        }
-        "CubaLIF" => {
-            let v_leak = tensor(group, "v_leak", name)?;
-            let v_threshold = tensor(group, "v_threshold", name)?;
-            NirNode::CubaLif(CubaLif {
-                tau_syn: tensor(group, "tau_syn", name)?,
-                tau_mem: tensor(group, "tau_mem", name)?,
-                r: tensor(group, "r", name)?,
-                v_reset: Some(
-                    opt_tensor(group, "v_reset", name)?.unwrap_or_else(|| v_threshold.zeros_like()),
-                ),
-                w_in: Some(opt_tensor(group, "w_in", name)?.unwrap_or_else(|| v_leak.ones_like())),
-                v_leak,
-                v_threshold,
-                metadata,
-            })
-        }
-        "Delay" => NirNode::Delay(Delay {
-            delay: tensor(group, "delay", name)?,
-            metadata,
-        }),
-        "Flatten" => NirNode::Flatten(Flatten {
-            // Upstream's dataclass defaults are start_dim = 1, end_dim = -1.
-            start_dim: opt_int_scalar(group, "start_dim", name)?.unwrap_or(1),
-            end_dim: opt_int_scalar(group, "end_dim", name)?.unwrap_or(-1),
-            input_type: opt_usizes(group, "input_type", name)?,
-            metadata,
-        }),
-        "I" => NirNode::I(I {
-            r: tensor(group, "r", name)?,
-            metadata,
-        }),
-        "IF" => {
-            let v_threshold = tensor(group, "v_threshold", name)?;
-            NirNode::If(If {
-                r: tensor(group, "r", name)?,
-                v_reset: Some(
-                    opt_tensor(group, "v_reset", name)?.unwrap_or_else(|| v_threshold.zeros_like()),
-                ),
-                v_threshold,
-                metadata,
-            })
-        }
-        "LI" => NirNode::Li(Li {
-            tau: tensor(group, "tau", name)?,
-            r: tensor(group, "r", name)?,
-            v_leak: tensor(group, "v_leak", name)?,
-            metadata,
-        }),
-        "LIF" => {
-            let v_threshold = tensor(group, "v_threshold", name)?;
-            NirNode::Lif(Lif {
-                tau: tensor(group, "tau", name)?,
-                r: tensor(group, "r", name)?,
-                v_leak: tensor(group, "v_leak", name)?,
-                v_reset: Some(
-                    opt_tensor(group, "v_reset", name)?.unwrap_or_else(|| v_threshold.zeros_like()),
-                ),
-                v_threshold,
-                metadata,
-            })
-        }
-        "SumPool2d" => NirNode::SumPool2d(SumPool2d {
-            kernel_size: tensor(group, "kernel_size", name)?,
-            stride: tensor(group, "stride", name)?,
-            padding: tensor(group, "padding", name)?,
-            metadata,
-        }),
-        "AvgPool2d" => NirNode::AvgPool2d(AvgPool2d {
-            kernel_size: tensor(group, "kernel_size", name)?,
-            stride: tensor(group, "stride", name)?,
-            padding: tensor(group, "padding", name)?,
-            metadata,
-        }),
-        "Threshold" => NirNode::Threshold(Threshold {
-            threshold: tensor(group, "threshold", name)?,
-            metadata,
-        }),
+        "Input" => NirNode::Input(read_input(&r, metadata)?),
+        "Output" => NirNode::Output(read_output(&r, metadata)?),
+        "Affine" => NirNode::Affine(read_affine(&r, metadata)?),
+        "Linear" => NirNode::Linear(read_linear(&r, metadata)?),
+        "Scale" => NirNode::Scale(read_scale(&r, metadata)?),
+        "Conv1d" => NirNode::Conv1d(read_conv1d(&r, metadata)?),
+        "Conv2d" => NirNode::Conv2d(read_conv2d(&r, metadata)?),
+        "CubaLI" => NirNode::CubaLi(read_cuba_li(&r, metadata)?),
+        "CubaLIF" => NirNode::CubaLif(read_cuba_lif(&r, metadata)?),
+        "Delay" => NirNode::Delay(read_delay(&r, metadata)?),
+        "Flatten" => NirNode::Flatten(read_flatten(&r, metadata)?),
+        "I" => NirNode::I(read_i(&r, metadata)?),
+        "IF" => NirNode::If(read_if(&r, metadata)?),
+        "LI" => NirNode::Li(read_li(&r, metadata)?),
+        "LIF" => NirNode::Lif(read_lif(&r, metadata)?),
+        "SumPool2d" => NirNode::SumPool2d(read_sum_pool2d(&r, metadata)?),
+        "AvgPool2d" => NirNode::AvgPool2d(read_avg_pool2d(&r, metadata)?),
+        "Threshold" => NirNode::Threshold(read_threshold(&r, metadata)?),
         "NIRGraph" => {
             let mut sub = read_graph_body(group)?;
             sub.metadata = metadata;
@@ -266,13 +160,334 @@ fn read_node(group: &Group, name: &str) -> Result<NirNode> {
     Ok(node)
 }
 
-/// `padding` is an integer extent list, or the string `"same"` / `"valid"`.
-fn read_padding(group: &Group, node: &str) -> Result<Padding> {
-    let ds = required(group, "padding", node)?;
-    if is_string(&ds)? {
-        wire::padding_from_wire_str(&read_string_scalar(&ds, node)?)
-    } else {
-        Ok(Padding::Explicit(read_ints(&ds, node, "padding")?))
+// ---------------------------------------------------------------------------
+// Ports and linear maps
+// ---------------------------------------------------------------------------
+
+fn read_input(r: &NodeReader, metadata: MetadataMap) -> Result<Input> {
+    Ok(Input {
+        shape: r.usizes("shape")?,
+        metadata,
+    })
+}
+
+fn read_output(r: &NodeReader, metadata: MetadataMap) -> Result<Output> {
+    Ok(Output {
+        shape: r.usizes("shape")?,
+        metadata,
+    })
+}
+
+fn read_affine(r: &NodeReader, metadata: MetadataMap) -> Result<Affine> {
+    Ok(Affine {
+        weight: r.tensor("weight")?,
+        bias: r.tensor("bias")?,
+        metadata,
+    })
+}
+
+fn read_linear(r: &NodeReader, metadata: MetadataMap) -> Result<Linear> {
+    Ok(Linear {
+        weight: r.tensor("weight")?,
+        metadata,
+    })
+}
+
+fn read_scale(r: &NodeReader, metadata: MetadataMap) -> Result<Scale> {
+    Ok(Scale {
+        scale: r.tensor("scale")?,
+        metadata,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Convolutions
+// ---------------------------------------------------------------------------
+
+fn read_conv1d(r: &NodeReader, metadata: MetadataMap) -> Result<Conv1d> {
+    Ok(Conv1d {
+        weight: r.tensor("weight")?,
+        stride: r.ints("stride")?,
+        padding: r.padding()?,
+        dilation: r.ints("dilation")?,
+        groups: r.int_scalar("groups")?,
+        bias: r.tensor("bias")?,
+        // Upstream `Conv1d.input_shape` is a bare `int`.
+        input_shape: r.opt_dim("input_shape")?,
+        metadata,
+    })
+}
+
+fn read_conv2d(r: &NodeReader, metadata: MetadataMap) -> Result<Conv2d> {
+    Ok(Conv2d {
+        weight: r.tensor("weight")?,
+        stride: r.ints("stride")?,
+        padding: r.padding()?,
+        dilation: r.ints("dilation")?,
+        groups: r.int_scalar("groups")?,
+        bias: r.tensor("bias")?,
+        // Upstream `Conv2d.input_shape` is a `(N_x, N_y)` tuple.
+        input_shape: r.opt_usizes("input_shape")?,
+        metadata,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Neuron models
+// ---------------------------------------------------------------------------
+
+fn read_cuba_li(r: &NodeReader, metadata: MetadataMap) -> Result<CubaLi> {
+    let v_leak = r.tensor("v_leak")?;
+    Ok(CubaLi {
+        tau_syn: r.tensor("tau_syn")?,
+        tau_mem: r.tensor("tau_mem")?,
+        r: r.tensor("r")?,
+        w_in: r.w_in(&v_leak)?,
+        v_leak,
+        metadata,
+    })
+}
+
+fn read_cuba_lif(r: &NodeReader, metadata: MetadataMap) -> Result<CubaLif> {
+    let v_leak = r.tensor("v_leak")?;
+    let v_threshold = r.tensor("v_threshold")?;
+    Ok(CubaLif {
+        tau_syn: r.tensor("tau_syn")?,
+        tau_mem: r.tensor("tau_mem")?,
+        r: r.tensor("r")?,
+        v_reset: r.v_reset(&v_threshold)?,
+        w_in: r.w_in(&v_leak)?,
+        v_leak,
+        v_threshold,
+        metadata,
+    })
+}
+
+fn read_i(r: &NodeReader, metadata: MetadataMap) -> Result<I> {
+    Ok(I {
+        r: r.tensor("r")?,
+        metadata,
+    })
+}
+
+fn read_if(r: &NodeReader, metadata: MetadataMap) -> Result<If> {
+    let v_threshold = r.tensor("v_threshold")?;
+    Ok(If {
+        r: r.tensor("r")?,
+        v_reset: r.v_reset(&v_threshold)?,
+        v_threshold,
+        metadata,
+    })
+}
+
+fn read_li(r: &NodeReader, metadata: MetadataMap) -> Result<Li> {
+    Ok(Li {
+        tau: r.tensor("tau")?,
+        r: r.tensor("r")?,
+        v_leak: r.tensor("v_leak")?,
+        metadata,
+    })
+}
+
+fn read_lif(r: &NodeReader, metadata: MetadataMap) -> Result<Lif> {
+    let v_threshold = r.tensor("v_threshold")?;
+    Ok(Lif {
+        tau: r.tensor("tau")?,
+        r: r.tensor("r")?,
+        v_leak: r.tensor("v_leak")?,
+        v_reset: r.v_reset(&v_threshold)?,
+        v_threshold,
+        metadata,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Pooling and the remaining leaf nodes
+// ---------------------------------------------------------------------------
+
+/// `SumPool2d` and `AvgPool2d` carry an identical field set.
+fn read_pool_window(r: &NodeReader) -> Result<(Tensor, Tensor, Tensor)> {
+    Ok((
+        r.tensor("kernel_size")?,
+        r.tensor("stride")?,
+        r.tensor("padding")?,
+    ))
+}
+
+fn read_sum_pool2d(r: &NodeReader, metadata: MetadataMap) -> Result<SumPool2d> {
+    let (kernel_size, stride, padding) = read_pool_window(r)?;
+    Ok(SumPool2d {
+        kernel_size,
+        stride,
+        padding,
+        metadata,
+    })
+}
+
+fn read_avg_pool2d(r: &NodeReader, metadata: MetadataMap) -> Result<AvgPool2d> {
+    let (kernel_size, stride, padding) = read_pool_window(r)?;
+    Ok(AvgPool2d {
+        kernel_size,
+        stride,
+        padding,
+        metadata,
+    })
+}
+
+fn read_delay(r: &NodeReader, metadata: MetadataMap) -> Result<Delay> {
+    Ok(Delay {
+        delay: r.tensor("delay")?,
+        metadata,
+    })
+}
+
+fn read_flatten(r: &NodeReader, metadata: MetadataMap) -> Result<Flatten> {
+    Ok(Flatten {
+        // Upstream's dataclass defaults are start_dim = 1, end_dim = -1.
+        start_dim: r.opt_int_scalar("start_dim")?.unwrap_or(1),
+        end_dim: r.opt_int_scalar("end_dim")?.unwrap_or(-1),
+        // Flatten stores its input shape under the key `input_type`.
+        input_type: r.opt_usizes("input_type")?,
+        metadata,
+    })
+}
+
+fn read_threshold(r: &NodeReader, metadata: MetadataMap) -> Result<Threshold> {
+    Ok(Threshold {
+        threshold: r.tensor("threshold")?,
+        metadata,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Field access
+// ---------------------------------------------------------------------------
+
+/// A node's HDF5 group paired with its name.
+///
+/// Bundling the two means each accessor takes only a field name, and every
+/// error message can say which node it came from without the caller repeating
+/// itself.
+struct NodeReader<'a> {
+    group: &'a Group,
+    name: &'a str,
+}
+
+impl NodeReader<'_> {
+    /// `node.field`, the prefix every error message from this node uses.
+    fn context(&self, field: &str) -> String {
+        format!("{}.{field}", self.name)
+    }
+
+    fn required(&self, field: &str) -> Result<Dataset> {
+        self.group
+            .dataset(field)
+            .map_err(|_| NirError::MissingField(self.context(field)))
+    }
+
+    fn tensor(&self, field: &str) -> Result<Tensor> {
+        read_tensor(&self.required(field)?, &self.context(field))
+    }
+
+    fn opt_tensor(&self, field: &str) -> Result<Option<Tensor>> {
+        match self.group.dataset(field) {
+            Ok(ds) => read_tensor(&ds, &self.context(field)).map(Some),
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn ints(&self, field: &str) -> Result<Vec<i64>> {
+        read_ints(&self.required(field)?, &self.context(field))
+    }
+
+    fn int_scalar(&self, field: &str) -> Result<i64> {
+        single_int(self.ints(field)?, &self.context(field))
+    }
+
+    fn opt_int_scalar(&self, field: &str) -> Result<Option<i64>> {
+        match self.group.dataset(field) {
+            Ok(ds) => {
+                let context = self.context(field);
+                single_int(read_ints(&ds, &context)?, &context).map(Some)
+            }
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn usizes(&self, field: &str) -> Result<Vec<usize>> {
+        to_usizes(self.ints(field)?, &self.context(field))
+    }
+
+    fn opt_usizes(&self, field: &str) -> Result<Option<Vec<usize>>> {
+        match self.group.dataset(field) {
+            Ok(ds) => {
+                let context = self.context(field);
+                to_usizes(read_ints(&ds, &context)?, &context).map(Some)
+            }
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// A single non-negative extent, for `Conv1d.input_shape`.
+    fn opt_dim(&self, field: &str) -> Result<Option<usize>> {
+        let Some(values) = self.opt_usizes(field)? else {
+            return Ok(None);
+        };
+        match values.as_slice() {
+            [only] => Ok(Some(*only)),
+            other => Err(NirError::InvalidTensor(format!(
+                "{}: expected a single extent, found {} values",
+                self.context(field),
+                other.len()
+            ))),
+        }
+    }
+
+    /// `padding` is an integer extent list, or the string `"same"` / `"valid"`.
+    fn padding(&self) -> Result<Padding> {
+        let ds = self.required("padding")?;
+        if is_string(&ds)? {
+            wire::padding_from_wire_str(&read_string_scalar(&ds, self.name)?)
+        } else {
+            Ok(Padding::Explicit(read_ints(&ds, &self.context("padding"))?))
+        }
+    }
+
+    /// `v_reset`, defaulting to `zeros_like(v_threshold)` as Python does.
+    fn v_reset(&self, v_threshold: &Tensor) -> Result<Option<Tensor>> {
+        Ok(Some(
+            self.opt_tensor("v_reset")?
+                .unwrap_or_else(|| v_threshold.zeros_like()),
+        ))
+    }
+
+    /// `w_in`, defaulting to `ones_like(v_leak)` as Python does.
+    fn w_in(&self, v_leak: &Tensor) -> Result<Option<Tensor>> {
+        Ok(Some(
+            self.opt_tensor("w_in")?
+                .unwrap_or_else(|| v_leak.ones_like()),
+        ))
+    }
+}
+
+fn to_usizes(values: Vec<i64>, context: &str) -> Result<Vec<usize>> {
+    values
+        .into_iter()
+        .map(|v| {
+            usize::try_from(v).map_err(|_| {
+                NirError::InvalidTensor(format!("{context}: negative axis length {v}"))
+            })
+        })
+        .collect()
+}
+
+fn single_int(values: Vec<i64>, context: &str) -> Result<i64> {
+    match values.as_slice() {
+        [only] => Ok(*only),
+        other => Err(NirError::InvalidTensor(format!(
+            "{context}: expected a single integer, found {} values",
+            other.len()
+        ))),
     }
 }
 
@@ -306,88 +521,9 @@ fn read_metadata_value(ds: &Dataset, key: &str) -> Result<MetadataValue> {
         Td::Boolean if scalar => MetadataValue::Bool(ds.read_scalar::<bool>()?),
         Td::Float(_) if scalar => MetadataValue::F64(ds.read_scalar::<f64>()?),
         Td::Integer(_) | Td::Unsigned(_) if scalar => MetadataValue::I64(ds.read_scalar::<i64>()?),
-        _ => MetadataValue::Tensor(read_tensor(ds, "metadata", key)?),
+        _ => MetadataValue::Tensor(read_tensor(ds, &format!("{KEY_METADATA}.{key}"))?),
     };
     Ok(value)
-}
-
-// ---------------------------------------------------------------------------
-// Dataset accessors
-// ---------------------------------------------------------------------------
-
-fn required(group: &Group, field: &str, node: &str) -> Result<Dataset> {
-    group
-        .dataset(field)
-        .map_err(|_| NirError::MissingField(format!("{node}.{field}")))
-}
-
-fn tensor(group: &Group, field: &str, node: &str) -> Result<Tensor> {
-    read_tensor(&required(group, field, node)?, node, field)
-}
-
-fn opt_tensor(group: &Group, field: &str, node: &str) -> Result<Option<Tensor>> {
-    match group.dataset(field) {
-        Ok(ds) => read_tensor(&ds, node, field).map(Some),
-        Err(_) => Ok(None),
-    }
-}
-
-fn ints(group: &Group, field: &str, node: &str) -> Result<Vec<i64>> {
-    read_ints(&required(group, field, node)?, node, field)
-}
-
-fn int_scalar(group: &Group, field: &str, node: &str) -> Result<i64> {
-    let values = ints(group, field, node)?;
-    single_int(values, node, field)
-}
-
-fn opt_int_scalar(group: &Group, field: &str, node: &str) -> Result<Option<i64>> {
-    match group.dataset(field) {
-        Ok(ds) => single_int(read_ints(&ds, node, field)?, node, field).map(Some),
-        Err(_) => Ok(None),
-    }
-}
-
-fn usizes(group: &Group, field: &str, node: &str) -> Result<Vec<usize>> {
-    to_usizes(ints(group, field, node)?, node, field)
-}
-
-fn opt_usizes(group: &Group, field: &str, node: &str) -> Result<Option<Vec<usize>>> {
-    match group.dataset(field) {
-        Ok(ds) => to_usizes(read_ints(&ds, node, field)?, node, field).map(Some),
-        Err(_) => Ok(None),
-    }
-}
-
-fn to_usizes(values: Vec<i64>, node: &str, field: &str) -> Result<Vec<usize>> {
-    values
-        .into_iter()
-        .map(|v| {
-            usize::try_from(v).map_err(|_| {
-                NirError::InvalidTensor(format!("{node}.{field}: negative axis length {v}"))
-            })
-        })
-        .collect()
-}
-
-fn single_int(values: Vec<i64>, node: &str, field: &str) -> Result<i64> {
-    match values.as_slice() {
-        [only] => Ok(*only),
-        other => Err(NirError::InvalidTensor(format!(
-            "{node}.{field}: expected a single integer, found {} values",
-            other.len()
-        ))),
-    }
-}
-
-fn single_dim(values: Vec<usize>, node: &str, field: &str) -> Result<usize> {
-    match values.as_slice() {
-        [only] => Ok(*only),
-        other => Err(NirError::InvalidTensor(format!(
-            "{node}.{field}: expected a single extent, found {} values",
-            other.len()
-        ))),
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -399,7 +535,7 @@ fn single_dim(values: Vec<usize>, node: &str, field: &str) -> Result<usize> {
 /// Narrower integers widen into [`DType::I64`](crate::DType::I64); floats keep
 /// their width so an `f32` file never silently becomes `f64` (or worse, the
 /// reverse). Anything else is rejected rather than guessed at.
-fn read_tensor(ds: &Dataset, node: &str, field: &str) -> Result<Tensor> {
+fn read_tensor(ds: &Dataset, context: &str) -> Result<Tensor> {
     let descriptor = ds.dtype()?.to_descriptor()?;
     let data = match descriptor {
         Td::Float(FloatSize::U4) => TensorData::F32(ds.read_raw::<f32>()?),
@@ -407,33 +543,34 @@ fn read_tensor(ds: &Dataset, node: &str, field: &str) -> Result<Tensor> {
         Td::Integer(_) | Td::Unsigned(IntSize::U1 | IntSize::U2 | IntSize::U4) => {
             TensorData::I64(ds.read_raw::<i64>()?)
         }
-        Td::Unsigned(IntSize::U8) => {
-            let raw = ds.read_raw::<u64>()?;
-            let mut values = Vec::with_capacity(raw.len());
-            for v in raw {
-                values.push(i64::try_from(v).map_err(|_| {
-                    NirError::InvalidTensor(format!(
-                        "{node}.{field}: u64 value {v} does not fit in i64"
-                    ))
-                })?);
-            }
-            TensorData::I64(values)
-        }
+        Td::Unsigned(IntSize::U8) => TensorData::I64(read_u64_as_i64(ds, context)?),
         Td::Boolean => TensorData::Bool(ds.read_raw::<bool>()?),
         other => {
             return Err(NirError::InvalidTensor(format!(
-                "{node}.{field}: element type {other} has no NIR dtype"
+                "{context}: element type {other} has no NIR dtype"
             )));
         }
     };
     Tensor::new(ds.shape(), data)
 }
 
-fn read_ints(ds: &Dataset, node: &str, field: &str) -> Result<Vec<i64>> {
-    match read_tensor(ds, node, field)?.data() {
+/// `u64` is the one integer width that does not fit losslessly in `i64`.
+fn read_u64_as_i64(ds: &Dataset, context: &str) -> Result<Vec<i64>> {
+    ds.read_raw::<u64>()?
+        .into_iter()
+        .map(|v| {
+            i64::try_from(v).map_err(|_| {
+                NirError::InvalidTensor(format!("{context}: u64 value {v} does not fit in i64"))
+            })
+        })
+        .collect()
+}
+
+fn read_ints(ds: &Dataset, context: &str) -> Result<Vec<i64>> {
+    match read_tensor(ds, context)?.data() {
         TensorData::I64(values) => Ok(values.clone()),
         other => Err(NirError::InvalidTensor(format!(
-            "{node}.{field}: expected integer data, found {:?}",
+            "{context}: expected integer data, found {:?}",
             other.dtype()
         ))),
     }

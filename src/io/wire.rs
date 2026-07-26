@@ -137,14 +137,18 @@ mod tests {
     };
     use crate::types::Tensor;
 
-    /// One value per `NirNode` variant, so the exhaustive match below fails to
-    /// compile if a wire type is ever added to the enum without updating
-    /// [`WIRE_TYPES`].
-    fn one_of_each() -> Vec<NirNode> {
-        let v = || Tensor::from_f64([2], vec![1.0, 1.0]).unwrap();
-        let w = || Tensor::from_f32(vec![2, 2], vec![1., 0., 0., 1.]).unwrap();
-        let b = || Tensor::from_f32([2], vec![0., 0.]).unwrap();
-        let pool = || Tensor::from_i64([2], vec![2, 2]).unwrap();
+    /// A length-2 `f64` vector, the shape every neuron parameter below uses.
+    fn v() -> Tensor {
+        Tensor::from_f64([2], vec![1.0, 1.0]).unwrap()
+    }
+
+    /// A length-2 `i64` vector, for pooling windows.
+    fn pool() -> Tensor {
+        Tensor::from_i64([2], vec![2, 2]).unwrap()
+    }
+
+    fn port_and_linear_nodes() -> Vec<NirNode> {
+        let weight = || Tensor::from_f32(vec![2, 2], vec![1., 0., 0., 1.]).unwrap();
         vec![
             NirNode::Input(Input {
                 shape: vec![2],
@@ -155,18 +159,23 @@ mod tests {
                 metadata: Default::default(),
             }),
             NirNode::Affine(Affine {
-                weight: w(),
-                bias: b(),
+                weight: weight(),
+                bias: Tensor::from_f32([2], vec![0., 0.]).unwrap(),
                 metadata: Default::default(),
             }),
             NirNode::Linear(Linear {
-                weight: w(),
+                weight: weight(),
                 metadata: Default::default(),
             }),
             NirNode::Scale(Scale {
                 scale: v(),
                 metadata: Default::default(),
             }),
+        ]
+    }
+
+    fn conv_nodes() -> Vec<NirNode> {
+        vec![
             NirNode::Conv1d(Conv1d {
                 weight: Tensor::from_f32(vec![1, 1, 3], vec![1., 0., -1.]).unwrap(),
                 stride: vec![1],
@@ -187,6 +196,11 @@ mod tests {
                 input_shape: Some(vec![8, 8]),
                 metadata: Default::default(),
             }),
+        ]
+    }
+
+    fn cuba_nodes() -> Vec<NirNode> {
+        vec![
             NirNode::CubaLi(CubaLi {
                 tau_syn: v(),
                 tau_mem: v(),
@@ -205,16 +219,11 @@ mod tests {
                 w_in: None,
                 metadata: Default::default(),
             }),
-            NirNode::Delay(Delay {
-                delay: v(),
-                metadata: Default::default(),
-            }),
-            NirNode::Flatten(Flatten {
-                start_dim: 1,
-                end_dim: -1,
-                input_type: None,
-                metadata: Default::default(),
-            }),
+        ]
+    }
+
+    fn neuron_nodes() -> Vec<NirNode> {
+        vec![
             NirNode::I(I {
                 r: v(),
                 metadata: Default::default(),
@@ -239,24 +248,54 @@ mod tests {
                 v_reset: None,
                 metadata: Default::default(),
             }),
+        ]
+    }
+
+    fn pool_nodes() -> Vec<NirNode> {
+        let no_pad = || Tensor::from_i64([2], vec![0, 0]).unwrap();
+        vec![
             NirNode::SumPool2d(SumPool2d {
                 kernel_size: pool(),
                 stride: pool(),
-                padding: Tensor::from_i64([2], vec![0, 0]).unwrap(),
+                padding: no_pad(),
                 metadata: Default::default(),
             }),
             NirNode::AvgPool2d(AvgPool2d {
                 kernel_size: pool(),
                 stride: pool(),
-                padding: Tensor::from_i64([2], vec![0, 0]).unwrap(),
+                padding: no_pad(),
                 metadata: Default::default(),
             }),
-            NirNode::Threshold(Threshold {
-                threshold: v(),
-                metadata: Default::default(),
-            }),
-            NirNode::Graph(Box::new(NirGraph::new())),
         ]
+    }
+
+    /// One value per `NirNode` variant, in [`WIRE_TYPES`] order.
+    ///
+    /// The groups are concatenated in wire order and interleaved with the two
+    /// standalone nodes so `wire_types_matches_every_node_variant` can compare
+    /// the two lists positionally.
+    fn one_of_each() -> Vec<NirNode> {
+        let mut nodes = port_and_linear_nodes();
+        nodes.extend(conv_nodes());
+        nodes.extend(cuba_nodes());
+        nodes.push(NirNode::Delay(Delay {
+            delay: v(),
+            metadata: Default::default(),
+        }));
+        nodes.push(NirNode::Flatten(Flatten {
+            start_dim: 1,
+            end_dim: -1,
+            input_type: None,
+            metadata: Default::default(),
+        }));
+        nodes.extend(neuron_nodes());
+        nodes.extend(pool_nodes());
+        nodes.push(NirNode::Threshold(Threshold {
+            threshold: v(),
+            metadata: Default::default(),
+        }));
+        nodes.push(NirNode::Graph(Box::new(NirGraph::new())));
+        nodes
     }
 
     #[test]
