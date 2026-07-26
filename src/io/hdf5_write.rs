@@ -130,32 +130,8 @@ fn check_metadata_string_values(metadata: &MetadataMap, context: &str) -> Result
 fn check_conv2d_input_shapes(graph: &NirGraph) -> Result<()> {
     for (name, node) in &graph.nodes {
         match node {
-            NirNode::Conv1d(conv) => {
-                // Conv1d extents are bare scalars on the wire.
-                check_extent_arity(name, "Conv1d", "stride", conv.stride.len(), &[1])?;
-                check_extent_arity(name, "Conv1d", "dilation", conv.dilation.len(), &[1])?;
-                if let Padding::Explicit(extents) = &conv.padding {
-                    check_extent_arity(name, "Conv1d", "padding", extents.len(), &[1])?;
-                }
-                if let Some(extent) = conv.input_shape {
-                    check_extent_range(name, "Conv1d", "input_shape", extent)?;
-                }
-            }
-            NirNode::Conv2d(conv) => {
-                // Conv2d extents are pairs; a single value is the scalar form
-                // and is expanded to a pair by the writer.
-                check_extent_arity(name, "Conv2d", "stride", conv.stride.len(), &[1, 2])?;
-                check_extent_arity(name, "Conv2d", "dilation", conv.dilation.len(), &[1, 2])?;
-                if let Padding::Explicit(extents) = &conv.padding {
-                    check_extent_arity(name, "Conv2d", "padding", extents.len(), &[1, 2])?;
-                }
-                if let Some(shape) = &conv.input_shape {
-                    check_extent_arity(name, "Conv2d", "input_shape", shape.len(), &[2])?;
-                    for extent in shape {
-                        check_extent_range(name, "Conv2d", "input_shape", *extent)?;
-                    }
-                }
-            }
+            NirNode::Conv1d(conv) => check_conv1d_extents(&format!("Conv1d {name:?}"), conv)?,
+            NirNode::Conv2d(conv) => check_conv2d_extents(&format!("Conv2d {name:?}"), conv)?,
             NirNode::Graph(sub) => check_conv2d_input_shapes(sub)?,
             _ => {}
         }
@@ -163,31 +139,56 @@ fn check_conv2d_input_shapes(graph: &NirGraph) -> Result<()> {
     Ok(())
 }
 
-fn check_extent_arity(
-    node: &str,
-    kind: &str,
-    field: &str,
-    found: usize,
-    allowed: &[usize],
-) -> Result<()> {
+/// `Conv1d` extents are bare scalars on the wire.
+fn check_conv1d_extents(who: &str, conv: &Conv1d) -> Result<()> {
+    check_extent_arity(who, "stride", conv.stride.len(), &[1])?;
+    check_extent_arity(who, "dilation", conv.dilation.len(), &[1])?;
+    if let Padding::Explicit(extents) = &conv.padding {
+        check_extent_arity(who, "padding", extents.len(), &[1])?;
+    }
+    match conv.input_shape {
+        Some(extent) => check_extent_range(who, "input_shape", extent),
+        None => Ok(()),
+    }
+}
+
+/// `Conv2d` extents are pairs; a single value is the scalar form and is
+/// expanded to a pair by the writer.
+fn check_conv2d_extents(who: &str, conv: &Conv2d) -> Result<()> {
+    check_extent_arity(who, "stride", conv.stride.len(), &[1, 2])?;
+    check_extent_arity(who, "dilation", conv.dilation.len(), &[1, 2])?;
+    if let Padding::Explicit(extents) = &conv.padding {
+        check_extent_arity(who, "padding", extents.len(), &[1, 2])?;
+    }
+    let Some(shape) = &conv.input_shape else {
+        return Ok(());
+    };
+    check_extent_arity(who, "input_shape", shape.len(), &[2])?;
+    for extent in shape {
+        check_extent_range(who, "input_shape", *extent)?;
+    }
+    Ok(())
+}
+
+fn check_extent_arity(who: &str, field: &str, found: usize, allowed: &[usize]) -> Result<()> {
     if allowed.contains(&found) {
         return Ok(());
     }
     let expected = match allowed {
-        [1] => "exactly one extent".to_owned(),
-        [2] => "a (N_x, N_y) pair".to_owned(),
-        _ => "one or two extents".to_owned(),
+        [1] => "exactly one extent",
+        [2] => "a (N_x, N_y) pair",
+        _ => "one or two extents",
     };
     Err(NirError::InvalidGraph(format!(
-        "{kind} {node:?} {field} must hold {expected}, found {found} values"
+        "{who} {field} must hold {expected}, found {found} values"
     )))
 }
 
 /// `usize` is wider than the `i64` the wire uses on 64-bit targets.
-fn check_extent_range(node: &str, kind: &str, field: &str, extent: usize) -> Result<()> {
+fn check_extent_range(who: &str, field: &str, extent: usize) -> Result<()> {
     if i64::try_from(extent).is_err() {
         return Err(NirError::InvalidTensor(format!(
-            "{kind} {node:?} {field}: extent {extent} does not fit in i64"
+            "{who} {field}: extent {extent} does not fit in i64"
         )));
     }
     Ok(())
