@@ -39,9 +39,17 @@ You are a Rust-focused coding agent implementing a pure-Rust Neuromorphic Interm
 ```bash
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
+cargo test                 # graph model only; must pass without libhdf5
 cargo test --all-features
 cargo doc --no-deps --all-features
 ```
+
+`--all-features` enables `hdf5`, which links libhdf5: install `libhdf5-dev`
+(Ubuntu) or `hdf5` (Homebrew) first.
+
+**No Python.** Wire compatibility is verified by reading real `.nir` files
+vendored from upstream under `tests/fixtures/` — do not add Python scripts,
+Python test harnesses, or a Python step to CI.
 
 See [REVIEW.md](REVIEW.md) for the local quality bar.
 
@@ -50,8 +58,8 @@ See [REVIEW.md](REVIEW.md) for the local quality bar.
 | Milestone | Focus |
 |-----------|--------|
 | v0.1 | Bootstrap (license, CI, skeleton) |
-| v0.2 | Typed graph + wire-accurate nodes + errors — current |
-| v0.3 | HDF5 read/write + round-trip fixtures (`hdf5-metno`) |
+| v0.2 | Typed graph + wire-accurate nodes + errors |
+| v0.3 | HDF5 read/write + round-trip fixtures (`hdf5-metno`) — current |
 | v0.4 | Serde/debug DX + examples |
 | v0.5 | Consumer wiring (silicon-bridge, axon-encoder, engram-parser) |
 

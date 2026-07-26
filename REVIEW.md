@@ -7,8 +7,17 @@ Run them before claiming a PR is ready when the change touches `src/`,
 ```bash
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
+cargo test                 # default features: no libhdf5 needed
 cargo test --all-features
 cargo doc --no-deps --all-features
+```
+
+`--all-features` turns on `hdf5`, which links the native library. Install it
+first, or build a hermetic copy:
+
+```bash
+sudo apt-get install -y libhdf5-dev   # Ubuntu/Debian; brew install hdf5 on macOS
+cargo test --features hdf5,hdf5/static  # alternative: vendored source, no system package
 ```
 
 ## Checklist
@@ -18,10 +27,7 @@ cargo doc --no-deps --all-features
 - [ ] Dual license files present when packaging (`LICENSE-MIT`, `LICENSE-APACHE-2.0`)
 - [ ] New public API has rustdoc
 - [ ] CI workflow still targets `Main` and `main` if changed
-
-## Optional (when HDF5 lands)
-
-```bash
-# system package or static feature as documented in AGENTS.md
-cargo test --features hdf5
-```
+- [ ] Graph model still builds and tests green **without** the `hdf5` feature
+- [ ] No Python added to the repo, tests, or CI
+- [ ] Read and write paths stay symmetric — a new wire field needs both sides
+      plus a round-trip assertion
