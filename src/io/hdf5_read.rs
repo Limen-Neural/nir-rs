@@ -283,63 +283,198 @@ fn read_scale(r: &NodeReader, metadata: MetadataMap) -> Result<Scale> {
 // Convolutions
 // ---------------------------------------------------------------------------
 
+/// The field set `Conv1d` and `Conv2d` share on the wire — everything except
+/// `input_shape`, whose arity differs between the two and so stays with the
+/// per-type readers below.
+struct ConvGeometry {
+    weight: Tensor,
+    stride: Vec<i64>,
+    padding: Padding,
+    dilation: Vec<i64>,
+    groups: i64,
+    bias: Tensor,
+}
+
+impl ConvGeometry {
+    fn read(r: &NodeReader) -> Result<Self> {
+        Ok(Self {
+            weight: r.tensor("weight")?,
+            stride: r.ints("stride")?,
+            padding: r.padding()?,
+            dilation: r.ints("dilation")?,
+            groups: r.int_scalar("groups")?,
+            bias: r.tensor("bias")?,
+        })
+    }
+
+    fn into_conv1d(self, input_shape: Option<usize>, metadata: MetadataMap) -> Conv1d {
+        let Self {
+            weight,
+            stride,
+            padding,
+            dilation,
+            groups,
+            bias,
+        } = self;
+        Conv1d {
+            weight,
+            stride,
+            padding,
+            dilation,
+            groups,
+            bias,
+            input_shape,
+            metadata,
+        }
+    }
+
+    fn into_conv2d(self, input_shape: Option<Vec<usize>>, metadata: MetadataMap) -> Conv2d {
+        Conv2d {
+            weight: self.weight,
+            stride: self.stride,
+            padding: self.padding,
+            dilation: self.dilation,
+            groups: self.groups,
+            bias: self.bias,
+            input_shape,
+            metadata,
+        }
+    }
+}
+
 fn read_conv1d(r: &NodeReader, metadata: MetadataMap) -> Result<Conv1d> {
-    Ok(Conv1d {
-        weight: r.tensor("weight")?,
-        stride: r.ints("stride")?,
-        padding: r.padding()?,
-        dilation: r.ints("dilation")?,
-        groups: r.int_scalar("groups")?,
-        bias: r.tensor("bias")?,
-        // Upstream `Conv1d.input_shape` is a bare `int`.
-        input_shape: r.opt_dim("input_shape")?,
-        metadata,
-    })
+    // Upstream `Conv1d.input_shape` is a bare `int`.
+    Ok(ConvGeometry::read(r)?.into_conv1d(r.opt_dim("input_shape")?, metadata))
 }
 
 fn read_conv2d(r: &NodeReader, metadata: MetadataMap) -> Result<Conv2d> {
-    Ok(Conv2d {
-        weight: r.tensor("weight")?,
-        stride: r.ints("stride")?,
-        padding: r.padding()?,
-        dilation: r.ints("dilation")?,
-        groups: r.int_scalar("groups")?,
-        bias: r.tensor("bias")?,
-        // Upstream `Conv2d.input_shape` is a `(N_x, N_y)` tuple.
-        input_shape: r.opt_usizes("input_shape")?,
-        metadata,
-    })
+    // Upstream `Conv2d.input_shape` is a `(N_x, N_y)` tuple.
+    Ok(ConvGeometry::read(r)?.into_conv2d(r.opt_usizes("input_shape")?, metadata))
 }
 
 // ---------------------------------------------------------------------------
 // Neuron models
 // ---------------------------------------------------------------------------
 
+/// `v_threshold` together with the reset potential, defaulted as Python does.
+fn threshold_and_reset(r: &NodeReader) -> Result<(Tensor, Option<Tensor>)> {
+    let v_threshold = r.tensor("v_threshold")?;
+    let v_reset = r.v_reset(&v_threshold)?;
+    Ok((v_threshold, v_reset))
+}
+
+/// The `tau` / `r` / `v_leak` membrane-dynamics group `LI` and `LIF` share.
+struct LeakDynamics {
+    tau: Tensor,
+    r: Tensor,
+    v_leak: Tensor,
+}
+
+impl LeakDynamics {
+    fn read(r: &NodeReader) -> Result<Self> {
+        Ok(Self {
+            tau: r.tensor("tau")?,
+            r: r.tensor("r")?,
+            v_leak: r.tensor("v_leak")?,
+        })
+    }
+
+    fn into_li(self, metadata: MetadataMap) -> Li {
+        let Self { tau, r, v_leak } = self;
+        Li {
+            tau,
+            r,
+            v_leak,
+            metadata,
+        }
+    }
+
+    fn into_lif(self, v_threshold: Tensor, v_reset: Option<Tensor>, metadata: MetadataMap) -> Lif {
+        let Self { tau, r, v_leak } = self;
+        Lif {
+            tau,
+            r,
+            v_leak,
+            v_reset,
+            v_threshold,
+            metadata,
+        }
+    }
+}
+
+/// The `tau_syn` / `tau_mem` / `r` / `w_in` / `v_leak` group `CubaLI` and
+/// `CubaLIF` share, with `w_in` carrying its Python default.
+struct CubaDynamics {
+    tau_syn: Tensor,
+    tau_mem: Tensor,
+    r: Tensor,
+    w_in: Option<Tensor>,
+    v_leak: Tensor,
+}
+
+impl CubaDynamics {
+    fn read(r: &NodeReader) -> Result<Self> {
+        let v_leak = r.tensor("v_leak")?;
+        Ok(Self {
+            tau_syn: r.tensor("tau_syn")?,
+            tau_mem: r.tensor("tau_mem")?,
+            r: r.tensor("r")?,
+            w_in: r.w_in(&v_leak)?,
+            v_leak,
+        })
+    }
+
+    fn into_li(self, metadata: MetadataMap) -> CubaLi {
+        let Self {
+            tau_syn,
+            tau_mem,
+            r,
+            w_in,
+            v_leak,
+        } = self;
+        CubaLi {
+            tau_syn,
+            tau_mem,
+            r,
+            w_in,
+            v_leak,
+            metadata,
+        }
+    }
+
+    fn into_lif(
+        self,
+        v_threshold: Tensor,
+        v_reset: Option<Tensor>,
+        metadata: MetadataMap,
+    ) -> CubaLif {
+        let Self {
+            tau_syn,
+            tau_mem,
+            r,
+            w_in,
+            v_leak,
+        } = self;
+        CubaLif {
+            tau_syn,
+            tau_mem,
+            r,
+            v_reset,
+            w_in,
+            v_leak,
+            v_threshold,
+            metadata,
+        }
+    }
+}
+
 fn read_cuba_li(r: &NodeReader, metadata: MetadataMap) -> Result<CubaLi> {
-    let v_leak = r.tensor("v_leak")?;
-    Ok(CubaLi {
-        tau_syn: r.tensor("tau_syn")?,
-        tau_mem: r.tensor("tau_mem")?,
-        r: r.tensor("r")?,
-        w_in: r.w_in(&v_leak)?,
-        v_leak,
-        metadata,
-    })
+    Ok(CubaDynamics::read(r)?.into_li(metadata))
 }
 
 fn read_cuba_lif(r: &NodeReader, metadata: MetadataMap) -> Result<CubaLif> {
-    let v_leak = r.tensor("v_leak")?;
-    let v_threshold = r.tensor("v_threshold")?;
-    Ok(CubaLif {
-        tau_syn: r.tensor("tau_syn")?,
-        tau_mem: r.tensor("tau_mem")?,
-        r: r.tensor("r")?,
-        v_reset: r.v_reset(&v_threshold)?,
-        w_in: r.w_in(&v_leak)?,
-        v_leak,
-        v_threshold,
-        metadata,
-    })
+    let (v_threshold, v_reset) = threshold_and_reset(r)?;
+    Ok(CubaDynamics::read(r)?.into_lif(v_threshold, v_reset, metadata))
 }
 
 fn read_i(r: &NodeReader, metadata: MetadataMap) -> Result<I> {
@@ -350,34 +485,22 @@ fn read_i(r: &NodeReader, metadata: MetadataMap) -> Result<I> {
 }
 
 fn read_if(r: &NodeReader, metadata: MetadataMap) -> Result<If> {
-    let v_threshold = r.tensor("v_threshold")?;
+    let (v_threshold, v_reset) = threshold_and_reset(r)?;
     Ok(If {
         r: r.tensor("r")?,
-        v_reset: r.v_reset(&v_threshold)?,
+        v_reset,
         v_threshold,
         metadata,
     })
 }
 
 fn read_li(r: &NodeReader, metadata: MetadataMap) -> Result<Li> {
-    Ok(Li {
-        tau: r.tensor("tau")?,
-        r: r.tensor("r")?,
-        v_leak: r.tensor("v_leak")?,
-        metadata,
-    })
+    Ok(LeakDynamics::read(r)?.into_li(metadata))
 }
 
 fn read_lif(r: &NodeReader, metadata: MetadataMap) -> Result<Lif> {
-    let v_threshold = r.tensor("v_threshold")?;
-    Ok(Lif {
-        tau: r.tensor("tau")?,
-        r: r.tensor("r")?,
-        v_leak: r.tensor("v_leak")?,
-        v_reset: r.v_reset(&v_threshold)?,
-        v_threshold,
-        metadata,
-    })
+    let (v_threshold, v_reset) = threshold_and_reset(r)?;
+    Ok(LeakDynamics::read(r)?.into_lif(v_threshold, v_reset, metadata))
 }
 
 // ---------------------------------------------------------------------------
