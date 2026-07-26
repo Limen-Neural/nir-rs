@@ -17,7 +17,7 @@ first, or build a hermetic copy:
 
 ```bash
 sudo apt-get install -y libhdf5-dev   # Ubuntu/Debian; brew install hdf5 on macOS
-cargo test --features hdf5,hdf5/static  # alternative: vendored source, no system package
+cargo test --features hdf5,hdf5/static,hdf5/zlib  # vendored source; zlib carries the gzip filter
 ```
 
 ## Checklist

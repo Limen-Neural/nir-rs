@@ -17,8 +17,8 @@ path = "src/lib.rs"
 [features]
 default = []
 # HDF5 `.nir` read/write. Opt-in because it links the native libhdf5 library:
-# `apt install libhdf5-dev` (Ubuntu), `brew install hdf5` (macOS), or build a
-# hermetic copy from vendored source with `--features hdf5,hdf5/static`.
+# `apt install libhdf5-dev` (Ubuntu) or `brew install hdf5` (macOS). For a
+# hermetic build, see the static-linking note in README.md.
 hdf5 = ["dep:hdf5"]
 
 [dependencies]

@@ -30,8 +30,10 @@ use hdf5::types::{
 use hdf5::{Dataset, File, Group, LocationToken};
 use std::path::Path;
 
-/// Nesting limit for `NIRGraph` nodes. Real graphs nest a handful of levels.
-const MAX_GRAPH_DEPTH: usize = 64;
+/// Nesting limit for `NIRGraph` nodes, counting the root. Real graphs nest a
+/// handful of levels. The writer enforces the same bound, so this crate never
+/// emits a file it would then refuse to read.
+pub(super) const MAX_GRAPH_DEPTH: usize = 64;
 
 /// Read a whole `.nir` file.
 pub(super) fn read(path: &Path) -> Result<NirGraph> {

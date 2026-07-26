@@ -18,7 +18,8 @@
 //! ```
 //!
 //! System dependency: `libhdf5-dev` (Debian/Ubuntu), `hdf5` (Homebrew), or add
-//! `hdf5/static` to build a hermetic copy from vendored source.
+//! `hdf5-metno` as a direct dependency with `features = ["static", "zlib"]`
+//! for a hermetic build from vendored source.
 //!
 //! Every item in this module exists in both builds — only the bodies are gated.
 //! Without the feature, [`read`], [`write()`] and [`read_version`] return

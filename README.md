@@ -120,7 +120,7 @@ build graphs (or want a zero-dep default) are unaffected:
 |----------|-------------------|
 | Debian / Ubuntu | `apt install libhdf5-dev` |
 | macOS | `brew install hdf5` |
-| Anywhere | add `hdf5/static` to build a hermetic copy from vendored source |
+| Anywhere | depend on `hdf5-metno = { version = "0.14", features = ["static", "zlib"] }` directly — Cargo's feature unification applies it to this crate's copy. A dependency's feature list cannot name `hdf5/static`, and without `zlib` the vendored build has no gzip filter. |
 
 Without the feature, `io::read` / `io::write` still exist and return
 `NirError::Unimplemented`, so downstream code compiles either way.
