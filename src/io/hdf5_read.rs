@@ -903,9 +903,16 @@ fn read_metadata_value(ds: &Dataset, key: &str) -> Result<MetadataValue> {
     let scalar = ds.shape().is_empty();
     let context = format!("{KEY_METADATA}.{key}");
     let value = match ds.dtype()?.to_descriptor()? {
+        // Security was checked above; only the cardinality split remains. A
+        // multi-element string dataset is a Python `list[str]` — decoding it
+        // as one string would fail the whole read, and `Tensor` cannot hold
+        // strings, so it needs its own variant.
         Td::VarLenUnicode | Td::VarLenAscii | Td::FixedAscii(_) | Td::FixedUnicode(_) => {
-            // Security was checked above; only the cardinality gate remains.
-            MetadataValue::String(read_string_scalar_validated(ds, key)?)
+            if ds.size() == 1 {
+                MetadataValue::String(read_string_scalar_validated(ds, key)?)
+            } else {
+                MetadataValue::StringList(read_strings_unchecked(ds, &context)?)
+            }
         }
         Td::Boolean if scalar => MetadataValue::Bool(ds.read_scalar::<bool>()?),
         Td::Float(_) if scalar => MetadataValue::F64(ds.read_scalar::<f64>()?),

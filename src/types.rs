@@ -248,6 +248,13 @@ pub type MetadataMap = std::collections::HashMap<String, MetadataValue>;
 pub enum MetadataValue {
     /// UTF-8 string.
     String(String),
+    /// List of UTF-8 strings.
+    ///
+    /// Python's `metadata: Dict[str, Any]` admits a `list[str]`, which h5py
+    /// stores as a multi-element string dataset. Without this variant such a
+    /// file cannot be decoded at all, since [`Tensor`] carries only numeric
+    /// and boolean payloads.
+    StringList(Vec<String>),
     /// 64-bit float.
     F64(f64),
     /// 64-bit signed integer.

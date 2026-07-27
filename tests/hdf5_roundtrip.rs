@@ -418,6 +418,10 @@ fn metadata_round_trips_on_graph_and_nodes() {
         "array".into(),
         MetadataValue::Tensor(Tensor::from_f32(vec![2, 2], vec![1., 2., 3., 4.]).unwrap()),
     );
+    graph.metadata.insert(
+        "tags".into(),
+        MetadataValue::StringList(vec!["alpha".into(), "beta".into(), "γδ".into()]),
+    );
 
     let mut node_metadata = nir_rs::types::MetadataMap::new();
     node_metadata.insert("layer".into(), MetadataValue::String("dense".into()));
@@ -740,4 +744,65 @@ fn a_written_file_uses_the_upstream_layout() {
     let sub = nodes.group("subgraph").unwrap();
     assert!(sub.group("nodes").is_ok());
     assert!(sub.dataset("edges").is_ok());
+}
+
+#[test]
+fn h5py_style_string_list_metadata_loads() {
+    // The shape h5py produces for a Python `list[str]` metadata value: a
+    // rank-1 variable-length string dataset. Before `MetadataValue::StringList`
+    // existed this failed the *whole* read with "expected a single string",
+    // so a legitimate upstream file could not be opened at all.
+    let dir = TempDir::new().unwrap();
+    let path = scratch(&dir, "strlist.nir");
+    nir_rs::io::write(&path, &NirGraph::new()).unwrap();
+    {
+        let file = hdf5::File::open_rw(&path).unwrap();
+        let md = file
+            .group("node")
+            .unwrap()
+            .create_group("metadata")
+            .unwrap();
+        let ds = md
+            .new_dataset::<hdf5::types::VarLenUnicode>()
+            .shape([2])
+            .create("tags")
+            .unwrap();
+        let vals: Vec<hdf5::types::VarLenUnicode> = ["alpha", "beta"]
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect();
+        ds.write_raw(&vals).unwrap();
+    }
+
+    let graph = nir_rs::io::read(&path).unwrap();
+    assert_eq!(
+        graph.metadata.get("tags"),
+        Some(&MetadataValue::StringList(vec![
+            "alpha".into(),
+            "beta".into()
+        ]))
+    );
+}
+
+#[test]
+fn a_one_element_string_list_returns_as_a_plain_string() {
+    // Documented asymmetry. `read_string_scalar` accepts a single element at
+    // any rank on purpose, because producers differ on whether a scalar string
+    // is written as `()` or `[1]`; distinguishing a 1-element list by rank
+    // would break that tolerance. A list of one therefore comes back as
+    // `String`. Lists of two or more round-trip exactly.
+    let dir = TempDir::new().unwrap();
+    let path = scratch(&dir, "one_string.nir");
+    let mut graph = NirGraph::new();
+    graph.version = Some(nir_rs::io::DEFAULT_NIR_VERSION.into());
+    graph.metadata.insert(
+        "tags".into(),
+        MetadataValue::StringList(vec!["solo".into()]),
+    );
+    nir_rs::io::write(&path, &graph).unwrap();
+
+    assert_eq!(
+        nir_rs::io::read(&path).unwrap().metadata.get("tags"),
+        Some(&MetadataValue::String("solo".into()))
+    );
 }

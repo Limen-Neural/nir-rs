@@ -152,8 +152,14 @@ fn check_graph_string_values(graph: &NirGraph) -> Result<()> {
 
 fn check_metadata_string_values(metadata: &MetadataMap, context: &str) -> Result<()> {
     for (key, value) in metadata {
-        if let MetadataValue::String(s) = value {
-            wire::check_hdf5_string(&format!("{context} {key:?}"), s)?;
+        match value {
+            MetadataValue::String(s) => wire::check_hdf5_string(&format!("{context} {key:?}"), s)?,
+            MetadataValue::StringList(v) => {
+                for s in v {
+                    wire::check_hdf5_string(&format!("{context} {key:?}"), s)?;
+                }
+            }
+            _ => {}
         }
     }
     Ok(())
@@ -668,6 +674,7 @@ fn write_metadata(w: &Writer, metadata: &MetadataMap) -> Result<()> {
     for (key, value) in metadata {
         match value {
             MetadataValue::String(s) => write_string(md.group, key, s)?,
+            MetadataValue::StringList(v) => write_string_list(md.group, key, v)?,
             MetadataValue::F64(v) => md.scalar(key, *v)?,
             MetadataValue::I64(v) => md.scalar(key, *v)?,
             MetadataValue::Bool(v) => md.scalar(key, *v)?,
@@ -834,6 +841,21 @@ fn write_string(group: &Group, name: &str, value: &str) -> Result<()> {
         .shape(())
         .create(name)?;
     ds.write_scalar(&var_str(value)?)?;
+    Ok(())
+}
+
+/// Rank-1 variable-length string dataset, matching what h5py emits for a
+/// Python `list[str]`. Uncompressed like the other metadata writers.
+fn write_string_list(group: &Group, name: &str, values: &[String]) -> Result<()> {
+    let encoded = values
+        .iter()
+        .map(|s| var_str(s))
+        .collect::<Result<Vec<_>>>()?;
+    let ds = group
+        .new_dataset::<VarLenUnicode>()
+        .shape([encoded.len()])
+        .create(name)?;
+    ds.write_raw(&encoded)?;
     Ok(())
 }
 
