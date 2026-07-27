@@ -126,6 +126,19 @@ impl Tensor {
         &self.data
     }
 
+    /// Take the payload, consuming the tensor.
+    ///
+    /// Crate-internal: the HDF5 reader decodes integer wire fields through a
+    /// `Tensor` and then wants the `Vec` itself. Cloning out of [`data`] would
+    /// hold both buffers live at once, doubling peak memory on every `shape`,
+    /// `stride` and `dilation` read for no benefit.
+    ///
+    /// [`data`]: Self::data
+    #[must_use]
+    pub(crate) fn into_data(self) -> TensorData {
+        self.data
+    }
+
     /// `f32` tensor; `data.len()` must equal the product of `shape`.
     pub fn from_f32(shape: impl Into<Vec<usize>>, data: impl Into<Vec<f32>>) -> Result<Self> {
         Self::new(shape, TensorData::F32(data.into()))

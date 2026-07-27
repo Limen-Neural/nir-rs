@@ -952,8 +952,11 @@ fn read_u64_as_i64(ds: &Dataset, context: &str) -> Result<Vec<i64>> {
 }
 
 fn read_ints(ds: &Dataset, context: &str) -> Result<Vec<i64>> {
-    match read_tensor(ds, context)?.data() {
-        TensorData::I64(values) => Ok(values.clone()),
+    // `into_data` rather than cloning out of `data()`: the decoded buffer is
+    // handed over instead of duplicated, so peak use on this path is one copy
+    // rather than two.
+    match read_tensor(ds, context)?.into_data() {
+        TensorData::I64(values) => Ok(values),
         other => Err(NirError::InvalidTensor(format!(
             "{context}: expected integer data, found {:?}",
             other.dtype()
