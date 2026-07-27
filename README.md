@@ -5,7 +5,7 @@
 [![CI](https://github.com/Limen-Neural/nir-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-> Pure-Rust library for the NIR graph model (typed nodes, edges, validation) with HDF5 `.nir` read/write that interoperates with the Python reference implementation.
+> Pure-Rust NIR graph model (typed nodes, edges, validation), plus opt-in HDF5 `.nir` read/write that interoperates with the Python reference implementation. The graph model has no system dependencies; the `hdf5` feature is the one part that links native libhdf5.
 
 NIR is to SNNs what ONNX is to conventional neural networks (or GGUF to LLMs): a framework-agnostic graph format that lets models move between simulators and hardware without being rewritten.
 
