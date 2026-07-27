@@ -203,10 +203,11 @@ impl WriteOptions {
 ///   [`DType`](crate::DType) representation
 /// - [`NirError::InvalidGraph`] for a file that reaches outside its own
 ///   container (external links, external raw storage, virtual datasets), or
-///   for a single dataset that would decode to more than 800 MB. The latter is
-///   a fixed ceiling with no caller override in v0.3, and [`write()`] does not
-///   enforce it, so a graph with an array that large writes but cannot be read
-///   back
+///   for a single numeric or fixed-length-string dataset whose *estimated*
+///   decoded allocation exceeds 800 MB. Variable-length string payloads live on
+///   HDF5's global heap and are not covered by that ceiling. It has no caller
+///   override in v0.3, and [`write()`] does not enforce it, so a graph with an
+///   array that large writes but cannot be read back
 /// - [`NirError::Unimplemented`] if the `hdf5` feature is off
 ///
 /// # Examples
