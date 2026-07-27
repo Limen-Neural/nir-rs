@@ -149,26 +149,37 @@ pub(super) fn read(path: &Path) -> Result<NirGraph> {
 
     let mut graph = read_graph_body(&root, &format!("/{KEY_NODE}"), &mut Vec::new())?;
     graph.metadata = read_metadata(&root)?;
-    graph.version = if file.link_exists(KEY_VERSION) {
-        let ds = file.dataset(KEY_VERSION).map_err(|e| {
-            NirError::Io(format!(
-                "/{KEY_VERSION}: expected a dataset, found another link kind: {e}"
-            ))
-        })?;
-        Some(read_string_scalar(&ds, KEY_VERSION)?)
-    } else {
-        None
+    graph.version = match version_dataset(&file)? {
+        Some(ds) => Some(read_string_scalar(&ds, KEY_VERSION)?),
+        None => None,
     };
     Ok(graph)
+}
+
+/// `/version` as a dataset, or [`None`] when the link is absent.
+///
+/// Shared by [`read`] and [`read_version`] so the two cannot disagree about
+/// which error a *malformed* `/version` produces — a link that exists but is
+/// not a dataset is [`NirError::Io`] either way. They differ only in whether
+/// absence is an error, which is each caller's own decision. Same split as
+/// [`NodeReader::optional`] / [`NodeReader::required`] for node fields.
+fn version_dataset(file: &File) -> Result<Option<Dataset>> {
+    if !file.link_exists(KEY_VERSION) {
+        return Ok(None);
+    }
+    file.dataset(KEY_VERSION).map(Some).map_err(|e| {
+        NirError::Io(format!(
+            "/{KEY_VERSION}: expected a dataset, found another link kind: {e}"
+        ))
+    })
 }
 
 /// Read only `/version`.
 pub(super) fn read_version(path: &Path) -> Result<String> {
     let file = open(path)?;
     validate_group_links(&file, "/")?;
-    let ds = file
-        .dataset(KEY_VERSION)
-        .map_err(|_| NirError::MissingField(format!("/{KEY_VERSION}")))?;
+    let ds =
+        version_dataset(&file)?.ok_or_else(|| NirError::MissingField(format!("/{KEY_VERSION}")))?;
     read_string_scalar(&ds, KEY_VERSION)
 }
 

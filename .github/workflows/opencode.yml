@@ -35,11 +35,25 @@ jobs:
               return;
             }
 
-            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              username: context.actor
-            });
+            let permission;
+            try {
+              ({ data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor
+              }));
+            } catch (error) {
+              // A non-collaborator is a 404, not a failure: denying them is the
+              // gate working. Letting it throw would fail the job on every
+              // outsider comment, turning a routine denial into a red check.
+              // Anything else is a real API problem and must not be swallowed
+              // into a silent deny.
+              if (error.status === 404) {
+                core.setOutput('allowed', 'false');
+                return;
+              }
+              throw error;
+            }
 
             // `getCollaboratorPermissionLevel` returns only admin/write/read/none —
             // 'maintain' collapses to 'write' and is never emitted.

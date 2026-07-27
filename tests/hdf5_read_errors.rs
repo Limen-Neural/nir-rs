@@ -200,3 +200,27 @@ fn read_version_errors_when_absent_but_read_does_not() {
     assert_eq!(graph.version, None);
     assert_eq!(graph.len(), 2);
 }
+
+#[test]
+fn a_malformed_version_is_not_reported_as_a_missing_one() {
+    // `/version` present but a group, not a dataset. Both entry points must
+    // call that what it is: reporting `MissingField` would tell a caller to
+    // go add a version string that is already there.
+    let dir = TempDir::new().unwrap();
+    let path = write_then(&dir, "version_group.nir", |file| {
+        file.unlink("version").unwrap();
+        file.create_group("version").unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read_version(&path),
+        NirError::Io,
+        &["/version", "expected a dataset"],
+    );
+    // `read` reaches the same link by a different path; it must agree.
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::Io,
+        &["/version", "expected a dataset"],
+    );
+}
