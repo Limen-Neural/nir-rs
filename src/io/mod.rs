@@ -201,6 +201,12 @@ impl WriteOptions {
 ///   [`wire::WIRE_TYPES`]
 /// - [`NirError::InvalidTensor`] for a dataset whose element type has no
 ///   [`DType`](crate::DType) representation
+/// - [`NirError::InvalidGraph`] for a file that reaches outside its own
+///   container (external links, external raw storage, virtual datasets), or
+///   for a single dataset that would decode to more than 800 MB. The latter is
+///   a fixed ceiling with no caller override in v0.3, and [`write()`] does not
+///   enforce it, so a graph with an array that large writes but cannot be read
+///   back
 /// - [`NirError::Unimplemented`] if the `hdf5` feature is off
 ///
 /// # Examples

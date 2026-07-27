@@ -35,7 +35,9 @@ use std::path::Path;
 /// Bounds total work rather than depth, which covers both failure modes: an
 /// unbounded chain would overflow the stack, and hard-link aliases could
 /// re-expand a shared subtree exponentially. The writer enforces the same
-/// bound, so this crate never emits a file it would then refuse to read.
+/// bound, so nesting alone never makes this crate emit a file it would then
+/// refuse to read. That symmetry is specific to this constant —
+/// [`MAX_DATASET_BYTES`] has no writer-side counterpart.
 pub(super) const MAX_NESTED_GRAPHS: usize = 1024;
 
 /// Per-dataset ceiling on the allocation a decode is *estimated* to make.
@@ -61,6 +63,16 @@ pub(super) const MAX_NESTED_GRAPHS: usize = 1024;
 /// the caller, which is #21 and a v0.4 public-API change. Until then this stops
 /// the obvious one-dataset blowups and nothing more; do not read it as a
 /// guarantee against hostile input.
+///
+/// # Asymmetry with the write path
+///
+/// [`write`](super::write) applies no equivalent limit, so a graph holding a
+/// single array above this ceiling — roughly 100M `f64` or 200M `f32` — writes
+/// successfully and is then refused on readback. That is a real round-trip
+/// hole, not a deliberate policy: the ceiling is hardcoded here because v0.3
+/// has no way for a caller to say "this file is mine, decode it". Raising it
+/// blindly only moves the cliff, so the fix is the caller-sized budget in #21
+/// rather than a matching hardcoded check in the writer.
 const MAX_DATASET_BYTES: usize = 800_000_000;
 
 /// Requested capacities for fixed-length strings, smallest first.
