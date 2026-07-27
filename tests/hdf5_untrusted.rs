@@ -216,3 +216,26 @@ fn a_wide_fixed_string_dataset_is_rejected_on_bytes_not_element_count() {
         &["exceeds limit", "4096"],
     );
 }
+
+#[test]
+fn a_narrow_integer_dataset_is_charged_at_its_decoded_width() {
+    // `read_tensor` materializes every integer width as `i64`, so a 1-byte
+    // dataset costs eight times its stored size. 150M `i8` elements is 150 MB
+    // on the descriptor but 1.2 GB decoded: charging the source width accepts
+    // it, charging the destination width does not.
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "narrow_ints.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+        node.new_dataset::<i8>()
+            .shape([150_000_000])
+            .create("shape")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["exceeds limit"],
+    );
+}

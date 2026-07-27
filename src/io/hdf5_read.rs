@@ -38,38 +38,67 @@ use std::path::Path;
 /// bound, so this crate never emits a file it would then refuse to read.
 pub(super) const MAX_NESTED_GRAPHS: usize = 1024;
 
-/// Maximum bytes materialized for any single dataset read.
+/// Per-dataset ceiling on the allocation a decode is *estimated* to make.
 ///
-/// Protects against memory exhaustion from attacker-controlled datasets. The
-/// budget is in *bytes*, not elements, because element width is not a
-/// constant: a fixed-length string is read through the capacity ladder in
-/// [`read_strings`] and materializes up to `FIXED_STRING_CAPS.last()` bytes
-/// per element, so an element-count cap of 100M would have permitted roughly
-/// 400 GB rather than the 800 MB it appeared to allow.
+/// # What this does and does not bound
+///
+/// It is a coarse pre-filter, not a memory bound, and the distinction matters
+/// enough to spell out:
+///
+/// - **Bounded**: numerics and fixed-length strings, charged at the width they
+///   decode to rather than their on-disk width (see [`decoded_element_bytes`]).
+/// - **Not bounded — variable-length strings.** `VarLenAscii` / `VarLenUnicode`
+///   store a descriptor inline and the characters on HDF5's global heap, so
+///   the payload size is unknowable before the read. A single such value can
+///   exceed this ceiling.
+/// - **Not bounded — the total.** The budget resets per dataset, so a file of
+///   many datasets each just under the ceiling still sums without limit, and
+///   every decoded tensor stays resident in the returned graph.
+/// - **Not bounded — copies.** Strings are materialized into the raw buffer and
+///   then again as `String`, so peak usage is roughly double what is charged.
+///
+/// Closing those needs a cumulative budget charged *during* decode and sized by
+/// the caller, which is #21 and a v0.4 public-API change. Until then this stops
+/// the obvious one-dataset blowups and nothing more; do not read it as a
+/// guarantee against hostile input.
 const MAX_DATASET_BYTES: usize = 800_000_000;
 
 /// Requested capacities for fixed-length strings, smallest first.
-///
-/// Shared with [`read_strings`] so the size charged by
-/// [`validate_dataset_security`] is the capacity actually allocated, not the
-/// narrower width recorded on disk.
 const FIXED_STRING_CAPS: [usize; 3] = [64, 256, 4096];
 
-/// Bytes one element of `descriptor` occupies once decoded.
+/// Bytes one element of `descriptor` occupies **after** decoding.
 ///
-/// Fixed strings round up to the ladder rung that will be requested; anything
-/// else is its own on-disk width.
+/// The destination width, not the source width — the reader widens as it goes,
+/// so charging the on-disk descriptor undercounts. An `i8` dataset decodes into
+/// `TensorData::I64`, eight times its stored size, and a 64-byte fixed string
+/// is requested as the next ladder rung up.
 fn decoded_element_bytes(descriptor: &Td) -> usize {
-    let width = match descriptor {
-        Td::FixedAscii(w) | Td::FixedUnicode(w) => *w,
-        other => return other.size(),
-    };
-    FIXED_STRING_CAPS
-        .iter()
-        .copied()
-        .find(|cap| width <= *cap)
-        .unwrap_or(width)
+    match descriptor {
+        // `read_tensor` reads every integer width into `i64`, and `u64` goes
+        // through the same checked conversion.
+        Td::Integer(_) | Td::Unsigned(_) => size_of::<i64>(),
+        // Floats keep their width: `f32` never widens to `f64`.
+        Td::Float(FloatSize::U4) => size_of::<f32>(),
+        Td::Float(FloatSize::U8) => size_of::<f64>(),
+        Td::Boolean => size_of::<bool>(),
+        Td::FixedAscii(w) | Td::FixedUnicode(w) => FIXED_STRING_CAPS
+            .iter()
+            .copied()
+            .find(|cap| w <= cap)
+            .unwrap_or(*w),
+        // Variable-length payloads live on the global heap; the descriptor
+        // width is all that is knowable here. See `MAX_DATASET_BYTES`.
+        other => other.size(),
+    }
 }
+
+// The ladder is spelled out again in the `read_fixed!` calls inside
+// `read_strings`, because the macro needs literals. Pin them here so a change
+// to one side fails the build rather than silently mischarging the guard.
+const _: () = assert!(
+    FIXED_STRING_CAPS[0] == 64 && FIXED_STRING_CAPS[1] == 256 && FIXED_STRING_CAPS[2] == 4096,
+    "FIXED_STRING_CAPS and the read_fixed! rungs in read_strings must match"
+);
 
 /// Read a whole `.nir` file.
 pub(super) fn read(path: &Path) -> Result<NirGraph> {
