@@ -135,6 +135,7 @@ impl Tensor {
     ///
     /// [`data`]: Self::data
     #[must_use]
+    #[cfg(feature = "hdf5")]
     pub(crate) fn into_data(self) -> TensorData {
         self.data
     }
