@@ -303,10 +303,21 @@ mod tests {
 
     /// Stable index of a `NirNode` variant, in [`WIRE_TYPES`] order.
     ///
-    /// Exhaustive: a new variant is a compile error here. Combined with the
-    /// length check in `wire_types_matches_every_node_variant`, neither
-    /// `WIRE_TYPES` nor `one_of_each` can silently omit a variant — updating
-    /// only this match (or only `type_name`) is not enough to keep the test green.
+    /// Exhaustive, so a new variant is a compile error here — that is the
+    /// notification, and it is worth being precise about its limits. Nothing
+    /// in the test reads this match's arm count, so adding an arm with the
+    /// next index and updating neither `VARIANT_COUNT`, `WIRE_TYPES` nor
+    /// `one_of_each` still leaves the test green: the three lists agree with
+    /// each other at the old length, and no sample ever exercises the new
+    /// index. Closing that needs the variants, their wire strings and their
+    /// sample values generated from one definition — a macro owning `NirNode`
+    /// itself, since stable Rust cannot enumerate an enum's variants.
+    ///
+    /// What the index does buy over a bare coverage match: `WIRE_TYPES` and
+    /// `one_of_each` are checked position-by-position rather than as two
+    /// sequences that happen to compare equal, so a sample in the wrong slot,
+    /// a duplicate, or a `type_name` that disagrees with `WIRE_TYPES` at that
+    /// index all fail.
     fn variant_index(node: &NirNode) -> usize {
         match node {
             NirNode::Input(_) => 0,
