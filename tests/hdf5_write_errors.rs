@@ -481,3 +481,104 @@ fn nested_graph_hard_link_cycle_is_rejected() {
         other => panic!("expected InvalidGraph, got {other:?}"),
     }
 }
+
+/// A rank-33 tensor: one element, but more dimensions than HDF5 can give a
+/// dataspace. `Tensor` accepts it (shape product == data length), so it is
+/// reachable through the public API.
+fn over_rank() -> Tensor {
+    Tensor::from_f64(vec![1usize; 33], vec![1.0]).unwrap()
+}
+
+fn ones() -> Tensor {
+    Tensor::from_f64([1], vec![1.0]).unwrap()
+}
+
+#[test]
+fn tensor_rank_above_the_hdf5_limit_is_rejected_before_the_file_is_created() {
+    // One case per branch that the preflight had been missing: the convolution
+    // biases, the CubaLI/CubaLIF optionals, and the pooling window — the last
+    // of which was skipped entirely by a `_ => {}` arm.
+    let cases: Vec<(&str, NirNode)> = vec![
+        (
+            "bias",
+            NirNode::Conv1d(nir_rs::nodes::Conv1d {
+                weight: Tensor::from_f32(vec![1, 1, 3], vec![1., 0., -1.]).unwrap(),
+                stride: vec![1],
+                padding: nir_rs::nodes::Padding::single(0),
+                dilation: vec![1],
+                groups: 1,
+                bias: over_rank(),
+                input_shape: None,
+                metadata: Default::default(),
+            }),
+        ),
+        (
+            "w_in",
+            NirNode::CubaLi(nir_rs::nodes::CubaLi {
+                tau_syn: ones(),
+                tau_mem: ones(),
+                r: ones(),
+                v_leak: ones(),
+                w_in: Some(over_rank()),
+                metadata: Default::default(),
+            }),
+        ),
+        (
+            "tau_syn",
+            NirNode::CubaLif(nir_rs::nodes::CubaLif {
+                tau_syn: over_rank(),
+                tau_mem: ones(),
+                r: ones(),
+                v_leak: ones(),
+                v_threshold: ones(),
+                v_reset: None,
+                w_in: None,
+                metadata: Default::default(),
+            }),
+        ),
+        (
+            "padding",
+            NirNode::SumPool2d(nir_rs::nodes::SumPool2d {
+                kernel_size: ones(),
+                stride: ones(),
+                padding: over_rank(),
+                metadata: Default::default(),
+            }),
+        ),
+        (
+            "kernel_size",
+            NirNode::AvgPool2d(nir_rs::nodes::AvgPool2d {
+                kernel_size: over_rank(),
+                stride: ones(),
+                padding: ones(),
+                metadata: Default::default(),
+            }),
+        ),
+    ];
+
+    for (field, node) in cases {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("existing.nir");
+
+        // Something valuable is already at the destination.
+        let mut good = NirGraph::new();
+        good.insert_node("input", input(vec![1])).unwrap();
+        nir_rs::io::write(&path, &good).unwrap();
+        let before = std::fs::metadata(&path).unwrap().len();
+
+        let mut graph = NirGraph::new();
+        graph.insert_node("n", node).unwrap();
+        assert_err(
+            nir_rs::io::write(&path, &graph),
+            NirError::InvalidTensor,
+            &[field, "rank 33", "32"],
+        );
+
+        // The whole point of the preflight: the existing model survives.
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            before,
+            "{field}: a rejected write must not truncate the destination"
+        );
+    }
+}

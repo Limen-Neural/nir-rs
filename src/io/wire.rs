@@ -301,13 +301,22 @@ mod tests {
         ]
     }
 
-    /// Compile-time exhaustiveness guard.
+    /// Compile-time notification that a `NirNode` variant was added.
     ///
-    /// The match has no `_` arm, so adding a `NirNode` variant stops the crate
-    /// compiling right here — the signal to extend [`one_of_each`] and
-    /// [`WIRE_TYPES`] together. It takes a real node rather than matching a
-    /// fixed dummy, which would leave every other arm unreachable and prove
-    /// nothing about coverage.
+    /// The match has no `_` arm, so a new variant stops the crate compiling
+    /// here. That is all it guarantees: the fix is *reviewed*, not that the
+    /// lists get updated — adding the variant to this arm satisfies the
+    /// compiler on its own, and two lists that both omit it still compare
+    /// equal in `wire_types_matches_every_node_variant`.
+    ///
+    /// Closing that gap properly needs the variants, their wire strings and
+    /// their sample values generated from one definition, which means a macro
+    /// owning `NirNode` itself — stable Rust has no way to enumerate an enum's
+    /// variants otherwise. Out of scope here; the compile error plus the
+    /// name-vs-`WIRE_TYPES` comparison is the practical net.
+    ///
+    /// It takes a real node rather than matching a fixed dummy, which would
+    /// leave every other arm unreachable and prove nothing at all.
     fn assert_variant_covered(node: &NirNode) {
         match node {
             NirNode::Input(_)
