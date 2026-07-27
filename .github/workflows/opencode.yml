@@ -8,7 +8,17 @@ on:
 
 jobs:
   gate:
+    # Cheap superset filter so an ordinary comment does not allocate a runner.
+    # The script below is the authoritative check; this only has to avoid
+    # false negatives, so it matches the command substring without boundaries.
+    if: |
+      contains(github.event.comment.body, '/oc') ||
+      contains(github.event.comment.body, '/opencode')
     runs-on: ubuntu-latest
+    # Only needs to read the collaborator permission level; the privileged
+    # scopes belong to the `opencode` job alone.
+    permissions:
+      contents: read
     outputs:
       allowed: ${{ steps.check.outputs.allowed }}
     steps:
