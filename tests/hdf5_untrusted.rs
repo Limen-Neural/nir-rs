@@ -192,3 +192,27 @@ fn ordinary_files_still_pass_the_guards() {
             .unwrap_or_else(|e| panic!("{name} should still read: {e}"));
     }
 }
+
+#[test]
+fn a_wide_fixed_string_dataset_is_rejected_on_bytes_not_element_count() {
+    // 1M elements is far below any plausible element-count cap, but each is
+    // read through the capacity ladder as `FixedAscii<4096>`, so decoding
+    // would materialize ~4 GB. A guard that counts elements accepts this; one
+    // that charges bytes does not. No data is written, and the rejection
+    // happens before `read_raw`, so the test never allocates it.
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "wide_strings.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+        node.new_dataset::<hdf5::types::FixedAscii<4096>>()
+            .shape([1_000_000])
+            .create("shape")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["exceeds limit", "4096"],
+    );
+}

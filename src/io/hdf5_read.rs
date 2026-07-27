@@ -38,12 +38,38 @@ use std::path::Path;
 /// bound, so this crate never emits a file it would then refuse to read.
 pub(super) const MAX_NESTED_GRAPHS: usize = 1024;
 
-/// Maximum element count for any single dataset read.
+/// Maximum bytes materialized for any single dataset read.
 ///
-/// Protects against memory exhaustion from attacker-controlled datasets.
-/// 100M elements × 8 bytes (f64/i64) = 800 MB per dataset, well within
-/// reason for real models while preventing unbounded allocation.
-const MAX_DATASET_ELEMENTS: usize = 100_000_000;
+/// Protects against memory exhaustion from attacker-controlled datasets. The
+/// budget is in *bytes*, not elements, because element width is not a
+/// constant: a fixed-length string is read through the capacity ladder in
+/// [`read_strings`] and materializes up to `FIXED_STRING_CAPS.last()` bytes
+/// per element, so an element-count cap of 100M would have permitted roughly
+/// 400 GB rather than the 800 MB it appeared to allow.
+const MAX_DATASET_BYTES: usize = 800_000_000;
+
+/// Requested capacities for fixed-length strings, smallest first.
+///
+/// Shared with [`read_strings`] so the size charged by
+/// [`validate_dataset_security`] is the capacity actually allocated, not the
+/// narrower width recorded on disk.
+const FIXED_STRING_CAPS: [usize; 3] = [64, 256, 4096];
+
+/// Bytes one element of `descriptor` occupies once decoded.
+///
+/// Fixed strings round up to the ladder rung that will be requested; anything
+/// else is its own on-disk width.
+fn decoded_element_bytes(descriptor: &Td) -> usize {
+    let width = match descriptor {
+        Td::FixedAscii(w) | Td::FixedUnicode(w) => *w,
+        other => return other.size(),
+    };
+    FIXED_STRING_CAPS
+        .iter()
+        .copied()
+        .find(|cap| width <= *cap)
+        .unwrap_or(width)
+}
 
 /// Read a whole `.nir` file.
 pub(super) fn read(path: &Path) -> Result<NirGraph> {
@@ -783,10 +809,16 @@ fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
         )));
     }
 
-    let size = ds.size();
-    if size > MAX_DATASET_ELEMENTS {
+    // Charge the allocation this dataset would actually make. `saturating_mul`
+    // rather than a checked product: an overflowing size is far past the limit
+    // either way, and saturating keeps the rejection on the normal path.
+    let elem_bytes = decoded_element_bytes(&ds.dtype()?.to_descriptor()?);
+    let bytes = ds.size().saturating_mul(elem_bytes);
+    if bytes > MAX_DATASET_BYTES {
         return Err(NirError::InvalidGraph(format!(
-            "{context}: dataset has {size} elements, exceeds limit of {MAX_DATASET_ELEMENTS}"
+            "{context}: dataset would decode to {bytes} bytes \
+             ({} elements x {elem_bytes}), exceeds limit of {MAX_DATASET_BYTES}",
+            ds.size()
         )));
     }
 
@@ -960,10 +992,13 @@ fn read_strings(ds: &Dataset, context: &str) -> Result<Vec<String>> {
             .map(ToString::to_string)
             .collect()),
         Td::FixedAscii(width) => {
+            // Rungs must match `FIXED_STRING_CAPS`, which is what
+            // `decoded_element_bytes` charges the size guard for.
             read_fixed!(FixedAscii, width, 64, 256, 4096);
             Err(too_wide(context, width))
         }
         Td::FixedUnicode(width) => {
+            // Rungs must match `FIXED_STRING_CAPS` — see above.
             read_fixed!(FixedUnicode, width, 64, 256, 4096);
             Err(too_wide(context, width))
         }

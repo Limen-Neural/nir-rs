@@ -181,6 +181,18 @@ impl WriteOptions {
 /// `v_reset` becomes zeros shaped like `v_threshold`, and a missing `w_in`
 /// becomes ones shaped like `v_leak`.
 ///
+/// Node **parameters** keep their on-disk float width — an `f32` weight never
+/// becomes `f64`. **Scalar metadata** is the one exception: [`MetadataValue`]
+/// has no `F32` variant, so a scalar `float32` metadata value decodes as
+/// [`MetadataValue::F64`] and is written back as a 64-bit dataset. The value
+/// survives exactly, since `f32` widens to `f64` losslessly; only the wire
+/// dtype of that one dataset changes. Narrower integers likewise widen into
+/// [`MetadataValue::I64`].
+///
+/// [`MetadataValue`]: crate::types::MetadataValue
+/// [`MetadataValue::F64`]: crate::types::MetadataValue::F64
+/// [`MetadataValue::I64`]: crate::types::MetadataValue::I64
+///
 /// # Errors
 ///
 /// - [`NirError::Io`] if the file cannot be opened or is not valid HDF5
