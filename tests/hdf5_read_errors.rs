@@ -224,3 +224,28 @@ fn a_malformed_version_is_not_reported_as_a_missing_one() {
         &["/version", "expected a dataset"],
     );
 }
+
+#[test]
+fn rank_2_string_metadata_is_refused_rather_than_flattened() {
+    // A Python `list[list[str]]`. `MetadataValue::StringList` is flat, so
+    // decoding this would silently drop the nesting and write it back as a
+    // rank-1 dataset. Refusing keeps the failure loud.
+    let dir = TempDir::new().unwrap();
+    let path = write_then(&dir, "nested_strings.nir", |file| {
+        let md = file
+            .group("node/nodes/input")
+            .unwrap()
+            .create_group("metadata")
+            .unwrap();
+        md.new_dataset::<hdf5::types::VarLenUnicode>()
+            .shape([2, 2])
+            .create("grid")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidTensor,
+        &["grid", "rank-1", "[2, 2]"],
+    );
+}

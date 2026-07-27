@@ -919,6 +919,17 @@ fn read_metadata_value(ds: &Dataset, key: &str) -> Result<MetadataValue> {
         // as one string would fail the whole read, and `Tensor` cannot hold
         // strings, so it needs its own variant.
         Td::VarLenUnicode | Td::VarLenAscii | Td::FixedAscii(_) | Td::FixedUnicode(_) => {
+            // Rank 2+ is a Python `list[list[str]]`, and `StringList` is flat,
+            // so decoding one would drop the nesting and write it back as a
+            // rank-1 dataset — a silent reshape. Refuse instead. Nothing is
+            // lost: such a file did not load before `StringList` existed
+            // either, it just failed with a less useful message.
+            let shape = ds.shape();
+            if shape.len() > 1 {
+                return Err(NirError::InvalidTensor(format!(
+                    "{context}: string metadata must be scalar or rank-1, found shape {shape:?}"
+                )));
+            }
             if ds.size() == 1 {
                 MetadataValue::String(read_string_scalar_validated(ds, key)?)
             } else {
