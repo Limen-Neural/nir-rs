@@ -493,12 +493,12 @@ fn ones() -> Tensor {
     Tensor::from_f64([1], vec![1.0]).unwrap()
 }
 
-#[test]
-fn tensor_rank_above_the_hdf5_limit_is_rejected_before_the_file_is_created() {
-    // One case per branch that the preflight had been missing: the convolution
-    // biases, the CubaLI/CubaLIF optionals, and the pooling window — the last
-    // of which was skipped entirely by a `_ => {}` arm.
-    let cases: Vec<(&str, NirNode)> = vec![
+/// One case per branch the rank preflight had been missing: the convolution
+/// biases, the CubaLI/CubaLIF optionals, and the pooling window — the last of
+/// which was skipped entirely by a `_ => {}` arm. Each pairs the offending
+/// field name with a node carrying an over-rank tensor in it.
+fn over_rank_cases() -> Vec<(&'static str, NirNode)> {
+    vec![
         (
             "bias",
             NirNode::Conv1d(nir_rs::nodes::Conv1d {
@@ -554,9 +554,12 @@ fn tensor_rank_above_the_hdf5_limit_is_rejected_before_the_file_is_created() {
                 metadata: Default::default(),
             }),
         ),
-    ];
+    ]
+}
 
-    for (field, node) in cases {
+#[test]
+fn tensor_rank_above_the_hdf5_limit_is_rejected_before_the_file_is_created() {
+    for (field, node) in over_rank_cases() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("existing.nir");
 
