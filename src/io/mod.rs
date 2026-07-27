@@ -123,10 +123,12 @@ pub struct WriteOptions {
     /// `None` writes arrays uncompressed. Values above 9 are rejected; use
     /// [`Self::with_compression`] to clamp automatically.
     ///
-    /// Two kinds of dataset are never compressed regardless of this setting:
+    /// Three kinds of dataset are never compressed regardless of this setting:
     ///
     /// - **Scalars.** HDF5 cannot chunk them, and chunking is a prerequisite
     ///   for any filter.
+    /// - **Empty arrays** — any tensor with a zero-length axis. There are no
+    ///   bytes to compress, and a filter would still cost a chunked layout.
     /// - **String arrays** — `edges` and [`MetadataValue::StringList`]. These
     ///   are variable-length, so the dataset holds only heap descriptors and
     ///   the characters live on HDF5's global heap. A filter applies to the
