@@ -785,12 +785,11 @@ fn h5py_style_string_list_metadata_loads() {
 }
 
 #[test]
-fn a_one_element_string_list_returns_as_a_plain_string() {
-    // Documented asymmetry. `read_string_scalar` accepts a single element at
-    // any rank on purpose, because producers differ on whether a scalar string
-    // is written as `()` or `[1]`; distinguishing a 1-element list by rank
-    // would break that tolerance. A list of one therefore comes back as
-    // `String`. Lists of two or more round-trip exactly.
+fn a_one_element_string_list_stays_a_list() {
+    // The case that separates a rank split from an element-count split: a
+    // one-element list is written `[1]` and a scalar string is written `()`,
+    // so reading by rank keeps them distinct. Counting elements would collapse
+    // both to `String` and silently change the graph on a write → read cycle.
     let dir = TempDir::new().unwrap();
     let path = scratch(&dir, "one_string.nir");
     let mut graph = NirGraph::new();
@@ -799,10 +798,12 @@ fn a_one_element_string_list_returns_as_a_plain_string() {
         "tags".into(),
         MetadataValue::StringList(vec!["solo".into()]),
     );
+    graph
+        .metadata
+        .insert("origin".into(), MetadataValue::String("solo".into()));
     nir_rs::io::write(&path, &graph).unwrap();
 
-    assert_eq!(
-        nir_rs::io::read(&path).unwrap().metadata.get("tags"),
-        Some(&MetadataValue::String("solo".into()))
-    );
+    // Same payload, different variants, both preserved.
+    let decoded = nir_rs::io::read(&path).unwrap();
+    assert_eq!(decoded, graph);
 }

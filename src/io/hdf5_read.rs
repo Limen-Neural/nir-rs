@@ -912,29 +912,38 @@ fn read_metadata(group: &Group) -> Result<MetadataMap> {
 /// Decode a string-typed metadata dataset.
 ///
 /// Security is already checked by the caller; what is left is arity. A
-/// multi-element string dataset is a Python `list[str]` — reading it as one
-/// string would fail the whole file, and [`Tensor`] holds no strings, so it
-/// needs [`MetadataValue::StringList`].
+/// rank-1 string dataset is a Python `list[str]` — reading it as one string
+/// would fail the whole file, and [`Tensor`] holds no strings, so it needs
+/// [`MetadataValue::StringList`].
+///
+/// The split is on **rank, not element count**: rank 0 is `String`, rank 1 is
+/// `StringList` even when it holds one element. That is what h5py emits —
+/// a scalar `str` is shape `()`, a `list[str]` is shape `[n]` — and it makes
+/// the round-trip exact, since a one-element `StringList` would otherwise be
+/// written as `[1]` and read back as `String`. Counting elements instead
+/// would collapse the two.
+///
+/// The looser size-based rule in [`read_string_scalar`] is deliberate and
+/// stays: `/version`, node `type` and symbolic `padding` accept a single
+/// element at any rank, because producers disagree on whether a lone string
+/// is `()` or `[1]`. Metadata is the one place where the distinction carries
+/// meaning, so it is the one place that reads rank.
 ///
 /// Rank 2+ is a `list[list[str]]`, which `StringList` cannot hold: decoding
 /// one would drop the nesting and write it back as rank-1, a silent reshape.
 /// Refusing loses nothing, since such a file did not load before `StringList`
 /// existed either — it just failed with a message about the wrong problem.
 fn read_string_metadata(ds: &Dataset, key: &str, context: &str) -> Result<MetadataValue> {
-    let shape = ds.shape();
-    if shape.len() > 1 {
-        return Err(NirError::InvalidTensor(format!(
-            "{context}: string metadata must be scalar or rank-1, found shape {shape:?}"
-        )));
-    }
-    if ds.size() == 1 {
-        Ok(MetadataValue::String(read_string_scalar_validated(
+    match ds.shape().as_slice() {
+        [] => Ok(MetadataValue::String(read_string_scalar_validated(
             ds, key,
-        )?))
-    } else {
-        Ok(MetadataValue::StringList(read_strings_unchecked(
+        )?)),
+        [_] => Ok(MetadataValue::StringList(read_strings_unchecked(
             ds, context,
-        )?))
+        )?)),
+        shape => Err(NirError::InvalidTensor(format!(
+            "{context}: string metadata must be scalar or rank-1, found shape {shape:?}"
+        ))),
     }
 }
 

@@ -118,12 +118,22 @@ const DEFAULT_COMPRESSION: u8 = 4;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct WriteOptions {
-    /// Deflate (gzip) level for array datasets, must be in `0..=9`.
+    /// Deflate (gzip) level for **numeric** array datasets, must be in `0..=9`.
     ///
-    /// `None` writes arrays uncompressed. Scalar datasets are never
-    /// compressed — HDF5 cannot chunk them, and chunking is a prerequisite for
-    /// any filter. Values above 9 are rejected; use [`Self::with_compression`]
-    /// to clamp automatically.
+    /// `None` writes arrays uncompressed. Values above 9 are rejected; use
+    /// [`Self::with_compression`] to clamp automatically.
+    ///
+    /// Two kinds of dataset are never compressed regardless of this setting:
+    ///
+    /// - **Scalars.** HDF5 cannot chunk them, and chunking is a prerequisite
+    ///   for any filter.
+    /// - **String arrays** — `edges` and [`MetadataValue::StringList`]. These
+    ///   are variable-length, so the dataset holds only heap descriptors and
+    ///   the characters live on HDF5's global heap. A filter applies to the
+    ///   descriptors, not to the payload, so deflating them would add chunking
+    ///   overhead while compressing almost nothing.
+    ///
+    /// [`MetadataValue::StringList`]: crate::types::MetadataValue::StringList
     pub compression: Option<u8>,
     /// Version string to write, overriding [`NirGraph::version`].
     pub version: Option<String>,
