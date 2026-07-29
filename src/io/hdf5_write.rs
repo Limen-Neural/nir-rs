@@ -74,6 +74,30 @@ fn write_atomically(
     let temp_path = temporary_path(path)?;
     after_temp_created(&temp_path)?;
     write_file(&temp_path, graph, opts, version)?;
+
+    // Preserve the destination's existing permissions after writing succeeds
+    // but before the final rename. Applying them earlier would prevent the
+    // write itself if the destination lacks the owner-write bit.
+    match std::fs::metadata(path) {
+        Ok(metadata) => {
+            std::fs::set_permissions(&temp_path, metadata.permissions()).map_err(|e| {
+                NirError::Io(format!(
+                    "cannot preserve permissions for {}: {e}",
+                    path.display()
+                ))
+            })?;
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Destination does not exist yet; nothing to preserve.
+        }
+        Err(e) => {
+            return Err(NirError::Io(format!(
+                "cannot stat {}: {e}",
+                path.display()
+            )));
+        }
+    }
+
     temp_path.persist(path).map_err(|e| {
         NirError::Io(format!(
             "cannot atomically replace {}: {}",
@@ -115,17 +139,6 @@ fn temporary_path(path: &Path) -> Result<TempPath> {
             path.display()
         ))
     })?;
-
-    // Replacing an existing model must not silently change its permissions.
-    // Apply them after creation so the umask cannot narrow existing bits.
-    if let Ok(metadata) = std::fs::metadata(path) {
-        std::fs::set_permissions(temp.path(), metadata.permissions()).map_err(|e| {
-            NirError::Io(format!(
-                "cannot preserve permissions for {}: {e}",
-                path.display()
-            ))
-        })?;
-    }
 
     Ok(temp.into_temp_path())
 }
@@ -1022,5 +1035,30 @@ mod atomic_tests {
                 0o604
             );
         }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn write_succeeds_when_destination_lacks_write_permission() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("readonly.nir");
+        std::fs::write(&path, b"placeholder").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+        write(&path, &NirGraph::new(), &WriteOptions::default()).unwrap();
+
+        let decoded =
+            super::super::hdf5_read::read(&path, &super::super::ReadOptions::default()).unwrap();
+        assert!(decoded.nodes.is_empty());
+        assert!(decoded.edges.is_empty());
+        assert_eq!(decoded.version.as_deref(), Some(DEFAULT_NIR_VERSION));
+
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o444
+        );
+        assert_eq!(residue(dir.path()), vec!["readonly.nir"]);
     }
 }
