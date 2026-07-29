@@ -19,6 +19,7 @@ use std::collections::{HashMap, HashSet};
 /// serialization and debugging). Edges are an ordered list of `(src, dst)`
 /// name pairs.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NirGraph {
     /// Named computational nodes (insertion-ordered).
     pub nodes: IndexMap<String, NirNode>,

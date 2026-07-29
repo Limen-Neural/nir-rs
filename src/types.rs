@@ -10,6 +10,7 @@ use crate::error::{NirError, Result};
 
 /// Element type of a contiguous tensor buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum DType {
     /// 32-bit IEEE floating point.
@@ -37,6 +38,7 @@ impl DType {
 
 /// Contiguous numeric payload backing a [`Tensor`].
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TensorData {
     /// `f32` elements.
     F32(Vec<f32>),
@@ -92,12 +94,58 @@ impl TensorData {
 ///
 /// Equality is exact element-wise (IEEE). In particular, `NaN != NaN`, matching
 /// Rust's default float `PartialEq`.
+///
+/// # Serde
+///
+/// With the `serde` feature, tensors encode as `{ "shape": ..., "data": ... }`.
+/// Deserialization always calls [`Tensor::new`], preserving the private-field
+/// invariant. JSON is debug-only and cannot faithfully represent non-finite
+/// floats; HDF5 `.nir` remains the NIR interchange format.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tensor {
     /// Axis lengths.
     shape: Vec<usize>,
     /// Contiguous elements in C-order.
     data: TensorData,
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Tensor {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(serde::Serialize)]
+        struct TensorRef<'a> {
+            shape: &'a [usize],
+            data: &'a TensorData,
+        }
+
+        serde::Serialize::serialize(
+            &TensorRef {
+                shape: self.shape(),
+                data: self.data(),
+            },
+            serializer,
+        )
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Tensor {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct TensorOwned {
+            shape: Vec<usize>,
+            data: TensorData,
+        }
+
+        let tensor = <TensorOwned as serde::Deserialize>::deserialize(deserializer)?;
+        Self::new(tensor.shape, tensor.data).map_err(serde::de::Error::custom)
+    }
 }
 
 impl Tensor {
@@ -244,6 +292,7 @@ pub type MetadataMap = std::collections::HashMap<String, MetadataValue>;
 
 /// Free-form metadata values attached to graphs and nodes.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum MetadataValue {
     /// UTF-8 string.

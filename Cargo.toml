@@ -20,6 +20,8 @@ default = []
 # `apt install libhdf5-dev` (Ubuntu) or `brew install hdf5` (macOS). For a
 # hermetic build, see the static-linking note in README.md.
 hdf5 = ["dep:hdf5"]
+# Debug/export traits only. JSON helpers intentionally remain consumer-side.
+serde = ["dep:serde", "indexmap/serde"]
 
 [dependencies]
 indexmap = "2"
@@ -27,8 +29,10 @@ thiserror = "2"
 # Maintained metno fork via package rename; the abandoned aldanor/hdf5 0.8 crate
 # (last released 2021) must not be used.
 hdf5 = { package = "hdf5-metno", version = "0.14", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
+serde_json = "1"
 tempfile = "3"
 
 [package.metadata.docs.rs]
