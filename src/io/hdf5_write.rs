@@ -30,12 +30,13 @@ use hdf5::types::VarLenUnicode;
 use hdf5::{File, Group};
 use std::path::Path;
 use std::str::FromStr;
+use tempfile::{Builder, TempPath};
 
-/// Write `graph` to `path`, truncating any existing file.
+/// Write `graph` to `path` by atomically replacing it after a successful flush.
 pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Result<()> {
-    // Validate before touching the filesystem so a rejected graph never leaves
-    // a half-written file behind. Name legality is not optional — HDF5 cannot
-    // represent the rejected names at all.
+    // Validate before touching the filesystem for precise caller-facing
+    // errors. Name legality is not optional — HDF5 cannot represent the
+    // rejected names at all.
     // Depth first: `validate_structure` recurses through nested subgraphs
     // without a bound, so an over-deep graph would overflow the stack before
     // the guard inside `check_names` could reject it.
@@ -56,9 +57,84 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
     check_tensor_ranks(graph)?;
     check_compression(opts.compression)?;
 
+    write_atomically(path, graph, opts, &version, |_| Ok(()))
+}
+
+/// Stage a complete HDF5 file next to `path`, then replace `path` in one rename.
+///
+/// The callback exists solely to let the unit test inject an error after the
+/// temporary file exists and prove cleanup/preservation behavior.
+fn write_atomically(
+    path: &Path,
+    graph: &NirGraph,
+    opts: &WriteOptions,
+    version: &str,
+    after_temp_created: impl FnOnce(&Path) -> Result<()>,
+) -> Result<()> {
+    let temp_path = temporary_path(path)?;
+    after_temp_created(&temp_path)?;
+    write_file(&temp_path, graph, opts, version)?;
+    temp_path.persist(path).map_err(|e| {
+        NirError::Io(format!(
+            "cannot atomically replace {}: {}",
+            path.display(),
+            e.error
+        ))
+    })
+}
+
+/// Create the staging file on the destination filesystem and close its handle.
+///
+/// HDF5 reopens the path itself. Closing the `NamedTempFile` handle first is
+/// required on Windows, where another open handle can prevent that reopen.
+fn temporary_path(path: &Path) -> Result<TempPath> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("model.nir");
+    let prefix = format!(".{name}.");
+    let mut builder = Builder::new();
+    builder.prefix(&prefix).suffix(".tmp");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Match ordinary file creation (0o666 filtered by the process umask)
+        // instead of tempfile's intentionally private 0o600 default.
+        builder.permissions(std::fs::Permissions::from_mode(0o666));
+    }
+
+    let temp = builder.tempfile_in(parent).map_err(|e| {
+        NirError::Io(format!(
+            "cannot create temporary file beside {}: {e}",
+            path.display()
+        ))
+    })?;
+
+    // Replacing an existing model must not silently change its permissions.
+    // Apply them after creation so the umask cannot narrow existing bits.
+    if let Ok(metadata) = std::fs::metadata(path) {
+        std::fs::set_permissions(temp.path(), metadata.permissions()).map_err(|e| {
+            NirError::Io(format!(
+                "cannot preserve permissions for {}: {e}",
+                path.display()
+            ))
+        })?;
+    }
+
+    Ok(temp.into_temp_path())
+}
+
+/// Encode and flush one complete HDF5 file.
+fn write_file(path: &Path, graph: &NirGraph, opts: &WriteOptions, version: &str) -> Result<()> {
     let file = File::create(path)
         .map_err(|e| NirError::Io(format!("cannot create {}: {e}", path.display())))?;
-    write_string(&file, KEY_VERSION, &version)?;
+    write_string(&file, KEY_VERSION, version)?;
 
     let root = file.create_group(KEY_NODE)?;
     write_string(&root, KEY_TYPE, "NIRGraph")?;
@@ -69,15 +145,16 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
     // where it cannot be returned. Flushing here is what makes `Ok(())` mean
     // the bytes actually reached the file.
     file.flush()
-        .map_err(|e| NirError::Io(format!("cannot flush {}: {e}", path.display())))
+        .map_err(|e| NirError::Io(format!("cannot flush {}: {e}", path.display())))?;
+    drop(file);
+    Ok(())
 }
 
 /// Reject every caller-supplied string that HDF5 cannot use as a link name,
 /// at any nesting depth.
 ///
-/// This runs before `File::create`, because a name rejected by HDF5 itself
-/// fails only at link-creation time — after an existing file at the
-/// destination has already been truncated.
+/// This runs before staging because HDF5's link-creation error is less useful
+/// than identifying the invalid caller-supplied name directly.
 fn check_names(graph: &NirGraph) -> Result<()> {
     check_names_at(graph, &mut 0)
 }
@@ -107,8 +184,7 @@ fn check_names_at(graph: &NirGraph, seen: &mut usize) -> Result<()> {
 ///
 /// [`WriteOptions::with_compression`] clamps, but `compression` is a public
 /// field a caller can set directly. Without this, `H5Pset_deflate` rejects the
-/// level only at dataset-creation time — after `File::create` has truncated
-/// whatever was at the destination.
+/// level only at dataset-creation time, after more work has already occurred.
 fn check_compression(level: Option<u8>) -> Result<()> {
     match level {
         Some(level) if level > 9 => Err(NirError::InvalidGraph(format!(
@@ -125,7 +201,7 @@ fn check_metadata_keys(metadata: &MetadataMap) -> Result<()> {
     Ok(())
 }
 
-/// Reject HDF5 string payloads that would fail after the file is truncated.
+/// Reject HDF5 string payloads before staging begins.
 fn check_string_values(graph: &NirGraph, version: &str) -> Result<()> {
     wire::check_hdf5_string("version", version)?;
     check_graph_string_values(graph)
@@ -167,9 +243,8 @@ fn check_metadata_string_values(metadata: &MetadataMap, context: &str) -> Result
 
 /// Reject usize fields and convolution extents that the wire cannot carry.
 ///
-/// Everything here fails during `write_graph_body` too, but only *after*
-/// `File::create` has truncated the destination — so a rejected graph would
-/// destroy an existing model. Checking up front keeps that from happening.
+/// Everything here fails during `write_graph_body` too, but checking up front
+/// produces a focused representation error before creating a staging file.
 fn check_usize_fields(graph: &NirGraph) -> Result<()> {
     for (name, node) in &graph.nodes {
         match node {
@@ -865,4 +940,87 @@ fn var_str(value: &str) -> Result<VarLenUnicode> {
             "{value:?} cannot be encoded as an HDF5 string: {e}"
         ))
     })
+}
+
+#[cfg(test)]
+mod atomic_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn residue(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn injected_failure_preserves_existing_file_and_cleans_temp() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("model.nir");
+        let original = b"existing model bytes";
+        std::fs::write(&path, original).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        }
+
+        let graph = NirGraph::new();
+        let before = residue(dir.path());
+        let err = write_atomically(
+            &path,
+            &graph,
+            &WriteOptions::default(),
+            DEFAULT_NIR_VERSION,
+            |_| Err(NirError::Io("injected failure after temp creation".into())),
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("injected failure"));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(residue(dir.path()), before);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o640
+            );
+        }
+    }
+
+    #[test]
+    fn successful_atomic_write_replaces_and_preserves_permissions() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("model.nir");
+        std::fs::write(&path, b"old bytes").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o604)).unwrap();
+        }
+
+        write(&path, &NirGraph::new(), &WriteOptions::default()).unwrap();
+        let decoded =
+            super::super::hdf5_read::read(&path, &super::super::ReadOptions::default()).unwrap();
+        assert!(decoded.nodes.is_empty());
+        assert!(decoded.edges.is_empty());
+        assert_eq!(decoded.version.as_deref(), Some(DEFAULT_NIR_VERSION));
+        assert_eq!(residue(dir.path()), vec!["model.nir"]);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o604
+            );
+        }
+    }
 }

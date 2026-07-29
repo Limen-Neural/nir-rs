@@ -207,6 +207,7 @@ name = "nir-rs"
 version = "0.3.0"
 dependencies = [
  "hdf5-metno",
+ "hdf5-metno-sys",
  "indexmap",
  "tempfile",
  "thiserror",

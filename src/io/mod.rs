@@ -74,15 +74,15 @@ mod backend {
 /// both builds; only the outcome differs.
 #[cfg(not(feature = "hdf5"))]
 mod backend {
-    use super::{NirError, NirGraph, Path, Result, WriteOptions};
+    use super::{NirError, NirGraph, Path, ReadOptions, Result, WriteOptions};
 
-    pub(super) fn read(_path: &Path) -> Result<NirGraph> {
+    pub(super) fn read(_path: &Path, _opts: &ReadOptions) -> Result<NirGraph> {
         Err(NirError::Unimplemented(
             "io::read (enable feature \"hdf5\")",
         ))
     }
 
-    pub(super) fn read_version(_path: &Path) -> Result<String> {
+    pub(super) fn read_version(_path: &Path, _opts: &ReadOptions) -> Result<String> {
         Err(NirError::Unimplemented(
             "io::read_version (enable feature \"hdf5\")",
         ))
@@ -104,6 +104,45 @@ pub const DEFAULT_NIR_VERSION: &str = "1.0.8";
 
 /// Default gzip level, matching h5py's `compression="gzip"` default.
 const DEFAULT_COMPRESSION: u8 = 4;
+
+/// Allocation policy for decoding an untrusted `.nir` file with [`read_with`].
+///
+/// `max_bytes` is a **decoded-allocation budget**, not an on-disk file-size
+/// limit and not a bound on the returned graph's exact resident size. Charging
+/// is monotonic and conservative: temporary allocations stay charged after
+/// they are released. The exact rules are:
+///
+/// - numeric datasets: element count times decoded width;
+/// - `u64` datasets: both the temporary `Vec<u64>` and converted `Vec<i64>`;
+/// - fixed strings: fixed-capacity HDF5 buffers, resulting [`String`] headers,
+///   and the worst-case copied payload;
+/// - variable-length strings: descriptor buffers, payload bytes reported by
+///   `H5Dvlen_get_buf_size`, resulting [`String`] headers, and copied payload.
+///   On HDF5 2.1+, scalar VLEN strings use the containing file size as a
+///   conservative payload bound because that release's scalar size query can
+///   abort inside HDF5;
+/// - scalar metadata: its decoded width;
+/// - missing `v_reset` and `w_in`: the synthesized tensor payload.
+///
+/// All arithmetic is checked; overflow is treated as over budget. Node and
+/// link names, collection bookkeeping, allocator overhead, and libhdf5's own
+/// caches are not charged.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct ReadOptions {
+    /// Maximum total bytes charged by decoded allocations, or `None` for no
+    /// allocation budget.
+    pub max_bytes: Option<usize>,
+}
+
+impl ReadOptions {
+    /// Set the decoded-allocation budget in bytes; `None` makes it unbounded.
+    #[must_use]
+    pub fn with_max_bytes(mut self, max_bytes: Option<usize>) -> Self {
+        self.max_bytes = max_bytes;
+        self
+    }
+}
 
 /// Tuning knobs for [`write_with`].
 ///
@@ -220,12 +259,7 @@ impl WriteOptions {
 /// - [`NirError::InvalidTensor`] for a dataset whose element type has no
 ///   [`DType`](crate::DType) representation
 /// - [`NirError::InvalidGraph`] for a file that reaches outside its own
-///   container (external links, external raw storage, virtual datasets), or
-///   for a single numeric or fixed-length-string dataset whose *estimated*
-///   decoded allocation exceeds 800 MB. Variable-length string payloads live on
-///   HDF5's global heap and are not covered by that ceiling. It has no caller
-///   override in v0.3, and [`write()`] does not enforce it, so a graph with an
-///   array that large writes but cannot be read back
+///   container (external links, external raw storage, virtual datasets)
 /// - [`NirError::Unimplemented`] if the `hdf5` feature is off
 ///
 /// # Examples
@@ -238,7 +272,21 @@ impl WriteOptions {
 /// # Ok::<(), nir_rs::NirError>(())
 /// ```
 pub fn read(path: impl AsRef<Path>) -> Result<NirGraph> {
-    backend::read(path.as_ref())
+    read_with(path, &ReadOptions::default())
+}
+
+/// Read a NIR graph with an explicit decoded-allocation budget.
+///
+/// See [`ReadOptions`] for the exact charging rules. Use this entry point for
+/// untrusted files. Plain [`read`] is intentionally unbounded for trusted
+/// callers and backward compatibility.
+///
+/// # Errors
+///
+/// As [`read`], plus [`NirError::ReadLimitExceeded`] when the next decoded
+/// allocation would cross `opts.max_bytes`.
+pub fn read_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<NirGraph> {
+    backend::read(path.as_ref(), opts)
 }
 
 /// Read only the `/version` string from a `.nir` file.
@@ -248,13 +296,30 @@ pub fn read(path: impl AsRef<Path>) -> Result<NirGraph> {
 /// [`NirError::MissingField`] when the file has no `/version` dataset;
 /// otherwise as [`read`].
 pub fn read_version(path: impl AsRef<Path>) -> Result<String> {
-    backend::read_version(path.as_ref())
+    read_version_with(path, &ReadOptions::default())
 }
 
-/// Write a NIR graph to a `.nir` (HDF5) path, truncating any existing file.
+/// Read only `/version` with an explicit decoded-allocation budget.
+///
+/// # Errors
+///
+/// As [`read_version`], plus [`NirError::ReadLimitExceeded`] when decoding the
+/// version string would cross `opts.max_bytes`.
+pub fn read_version_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<String> {
+    backend::read_version(path.as_ref(), opts)
+}
+
+/// Write a NIR graph to a `.nir` (HDF5) path atomically.
 ///
 /// Equivalent to [`write_with`] using [`WriteOptions::default`] (gzip level 4,
 /// matching h5py).
+///
+/// Data is written to a temporary file in the destination directory, flushed,
+/// closed, and then atomically renamed over the destination. A failed write
+/// leaves an existing destination unchanged. Existing file permissions are
+/// preserved; a new Unix destination uses mode `0o666` filtered by the process
+/// umask. This does not fsync the file or containing directory, so it is not a
+/// power-loss durability guarantee.
 ///
 /// The graph is validated with
 /// [`NirGraph::validate_structure`](crate::NirGraph::validate_structure) first:
@@ -278,6 +343,8 @@ pub fn write(path: impl AsRef<Path>, graph: &NirGraph) -> Result<()> {
 }
 
 /// Write a NIR graph to a `.nir` (HDF5) path with explicit options.
+///
+/// Uses the same atomic staging and replacement protocol as [`write()`].
 ///
 /// # Errors
 ///
@@ -321,6 +388,13 @@ mod tests {
         assert_eq!(off.compression, None);
     }
 
+    #[test]
+    fn read_options_default_is_unbounded() {
+        let opts = ReadOptions::default();
+        assert_eq!(opts.max_bytes, None);
+        assert_eq!(opts.with_max_bytes(Some(4096)).max_bytes, Some(4096));
+    }
+
     #[cfg(not(feature = "hdf5"))]
     mod without_feature {
         use super::*;
@@ -335,6 +409,19 @@ mod tests {
         fn read_version_is_unimplemented() {
             let err = read_version("model.nir").unwrap_err();
             assert!(matches!(err, NirError::Unimplemented(_)));
+        }
+
+        #[test]
+        fn bounded_read_is_unimplemented() {
+            let opts = ReadOptions::default().with_max_bytes(Some(1024));
+            assert!(matches!(
+                read_with("model.nir", &opts).unwrap_err(),
+                NirError::Unimplemented(_)
+            ));
+            assert!(matches!(
+                read_version_with("model.nir", &opts).unwrap_err(),
+                NirError::Unimplemented(_)
+            ));
         }
 
         #[test]

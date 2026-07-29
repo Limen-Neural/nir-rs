@@ -19,7 +19,7 @@ default = []
 # HDF5 `.nir` read/write. Opt-in because it links the native libhdf5 library:
 # `apt install libhdf5-dev` (Ubuntu) or `brew install hdf5` (macOS). For a
 # hermetic build, see the static-linking note in README.md.
-hdf5 = ["dep:hdf5"]
+hdf5 = ["dep:hdf5", "dep:hdf5-sys", "dep:tempfile"]
 
 [dependencies]
 indexmap = "2"
@@ -27,6 +27,8 @@ thiserror = "2"
 # Maintained metno fork via package rename; the abandoned aldanor/hdf5 0.8 crate
 # (last released 2021) must not be used.
 hdf5 = { package = "hdf5-metno", version = "0.14", optional = true }
+hdf5-sys = { package = "hdf5-metno-sys", version = "0.12", optional = true }
+tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
