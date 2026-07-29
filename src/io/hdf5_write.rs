@@ -146,7 +146,7 @@ fn temporary_path(path: &Path) -> Result<(std::path::PathBuf, std::path::PathBuf
             )?;
         }
 
-        dir.into_path()
+        dir.keep()
     };
 
     let staging_path = staging_dir.join(name);
