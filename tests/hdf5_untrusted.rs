@@ -330,12 +330,9 @@ fn cumulative_budget_is_shared_across_datasets() {
         }
     });
 
-    // HDF5 2.1 conservatively charges one scalar VLEN payload at twice the
-    // containing file size; three times the file size admits each scalar
-    // individually but not the cumulative sequence. Older HDF5 releases use
-    // the exact payload query and therefore have even more headroom here.
-    let file_size = usize::try_from(hdf5::File::open(&path).unwrap().size()).unwrap();
-    let limit = file_size.checked_mul(3).unwrap();
+    let known_data_size = 2 * 16 * std::mem::size_of::<i64>();
+    let limit = known_data_size + known_data_size / 2;
+
     let err = assert_limit(nir_rs::io::read_with(&path, &bounded(limit)), limit);
     let NirError::ReadLimitExceeded {
         used, requested, ..

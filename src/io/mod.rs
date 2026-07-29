@@ -315,12 +315,13 @@ pub fn read_version_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<S
 /// Equivalent to [`write_with`] using [`WriteOptions::default`] (gzip level 4,
 /// matching h5py).
 ///
-/// Data is written to a temporary file in the destination directory, flushed,
-/// closed, and then atomically renamed over the destination. A failed write
-/// leaves an existing destination unchanged. Existing file permissions are
-/// preserved; a new Unix destination uses mode `0o666` filtered by the process
-/// umask. This does not fsync the file or containing directory, so it is not a
-/// power-loss durability guarantee.
+/// Data is written to a temporary file inside a private staging directory,
+/// flushed, closed, and then atomically renamed over the destination. A failed
+/// write leaves an existing destination unchanged. Existing Unix file permissions
+/// (mode bits) are preserved, but **ownership and group are changed** to those
+/// of the writing process, and POSIX ACLs are not preserved. A new Unix destination
+/// uses mode `0o666` filtered by the process umask. This does not fsync the file
+/// or containing directory, so it is not a power-loss durability guarantee.
 ///
 /// The graph is validated with
 /// [`NirGraph::validate_structure`](crate::NirGraph::validate_structure) first:
@@ -346,6 +347,16 @@ pub fn write(path: impl AsRef<Path>, graph: &NirGraph) -> Result<()> {
 /// Write a NIR graph to a `.nir` (HDF5) path with explicit options.
 ///
 /// Uses the same atomic staging and replacement protocol as [`write()`].
+///
+/// **Symlink handling**: When `path` is a symlink, the atomic rename replaces
+/// the symlink itself rather than updating its target. To update the target,
+/// resolve the symlink first with [`std::fs::canonicalize`] or
+/// [`std::fs::read_link`] and pass the resolved path.
+///
+/// **ACL preservation**: Only basic Unix permission bits (mode) are preserved
+/// from an existing destination. POSIX ACLs and Windows DACLs are **not copied**
+/// to the new inode. If the destination is ACL-protected, the replacement may
+/// change who can access it.
 ///
 /// # Errors
 ///

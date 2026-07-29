@@ -30,7 +30,6 @@ use hdf5::types::VarLenUnicode;
 use hdf5::{File, Group};
 use std::path::Path;
 use std::str::FromStr;
-use tempfile::{Builder, TempPath};
 
 /// Write `graph` to `path` by atomically replacing it after a successful flush.
 pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Result<()> {
@@ -60,10 +59,18 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
     write_atomically(path, graph, opts, &version, |_| Ok(()))
 }
 
-/// Stage a complete HDF5 file next to `path`, then replace `path` in one rename.
+/// Stage a complete HDF5 file inside a private directory, then replace `path` in one rename.
 ///
-/// The callback exists solely to let the unit test inject an error after the
-/// temporary file exists and prove cleanup/preservation behavior.
+/// The staging file is created inside a mode-0700 directory (Unix) to prevent
+/// TOCTOU attacks. The callback exists solely to let the unit test inject an
+/// error after the temporary file exists and prove cleanup/preservation behavior.
+///
+/// **Ownership change on Unix**: The atomic write replaces the destination inode,
+/// so the new file's owner and group become those of the writing process. Mode bits
+/// (permissions) are preserved when the destination exists, but ownership/ACL metadata
+/// is not. A privileged writer can leave the original owner unable to update the model
+/// despite keeping mode bits intact. Callers that require ownership preservation should
+/// explicitly `chown` the destination after this returns, or stage and rename manually.
 fn write_atomically(
     path: &Path,
     graph: &NirGraph,
@@ -71,47 +78,52 @@ fn write_atomically(
     version: &str,
     after_temp_created: impl FnOnce(&Path) -> Result<()>,
 ) -> Result<()> {
-    let temp_path = temporary_path(path)?;
+    let (temp_path, staging_dir) = temporary_path(path)?;
     after_temp_created(&temp_path)?;
-    write_file(&temp_path, graph, opts, version)?;
 
-    // Preserve the destination's existing permissions after writing succeeds
-    // but before the final rename. Applying them earlier would prevent the
-    // write itself if the destination lacks the owner-write bit.
-    match std::fs::metadata(path) {
-        Ok(metadata) => {
-            std::fs::set_permissions(&temp_path, metadata.permissions()).map_err(|e| {
-                NirError::Io(format!(
-                    "cannot preserve permissions for {}: {e}",
+    let result = (|| {
+        write_file(&temp_path, graph, opts, version)?;
+
+        match std::fs::metadata(path) {
+            Ok(metadata) => {
+                std::fs::set_permissions(&temp_path, metadata.permissions()).map_err(|e| {
+                    NirError::Io(format!(
+                        "cannot preserve permissions for {}: {e}",
+                        path.display()
+                    ))
+                })?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(NirError::Io(format!(
+                    "cannot stat {}: {e}",
                     path.display()
-                ))
-            })?;
+                )));
+            }
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            // Destination does not exist yet; nothing to preserve.
-        }
-        Err(e) => {
-            return Err(NirError::Io(format!(
-                "cannot stat {}: {e}",
-                path.display()
-            )));
-        }
-    }
 
-    temp_path.persist(path).map_err(|e| {
-        NirError::Io(format!(
-            "cannot atomically replace {}: {}",
-            path.display(),
-            e.error
-        ))
-    })
+        std::fs::rename(&temp_path, path).map_err(|e| {
+            NirError::Io(format!(
+                "cannot atomically replace {}: {e}",
+                path.display()
+            ))
+        })
+    })();
+
+    let _ = std::fs::remove_file(&temp_path);
+    let _ = std::fs::remove_dir(&staging_dir);
+
+    result
 }
 
-/// Create the staging file on the destination filesystem and close its handle.
+/// Create the staging file inside a private temporary directory.
 ///
-/// HDF5 reopens the path itself. Closing the `NamedTempFile` handle first is
-/// required on Windows, where another open handle can prevent that reopen.
-fn temporary_path(path: &Path) -> Result<TempPath> {
+/// Returns the staging file path and the staging directory path. The staging
+/// file is created inside a directory with mode 0o700 (Unix) to prevent TOCTOU
+/// attacks: between closing the temp file handle and HDF5 reopening it, a local
+/// attacker with write access to the destination directory cannot swap the staging
+/// path for a symlink because they cannot access the private staging directory.
+fn temporary_path(path: &Path) -> Result<(std::path::PathBuf, std::path::PathBuf)> {
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -120,27 +132,56 @@ fn temporary_path(path: &Path) -> Result<TempPath> {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("model.nir");
-    let prefix = format!(".{name}.");
-    let mut builder = Builder::new();
-    builder.prefix(&prefix).suffix(".tmp");
+
+    let staging_dir = {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(".nir_staging.");
+        let dir = builder.tempdir_in(parent).map_err(|e| {
+            NirError::Io(format!(
+                "cannot create staging directory beside {}: {e}",
+                path.display()
+            ))
+        })?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| {
+                    NirError::Io(format!(
+                        "cannot set staging directory permissions: {e}"
+                    ))
+                })?;
+        }
+
+        dir.into_path()
+    };
+
+    let staging_path = staging_dir.join(name);
+    let file = std::fs::File::create(&staging_path).map_err(|e| {
+        let _ = std::fs::remove_dir(&staging_dir);
+        NirError::Io(format!(
+            "cannot create staging file {}: {e}",
+            staging_path.display()
+        ))
+    })?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-
-        // Match ordinary file creation (0o666 filtered by the process umask)
-        // instead of tempfile's intentionally private 0o600 default.
-        builder.permissions(std::fs::Permissions::from_mode(0o666));
+        if let Err(e) = file.set_permissions(std::fs::Permissions::from_mode(0o666)) {
+            let _ = std::fs::remove_file(&staging_path);
+            let _ = std::fs::remove_dir(&staging_dir);
+            return Err(NirError::Io(format!(
+                "cannot set permissions on staging file {}: {e}",
+                staging_path.display()
+            )));
+        }
     }
 
-    let temp = builder.tempfile_in(parent).map_err(|e| {
-        NirError::Io(format!(
-            "cannot create temporary file beside {}: {e}",
-            path.display()
-        ))
-    })?;
+    drop(file);
 
-    Ok(temp.into_temp_path())
+    Ok((staging_path, staging_dir))
 }
 
 /// Encode and flush one complete HDF5 file.
