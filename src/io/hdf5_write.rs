@@ -158,28 +158,13 @@ fn temporary_path(path: &Path) -> Result<(std::path::PathBuf, std::path::PathBuf
     };
 
     let staging_path = staging_dir.join(name);
-    let file = std::fs::File::create(&staging_path).map_err(|e| {
+    std::fs::File::create(&staging_path).map_err(|e| {
         let _ = std::fs::remove_dir(&staging_dir);
         NirError::Io(format!(
             "cannot create staging file {}: {e}",
             staging_path.display()
         ))
     })?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Err(e) = file.set_permissions(std::fs::Permissions::from_mode(0o666)) {
-            let _ = std::fs::remove_file(&staging_path);
-            let _ = std::fs::remove_dir(&staging_dir);
-            return Err(NirError::Io(format!(
-                "cannot set permissions on staging file {}: {e}",
-                staging_path.display()
-            )));
-        }
-    }
-
-    drop(file);
 
     Ok((staging_path, staging_dir))
 }
