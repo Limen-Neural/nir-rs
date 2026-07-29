@@ -2,8 +2,8 @@
 
 //! Structured errors for `nir-rs`.
 //!
-//! Covers graph construction/validation, tensor shape checks, and placeholders
-//! for I/O and version handling that land in later milestones.
+//! Covers graph construction/validation, tensor shape checks, and HDF5 `.nir`
+//! I/O.
 
 use thiserror::Error;
 
@@ -14,7 +14,9 @@ pub type Result<T> = std::result::Result<T, NirError>;
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum NirError {
-    /// Feature not yet implemented (e.g. HDF5 I/O until v0.3).
+    /// Feature not yet implemented.
+    ///
+    /// Returned by HDF5 I/O function stubs when the `hdf5` feature is not enabled.
     #[error("not implemented: {0}")]
     Unimplemented(&'static str),
 
@@ -49,6 +51,24 @@ pub enum NirError {
     /// Tensor shape / data length mismatch or other tensor invariant failure.
     #[error("invalid tensor: {0}")]
     InvalidTensor(String),
+
+    /// Filesystem or HDF5 library failure while reading or writing a `.nir` file.
+    ///
+    /// The underlying `hdf5::Error` is rendered into the message rather than
+    /// carried, so [`NirError`] stays `Clone + Eq`.
+    #[error("io error: {0}")]
+    Io(String),
+}
+
+/// Render an HDF5 library failure into [`NirError::Io`].
+///
+/// The message is flattened into a `String` because `hdf5::Error` is neither
+/// `Clone` nor `Eq`, and this enum is both.
+#[cfg(feature = "hdf5")]
+impl From<hdf5::Error> for NirError {
+    fn from(err: hdf5::Error) -> Self {
+        Self::Io(err.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -110,6 +130,12 @@ mod tests {
             err.to_string(),
             "invalid tensor: shape product 4 != data len 3"
         );
+    }
+
+    #[test]
+    fn io_display() {
+        let err = NirError::Io("unable to open file: model.nir".into());
+        assert_eq!(err.to_string(), "io error: unable to open file: model.nir");
     }
 
     #[test]

@@ -1,0 +1,29 @@
+{
+  "name": "nir-rs",
+  "build": {
+    "dockerfile": "../.cursor/Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "ubuntu",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "workspaceFolder": "/workspace",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb"
+      ],
+      "settings": {
+        "rust-analyzer.cargo.features": "all",
+        "editor.formatOnSave": true,
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        }
+      }
+    }
+  },
+  "postCreateCommand": "rustc --version && pkg-config --exists hdf5 && cargo fetch",
+  "forwardPorts": [],
+  "features": {}
+}

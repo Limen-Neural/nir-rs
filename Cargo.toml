@@ -1,6 +1,6 @@
 [package]
 name = "nir-rs"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 authors = ["Raul Montoya Cardenas <montoyaraul34@gmail.com>"]
@@ -14,11 +14,25 @@ categories = ["science", "algorithms", "encoding"]
 name = "nir_rs"
 path = "src/lib.rs"
 
+[features]
+default = []
+# HDF5 `.nir` read/write. Opt-in because it links the native libhdf5 library:
+# `apt install libhdf5-dev` (Ubuntu) or `brew install hdf5` (macOS). For a
+# hermetic build, see the static-linking note in README.md.
+hdf5 = ["dep:hdf5"]
+
 [dependencies]
 indexmap = "2"
 thiserror = "2"
-# HDF5 I/O (v0.3): use the maintained fork via package rename, e.g.
-# hdf5 = { package = "hdf5-metno", version = "0.13", optional = true }
-# Do not depend on the abandoned aldanor/hdf5 0.8 crate.
+# Maintained metno fork via package rename; the abandoned aldanor/hdf5 0.8 crate
+# (last released 2021) must not be used.
+hdf5 = { package = "hdf5-metno", version = "0.14", optional = true }
 
 [dev-dependencies]
+tempfile = "3"
+
+[package.metadata.docs.rs]
+# docs.rs has no libhdf5, so document the default build. Every public item in
+# `io` exists in that build; only the bodies are feature-gated, so nothing is
+# missing from the rendered docs.
+features = []

@@ -126,6 +126,20 @@ impl Tensor {
         &self.data
     }
 
+    /// Take the payload, consuming the tensor.
+    ///
+    /// Crate-internal: the HDF5 reader decodes integer wire fields through a
+    /// `Tensor` and then wants the `Vec` itself. Cloning out of [`data`] would
+    /// hold both buffers live at once, doubling peak memory on every `shape`,
+    /// `stride` and `dilation` read for no benefit.
+    ///
+    /// [`data`]: Self::data
+    #[must_use]
+    #[cfg(feature = "hdf5")]
+    pub(crate) fn into_data(self) -> TensorData {
+        self.data
+    }
+
     /// `f32` tensor; `data.len()` must equal the product of `shape`.
     pub fn from_f32(shape: impl Into<Vec<usize>>, data: impl Into<Vec<f32>>) -> Result<Self> {
         Self::new(shape, TensorData::F32(data.into()))
@@ -173,6 +187,44 @@ impl Tensor {
         }
     }
 
+    /// A tensor of zeros with the same shape and dtype as `self`.
+    ///
+    /// Mirrors `numpy.zeros_like`, which upstream NIR uses to default absent
+    /// optional wire fields (`v_reset`). [`DType::Bool`] zeroes to `false`.
+    #[must_use]
+    pub fn zeros_like(&self) -> Self {
+        let n = self.data.len();
+        let data = match self.dtype() {
+            DType::F32 => TensorData::F32(vec![0.0; n]),
+            DType::F64 => TensorData::F64(vec![0.0; n]),
+            DType::I64 => TensorData::I64(vec![0; n]),
+            DType::Bool => TensorData::Bool(vec![false; n]),
+        };
+        Self {
+            shape: self.shape.clone(),
+            data,
+        }
+    }
+
+    /// A tensor of ones with the same shape and dtype as `self`.
+    ///
+    /// Mirrors `numpy.ones_like`, which upstream NIR uses to default an absent
+    /// `w_in`. [`DType::Bool`] ones to `true`.
+    #[must_use]
+    pub fn ones_like(&self) -> Self {
+        let n = self.data.len();
+        let data = match self.dtype() {
+            DType::F32 => TensorData::F32(vec![1.0; n]),
+            DType::F64 => TensorData::F64(vec![1.0; n]),
+            DType::I64 => TensorData::I64(vec![1; n]),
+            DType::Bool => TensorData::Bool(vec![true; n]),
+        };
+        Self {
+            shape: self.shape.clone(),
+            data,
+        }
+    }
+
     /// Number of elements implied by `shape` (empty shape → 1).
     #[must_use]
     pub fn numel(&self) -> usize {
@@ -196,6 +248,13 @@ pub type MetadataMap = std::collections::HashMap<String, MetadataValue>;
 pub enum MetadataValue {
     /// UTF-8 string.
     String(String),
+    /// List of UTF-8 strings.
+    ///
+    /// Python's `metadata: Dict[str, Any]` admits a `list[str]`, which h5py
+    /// stores as a multi-element string dataset. Without this variant such a
+    /// file cannot be decoded at all, since [`Tensor`] carries only numeric
+    /// and boolean payloads.
+    StringList(Vec<String>),
     /// 64-bit float.
     F64(f64),
     /// 64-bit signed integer.
@@ -295,6 +354,41 @@ mod tests {
         let err = Tensor::from_f32(vec![usize::MAX, usize::MAX], vec![1.0]).unwrap_err();
         assert!(matches!(err, NirError::InvalidTensor(_)));
         assert!(err.to_string().contains("overflows"));
+    }
+
+    #[test]
+    fn zeros_like_preserves_shape_and_dtype() {
+        let t = Tensor::from_f32(vec![2, 2], vec![1., 2., 3., 4.]).unwrap();
+        let z = t.zeros_like();
+        assert_eq!(z.shape(), t.shape());
+        assert_eq!(z.dtype(), DType::F32);
+        assert_eq!(z.data(), &TensorData::F32(vec![0.0; 4]));
+    }
+
+    #[test]
+    fn ones_like_preserves_shape_and_dtype() {
+        let t = Tensor::from_f64(vec![3], vec![7.0, 8.0, 9.0]).unwrap();
+        let o = t.ones_like();
+        assert_eq!(o.shape(), [3]);
+        assert_eq!(o.data(), &TensorData::F64(vec![1.0; 3]));
+    }
+
+    #[test]
+    fn zeros_and_ones_like_cover_int_and_bool() {
+        let i = Tensor::from_i64([2], vec![5, 6]).unwrap();
+        assert_eq!(i.zeros_like().data(), &TensorData::I64(vec![0, 0]));
+        assert_eq!(i.ones_like().data(), &TensorData::I64(vec![1, 1]));
+
+        let b = Tensor::from_bool([2], vec![true, false]).unwrap();
+        assert_eq!(b.zeros_like().data(), &TensorData::Bool(vec![false, false]));
+        assert_eq!(b.ones_like().data(), &TensorData::Bool(vec![true, true]));
+    }
+
+    #[test]
+    fn zeros_like_of_scalar_is_scalar() {
+        let z = Tensor::scalar_f64(3.5).zeros_like();
+        assert!(z.shape().is_empty());
+        assert_eq!(z.numel(), 1);
     }
 
     #[test]

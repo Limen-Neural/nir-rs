@@ -5,7 +5,7 @@
 [![CI](https://github.com/Limen-Neural/nir-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-> Pure-Rust library for the NIR graph model (typed nodes, edges, validation). HDF5 `.nir` I/O lands in v0.3.
+> Pure-Rust NIR graph model (typed nodes, edges, validation), plus opt-in HDF5 `.nir` read/write that interoperates with the Python reference implementation. The graph model has no system dependencies; the `hdf5` feature is the one part that links native libhdf5.
 
 NIR is to SNNs what ONNX is to conventional neural networks (or GGUF to LLMs): a framework-agnostic graph format that lets models move between simulators and hardware without being rewritten.
 
@@ -44,8 +44,8 @@ This crate does **not** own:
 | Milestone | Focus | Status |
 |-----------|--------|--------|
 | **v0.1** | Dual license, module skeleton, CI, agent docs | Done |
-| **v0.2** | Typed graph, wire-accurate nodes, structured errors | **This release** |
-| **v0.3** | HDF5 read/write via `hdf5-metno`, fixtures, round-trip | Planned |
+| **v0.2** | Typed graph, wire-accurate nodes, structured errors | Done |
+| **v0.3** | HDF5 read/write via `hdf5-metno`, fixtures, round-trip | **This release** |
 | **v0.4** | Serde/debug DX, examples | Planned |
 | **v0.5** | Wire consumers (silicon-bridge, axon-encoder, engram-parser) | Planned |
 
@@ -58,6 +58,14 @@ Not published to crates.io yet. Use a git or path dependency:
 ```toml
 [dependencies]
 nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "Main" }
+```
+
+To also get HDF5 `.nir` I/O, enable the `hdf5` feature (see [File I/O](#file-io)
+for the system dependency it brings):
+
+```toml
+[dependencies]
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "Main", features = ["hdf5"] }
 ```
 
 ```rust
@@ -82,19 +90,60 @@ fn main() -> nir_rs::Result<()> {
     )?;
     g.add_edge("input", "output");
     g.validate_structure()?;
-    // HDF5 I/O arrives in v0.3: nir_rs::io::read("model.nir")
     Ok(())
 }
 ```
+
+## File I/O
+
+`.nir` is the official NIR interchange format: an HDF5 container whose layout is
+fixed by upstream. Files written here load in Python `nir.read`, and files
+written by `nir.write` load here.
+
+```rust
+fn main() -> nir_rs::Result<()> {
+    let graph = nir_rs::io::read("model.nir")?;
+    for (name, node) in &graph.nodes {
+        println!("{name}: {}", node.type_name());
+    }
+    nir_rs::io::write("copy.nir", &graph)?;
+    Ok(())
+}
+```
+
+I/O is behind the opt-in **`hdf5`** feature, which links the native libhdf5
+library. Without this feature, the crate requires no system dependencies:
+
+| Platform | System dependency |
+|----------|-------------------|
+| Debian / Ubuntu | `apt install libhdf5-dev` |
+| macOS | `brew install hdf5` |
+| Anywhere | depend on `hdf5-metno = { version = "0.14", features = ["static", "zlib"] }` directly — Cargo's feature unification applies it to this crate's copy. A dependency's feature list cannot name `hdf5/static`, and without `zlib` the vendored build has no gzip filter. |
+
+Without the feature, `io::read` / `io::write` still exist and return
+`NirError::Unimplemented`, so downstream code compiles either way.
+
+Round-trip fidelity is graph-level, not byte-level: node names and types,
+ordered edges, and exact parameter values are preserved, while HDF5 details
+such as group ordering and chunk layout may differ from h5py. In-memory dtypes
+(`f32`, `f64`, `i64`, `bool`) round-trip exactly; narrower on-disk integer
+types are widened to `i64` on read. Absent optional fields (`v_reset`, `w_in`)
+are filled with the same defaults Python uses, so a graph read here matches
+what `nir.read` produces in memory.
 
 ### Develop
 
 ```bash
 cargo fmt --check
-cargo test --all-features
+cargo test                 # graph model only, no libhdf5 required
+cargo test --all-features  # + HDF5 I/O, fixtures and round-trip
 cargo clippy --all-targets --all-features -- -D warnings
 cargo doc --no-deps --all-features
 ```
+
+Wire compatibility is checked against real `.nir` files written by the Python
+implementation and vendored under `tests/fixtures/` (BSD-3, see the README
+there). Nothing in the build, tests, or CI needs a Python interpreter.
 
 See [REVIEW.md](REVIEW.md) and [AGENTS.md](AGENTS.md).
 
