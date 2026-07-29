@@ -114,13 +114,14 @@ const DEFAULT_COMPRESSION: u8 = 4;
 ///
 /// - numeric datasets: element count times decoded width;
 /// - `u64` datasets: both the temporary `Vec<u64>` and converted `Vec<i64>`;
+/// - `i64` extent lists converted to `Vec<usize>` (e.g. `Input.shape`): both the
+///   source `Vec<i64>` and the destination `Vec<usize>`;
 /// - fixed strings: fixed-capacity HDF5 buffers, resulting [`String`] headers,
 ///   and the worst-case copied payload;
 /// - variable-length strings: descriptor buffers, payload bytes reported by
 ///   `H5Dvlen_get_buf_size`, resulting [`String`] headers, and copied payload.
-///   On HDF5 2.1+, scalar VLEN strings use the containing file size as a
-///   conservative payload bound because that release's scalar size query can
-///   abort inside HDF5;
+///   Scalar VLEN strings use the containing file size as a payload bound
+///   because `H5Dvlen_get_buf_size` can abort on scalar VLEN;
 /// - scalar metadata: its decoded width;
 /// - missing `v_reset` and `w_in`: the synthesized tensor payload.
 ///

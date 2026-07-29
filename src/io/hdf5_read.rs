@@ -89,6 +89,39 @@ impl ReadBudget {
         self.used.set(next);
         Ok(())
     }
+
+    /// Dry-run check for a charge that must fit before an expensive operation.
+    fn would_fit(&self, context: &str, requested: Option<usize>) -> Result<()> {
+        let Some(limit) = self.limit else {
+            return Ok(());
+        };
+        let used = self.used.get();
+        let Some(requested) = requested else {
+            return Err(NirError::ReadLimitExceeded {
+                context: context.to_owned(),
+                limit,
+                used,
+                requested: usize::MAX,
+            });
+        };
+        let Some(next) = used.checked_add(requested) else {
+            return Err(NirError::ReadLimitExceeded {
+                context: context.to_owned(),
+                limit,
+                used,
+                requested,
+            });
+        };
+        if next > limit {
+            return Err(NirError::ReadLimitExceeded {
+                context: context.to_owned(),
+                limit,
+                used,
+                requested,
+            });
+        }
+        Ok(())
+    }
 }
 
 /// Requested capacities for fixed-length strings, smallest first.
@@ -732,12 +765,12 @@ impl NodeReader<'_> {
     }
 
     fn usizes(&self, field: &str) -> Result<Vec<usize>> {
-        to_usizes(self.ints(field)?, &self.context(field))
+        to_usizes(self.ints(field)?, &self.context(field), self.budget)
     }
 
     fn opt_usizes(&self, field: &str) -> Result<Option<Vec<usize>>> {
         match self.opt_ints(field)? {
-            Some(values) => to_usizes(values, &self.context(field)).map(Some),
+            Some(values) => to_usizes(values, &self.context(field), self.budget).map(Some),
             None => Ok(None),
         }
     }
@@ -803,7 +836,12 @@ impl NodeReader<'_> {
     }
 }
 
-fn to_usizes(values: Vec<i64>, context: &str) -> Result<Vec<usize>> {
+fn to_usizes(values: Vec<i64>, context: &str, budget: &ReadBudget) -> Result<Vec<usize>> {
+    // `values` is still alive while `collect` allocates the `Vec<usize>`, so
+    // charge the destination buffer before conversion to keep the budget
+    // accurate. The `u64` -> `i64` path in `read_tensor` already charges both
+    // buffers; this mirrors that for `usize` extents.
+    budget.charge(context, values.len().checked_mul(size_of::<usize>()))?;
     values
         .into_iter()
         .map(|v| {
@@ -1173,22 +1211,20 @@ fn charge_strings(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<()
     let headers = count.checked_mul(size_of::<String>());
     let requested = match ds.dtype()?.to_descriptor()? {
         Td::VarLenUnicode => {
+            let descriptors = count.checked_mul(size_of::<VarLenUnicode>());
+            // Reject enormous declared counts before asking HDF5 to size the
+            // heap, since the VLEN sizing call itself must traverse the data.
+            let min = checked_sum([descriptors, headers]);
+            budget.would_fit(context, min)?;
             let payload = vlen_payload_bytes(ds, context)?;
-            checked_sum([
-                count.checked_mul(size_of::<VarLenUnicode>()),
-                Some(payload),
-                headers,
-                Some(payload),
-            ])
+            checked_sum([descriptors, Some(payload), headers, Some(payload)])
         }
         Td::VarLenAscii => {
+            let descriptors = count.checked_mul(size_of::<VarLenAscii>());
+            let min = checked_sum([descriptors, headers]);
+            budget.would_fit(context, min)?;
             let payload = vlen_payload_bytes(ds, context)?;
-            checked_sum([
-                count.checked_mul(size_of::<VarLenAscii>()),
-                Some(payload),
-                headers,
-                Some(payload),
-            ])
+            checked_sum([descriptors, Some(payload), headers, Some(payload)])
         }
         Td::FixedAscii(width) | Td::FixedUnicode(width) => {
             let Some(capacity) = FIXED_STRING_CAPS.iter().copied().find(|cap| width <= *cap) else {
@@ -1214,11 +1250,11 @@ fn checked_sum<const N: usize>(parts: [Option<usize>; N]) -> Option<usize> {
 /// Ask HDF5 how many heap bytes a VLEN dataset will allocate during `H5Dread`.
 #[allow(deprecated)]
 fn vlen_payload_bytes(ds: &Dataset, context: &str) -> Result<usize> {
-    // HDF5 2.1.0's H5Dvlen_get_buf_size scalar iterator aborts inside
-    // H5VM_array_fill instead of returning an error. The containing file size
-    // is a conservative upper bound for an in-container scalar heap payload;
+    // `H5Dvlen_get_buf_size` aborts on scalar VLEN across multiple HDF5
+    // releases, including the 1.10 series in CI. The containing file size is
+    // a safe upper bound for a single in-container scalar heap payload;
     // external storage and VDS have already been rejected.
-    if ds.shape().is_empty() && hdf5::library_version() >= (2, 1, 0) {
+    if ds.shape().is_empty() {
         return usize::try_from(ds.file()?.size()).map_err(|_| {
             NirError::Io(format!(
                 "{context}: containing file size does not fit usize"
