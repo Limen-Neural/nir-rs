@@ -1,0 +1,27 @@
+Cargo.toml
+  s_867840ec31b0f7::t_28385c3a8c9132 3,17-19
+src/io/mod.rs
+  s_867840ec31b0f7::t_28385c3a8c9132 17
+README.md
+  s_867840ec31b0f7::t_32f1f7b15b18d7 48-49,60,68,120,135-152
+src/lib.rs
+  s_867840ec31b0f7::t_28385c3a8c9132 12-16,24-30
+examples/load_inspect_lif.rs
+  s_867840ec31b0f7::t_32f1f7b15b18d7 1-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e628b4203248c350678dd6937e34537f1a4cdd18",
+  "prompts": {},
+  "sessions": {
+    "s_867840ec31b0f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fac33-f8f5-72a2-af9a-7d9637c7725e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
