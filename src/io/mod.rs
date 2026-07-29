@@ -349,9 +349,11 @@ pub fn write(path: impl AsRef<Path>, graph: &NirGraph) -> Result<()> {
 /// Uses the same atomic staging and replacement protocol as [`write()`].
 ///
 /// **Symlink handling**: When `path` is a symlink, the atomic rename replaces
-/// the symlink itself rather than updating its target. To update the target,
-/// resolve the symlink first with [`std::fs::canonicalize`] or
-/// [`std::fs::read_link`] and pass the resolved path.
+/// the symlink itself rather than updating its target. To update the target
+/// file, pass a resolved path: use [`std::fs::canonicalize`] for a fully
+/// resolved absolute path, or join a relative [`std::fs::read_link`] result
+/// with the symlink's parent before writing (raw `read_link` alone is not
+/// enough when the stored target is relative).
 ///
 /// **ACL preservation**: Only basic Unix permission bits (mode) are preserved
 /// from an existing destination. POSIX ACLs and Windows DACLs are **not copied**

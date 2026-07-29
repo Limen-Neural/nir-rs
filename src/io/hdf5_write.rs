@@ -79,9 +79,11 @@ fn write_atomically(
     after_temp_created: impl FnOnce(&Path) -> Result<()>,
 ) -> Result<()> {
     let (temp_path, staging_dir) = temporary_path(path)?;
-    after_temp_created(&temp_path)?;
 
     let result = (|| {
+        // Keep this inside the result closure so a callback error still hits
+        // the cleanup below (staging file + private directory).
+        after_temp_created(&temp_path)?;
         write_file(&temp_path, graph, opts, version)?;
 
         match std::fs::metadata(path) {
@@ -95,19 +97,12 @@ fn write_atomically(
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => {
-                return Err(NirError::Io(format!(
-                    "cannot stat {}: {e}",
-                    path.display()
-                )));
+                return Err(NirError::Io(format!("cannot stat {}: {e}", path.display())));
             }
         }
 
-        std::fs::rename(&temp_path, path).map_err(|e| {
-            NirError::Io(format!(
-                "cannot atomically replace {}: {e}",
-                path.display()
-            ))
-        })
+        std::fs::rename(&temp_path, path)
+            .map_err(|e| NirError::Io(format!("cannot atomically replace {}: {e}", path.display())))
     })();
 
     let _ = std::fs::remove_file(&temp_path);
@@ -146,12 +141,9 @@ fn temporary_path(path: &Path) -> Result<(std::path::PathBuf, std::path::PathBuf
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
-                .map_err(|e| {
-                    NirError::Io(format!(
-                        "cannot set staging directory permissions: {e}"
-                    ))
-                })?;
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).map_err(
+                |e| NirError::Io(format!("cannot set staging directory permissions: {e}")),
+            )?;
         }
 
         dir.into_path()
