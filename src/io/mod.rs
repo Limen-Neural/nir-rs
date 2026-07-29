@@ -201,6 +201,12 @@ impl WriteOptions {
 /// dtype of that one dataset changes. Narrower integers likewise widen into
 /// [`MetadataValue::I64`].
 ///
+/// **Node order is not preserved.** [`NirGraph::nodes`] is an order-preserving
+/// map, but this reads names in sorted order so that decoding one file twice
+/// gives the same order both times — HDF5 does not promise a link ordering
+/// worth carrying. `edges` is a `Vec` and *is* order-significant, so it is
+/// preserved exactly.
+///
 /// [`MetadataValue`]: crate::types::MetadataValue
 /// [`MetadataValue::F64`]: crate::types::MetadataValue::F64
 /// [`MetadataValue::I64`]: crate::types::MetadataValue::I64
