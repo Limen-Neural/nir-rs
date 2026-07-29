@@ -14,7 +14,7 @@
 //! dependency-free for consumers that only build or inspect graphs:
 //!
 //! ```toml
-//! nir-rs = { version = "0.3", features = ["hdf5"] }
+//! nir-rs = { version = "0.4", features = ["hdf5"] }
 //! ```
 //!
 //! System dependency: `libhdf5-dev` (Debian/Ubuntu), `hdf5` (Homebrew), or add

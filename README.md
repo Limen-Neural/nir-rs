@@ -45,8 +45,8 @@ This crate does **not** own:
 |-----------|--------|--------|
 | **v0.1** | Dual license, module skeleton, CI, agent docs | Done |
 | **v0.2** | Typed graph, wire-accurate nodes, structured errors | Done |
-| **v0.3** | HDF5 read/write via `hdf5-metno`, fixtures, round-trip | **This release** |
-| **v0.4** | Serde/debug DX, examples | Planned |
+| **v0.3** | HDF5 read/write via `hdf5-metno`, fixtures, round-trip | Done |
+| **v0.4** | Serde/debug DX, examples | **This release** |
 | **v0.5** | Wire consumers (silicon-bridge, axon-encoder, engram-parser) | Planned |
 
 Tracking: [GitHub milestones](https://github.com/Limen-Neural/nir-rs/milestones) · [LIM-822](https://linear.app/rpd-34/issue/LIM-822)
@@ -57,7 +57,7 @@ Not published to crates.io yet. Use a git or path dependency:
 
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "Main" }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main" }
 ```
 
 To also get HDF5 `.nir` I/O, enable the `hdf5` feature (see [File I/O](#file-io)
@@ -65,7 +65,7 @@ for the system dependency it brings):
 
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "Main", features = ["hdf5"] }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main", features = ["hdf5"] }
 ```
 
 ```rust
@@ -117,6 +117,7 @@ library. Without this feature, the crate requires no system dependencies:
 | Platform | System dependency |
 |----------|-------------------|
 | Debian / Ubuntu | `apt install libhdf5-dev` |
+| Fedora | `dnf install hdf5-devel` |
 | macOS | `brew install hdf5` |
 | Anywhere | depend on `hdf5-metno = { version = "0.14", features = ["static", "zlib"] }` directly — Cargo's feature unification applies it to this crate's copy. A dependency's feature list cannot name `hdf5/static`, and without `zlib` the vendored build has no gzip filter. |
 
@@ -130,6 +131,25 @@ such as group ordering and chunk layout may differ from h5py. In-memory dtypes
 types are widened to `i64` on read. Absent optional fields (`v_reset`, `w_in`)
 are filled with the same defaults Python uses, so a graph read here matches
 what `nir.read` produces in memory.
+
+### Load, inspect, and save a LIF graph
+
+The public example loads the vendored LIF fixture, prints its graph structure
+and every `LIF` parameter tensor, writes a copy, then reads it back and checks
+graph equality:
+
+```bash
+cargo run --example load_inspect_lif --features hdf5
+```
+
+Pass optional input and output paths to use your own model:
+
+```bash
+cargo run --example load_inspect_lif --features hdf5 -- model.nir copy.nir
+```
+
+When omitted, the input is `tests/fixtures/lif_norse.nir` and the output is a
+PID-qualified file in the system temporary directory.
 
 ### Develop
 
