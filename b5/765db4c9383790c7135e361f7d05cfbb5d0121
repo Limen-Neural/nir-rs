@@ -1,0 +1,38 @@
+src/graph.rs
+  s_867840ec31b0f7::t_726db0bc4d6f55 22
+tests/serde_debug.rs
+  s_867840ec31b0f7::t_92d20d5b1a4de7 1-42,46-72,77-95,97
+  s_867840ec31b0f7::t_15332ad159072d 43-45,73-76,96
+README.md
+  s_867840ec31b0f7::t_22dbe61fb513a2 134-141,143-156
+  s_867840ec31b0f7::t_fb0c1a6f84508f 142
+Cargo.toml
+  s_867840ec31b0f7::t_726db0bc4d6f55 23-24,32,35
+src/nodes.rs
+  s_867840ec31b0f7::t_4f5baed23cdde0 599-603
+  s_867840ec31b0f7::t_c7917e73aba76d 20,53-54,57,60,63,66,69,72,75,78,81,84,87,90,93,96,99,102,105,108,111
+  s_867840ec31b0f7::t_22dbe61fb513a2 50-51
+  s_867840ec31b0f7::t_3c7216899d16c0 147,159,169,181,191,201,223,245,267,293,303,317,327,341,355,373,387,401
+  s_867840ec31b0f7::t_eb2123e389700a 598
+src/lib.rs
+  s_867840ec31b0f7::t_22dbe61fb513a2 22-28
+src/types.rs
+  s_867840ec31b0f7::t_726db0bc4d6f55 13,41,112-150,295
+  s_867840ec31b0f7::t_22dbe61fb513a2 97-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b5765db4c9383790c7135e361f7d05cfbb5d0121",
+  "prompts": {},
+  "sessions": {
+    "s_867840ec31b0f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fac33-f8f5-72a2-af9a-7d9637c7725e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
