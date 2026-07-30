@@ -59,18 +59,32 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
     write_atomically(path, graph, opts, &version, |_| Ok(()))
 }
 
-/// Stage a complete HDF5 file inside a private directory, then replace `path` in one rename.
+/// Stage a complete HDF5 file inside a private directory, then replace `path`.
 ///
-/// The staging file is created inside a mode-0700 directory (Unix) to prevent
-/// TOCTOU attacks. The callback exists solely to let the unit test inject an
-/// error after the temporary file exists and prove cleanup/preservation behavior.
+/// Staging layout (Unix):
+/// - Prefer a **secure staging base** when the destination parent is shared
+///   (group/world-writable and not sticky). That base is sticky temp or a
+///   private `0700` runtime/cache directory so other users cannot rename the
+///   staging directory out of the way and plant a symlink for the path-based
+///   HDF5 reopen.
+/// - Otherwise stage beside the destination (same filesystem, simple rename).
+/// - Mode `0700` on the staging directory still blocks untrusted opens of its
+///   contents; it is **not** enough by itself when the parent is a hostile
+///   non-sticky shared directory.
+///
+/// **Residual risk**: the final `rename` into a multi-user non-sticky parent
+/// can still race with other writers of that parent. HDF5 requires a path for
+/// reopen, so a fully openat-anchored write is not available. Prefer private
+/// destination directories for multi-tenant hosts.
+///
+/// The callback exists solely so tests can inject a failure after the temporary
+/// file exists and prove cleanup/preservation behavior.
 ///
 /// **Ownership change on Unix**: The atomic write replaces the destination inode,
 /// so the new file's owner and group become those of the writing process. Mode bits
 /// (permissions) are preserved when the destination exists, but ownership/ACL metadata
-/// is not. A privileged writer can leave the original owner unable to update the model
-/// despite keeping mode bits intact. Callers that require ownership preservation should
-/// explicitly `chown` the destination after this returns, or stage and rename manually.
+/// is not. Callers that require ownership preservation should `chown` after this
+/// returns, or stage and rename manually.
 fn write_atomically(
     path: &Path,
     graph: &NirGraph,
@@ -101,8 +115,7 @@ fn write_atomically(
             }
         }
 
-        std::fs::rename(&temp_path, path)
-            .map_err(|e| NirError::Io(format!("cannot atomically replace {}: {e}", path.display())))
+        promote_to_destination(&temp_path, path)
     })();
 
     let _ = std::fs::remove_file(&temp_path);
@@ -111,18 +124,67 @@ fn write_atomically(
     result
 }
 
+/// Move a finished staging file onto `path`, with a same-parent fallback when
+/// the stage lives on another filesystem.
+fn promote_to_destination(temp_path: &Path, path: &Path) -> Result<()> {
+    match std::fs::rename(temp_path, path) {
+        Ok(()) => Ok(()),
+        Err(e) if is_cross_device(&e) => {
+            // Stage lived on another mount (secure base). Rebuild beside the
+            // destination so rename can complete. Residual TOCTOU for the
+            // destination parent still applies on multi-user non-sticky dirs.
+            let (local_temp, local_dir) = temporary_path_in(
+                path.parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .unwrap_or(Path::new(".")),
+                path,
+            )?;
+            let promote = (|| {
+                std::fs::copy(temp_path, &local_temp).map_err(|e| {
+                    NirError::Io(format!(
+                        "cannot copy staged file to {}: {e}",
+                        local_temp.display()
+                    ))
+                })?;
+                if let Ok(metadata) = std::fs::metadata(path) {
+                    let _ = std::fs::set_permissions(&local_temp, metadata.permissions());
+                }
+                std::fs::rename(&local_temp, path).map_err(|e| {
+                    NirError::Io(format!("cannot atomically replace {}: {e}", path.display()))
+                })
+            })();
+            let _ = std::fs::remove_file(&local_temp);
+            let _ = std::fs::remove_dir(&local_dir);
+            promote
+        }
+        Err(e) => Err(NirError::Io(format!(
+            "cannot atomically replace {}: {e}",
+            path.display()
+        ))),
+    }
+}
+
+fn is_cross_device(err: &std::io::Error) -> bool {
+    // `ErrorKind::CrossesDevices` is stable on recent rustc; also match EXDEV.
+    err.kind() == std::io::ErrorKind::CrossesDevices || err.raw_os_error() == Some(18) // EXDEV on Linux/macOS/BSD
+}
+
 /// Create the staging file inside a private temporary directory.
 ///
-/// Returns the staging file path and the staging directory path. The staging
-/// file is created inside a directory with mode 0o700 (Unix) to prevent TOCTOU
-/// attacks: between closing the temp file handle and HDF5 reopening it, a local
-/// attacker with write access to the destination directory cannot swap the staging
-/// path for a symlink because they cannot access the private staging directory.
+/// Returns `(staging_file, staging_dir)`. On Unix, when the destination parent
+/// is group/world-writable and not sticky, the staging directory is created
+/// under a private or sticky base so other users cannot rename it away and
+/// plant a replacement for the path-based HDF5 reopen.
 fn temporary_path(path: &Path) -> Result<(std::path::PathBuf, std::path::PathBuf)> {
-    let parent = path
+    let dest_parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
+    let base = secure_staging_base(dest_parent)?;
+    temporary_path_in(&base, path)
+}
+
+fn temporary_path_in(base: &Path, path: &Path) -> Result<(std::path::PathBuf, std::path::PathBuf)> {
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -131,10 +193,10 @@ fn temporary_path(path: &Path) -> Result<(std::path::PathBuf, std::path::PathBuf
     let staging_dir = {
         let mut builder = tempfile::Builder::new();
         builder.prefix(".nir_staging.");
-        let dir = builder.tempdir_in(parent).map_err(|e| {
+        let dir = builder.tempdir_in(base).map_err(|e| {
             NirError::Io(format!(
-                "cannot create staging directory beside {}: {e}",
-                path.display()
+                "cannot create staging directory under {}: {e}",
+                base.display()
             ))
         })?;
 
@@ -150,15 +212,120 @@ fn temporary_path(path: &Path) -> Result<(std::path::PathBuf, std::path::PathBuf
     };
 
     let staging_path = staging_dir.join(name);
-    std::fs::File::create(&staging_path).map_err(|e| {
-        let _ = std::fs::remove_dir(&staging_dir);
-        NirError::Io(format!(
-            "cannot create staging file {}: {e}",
-            staging_path.display()
-        ))
-    })?;
+    // Exclusive create: refuse to open a path an attacker already planted.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staging_path)
+        .map_err(|e| {
+            let _ = std::fs::remove_dir(&staging_dir);
+            NirError::Io(format!(
+                "cannot create staging file {}: {e}",
+                staging_path.display()
+            ))
+        })?;
 
     Ok((staging_path, staging_dir))
+}
+
+/// Choose where to place the private staging directory.
+///
+/// Shared non-sticky parents (classic multi-user drop directories without the
+/// sticky bit) allow another writer to rename our staging directory; staging
+/// under sticky temp or a private 0700 runtime/cache dir closes that window
+/// for the path-based HDF5 reopen.
+fn secure_staging_base(dest_parent: &Path) -> Result<std::path::PathBuf> {
+    #[cfg(unix)]
+    {
+        let dest_meta = match std::fs::metadata(dest_parent) {
+            Ok(meta) => meta,
+            // Missing parent: keep the old create-time failure path.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(dest_parent.to_path_buf());
+            }
+            Err(e) => {
+                return Err(NirError::Io(format!(
+                    "cannot stat destination directory {}: {e}",
+                    dest_parent.display()
+                )));
+            }
+        };
+        if !parent_is_shared_nonsticky(&dest_meta) {
+            return Ok(dest_parent.to_path_buf());
+        }
+
+        // Prefer sticky system temp (e.g. /tmp): foreign users cannot rename
+        // our entries.
+        let tmp = std::env::temp_dir();
+        if let Ok(meta) = std::fs::metadata(&tmp)
+            && is_sticky(&meta)
+        {
+            return Ok(tmp);
+        }
+
+        // Private per-user runtime or cache directory (mode 0700).
+        if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
+            let dir = std::path::PathBuf::from(runtime).join("nir-rs-staging");
+            ensure_private_dir(&dir)?;
+            return Ok(dir);
+        }
+        if let Some(cache) = std::env::var_os("XDG_CACHE_HOME") {
+            let dir = std::path::PathBuf::from(cache)
+                .join("nir-rs")
+                .join("staging");
+            ensure_private_dir(&dir)?;
+            return Ok(dir);
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            let dir = std::path::PathBuf::from(home)
+                .join(".cache")
+                .join("nir-rs")
+                .join("staging");
+            ensure_private_dir(&dir)?;
+            return Ok(dir);
+        }
+
+        // Last resort: still use dest parent; residual risk is documented.
+        Ok(dest_parent.to_path_buf())
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = dest_parent;
+        Ok(dest_parent.to_path_buf())
+    }
+}
+
+#[cfg(unix)]
+fn parent_is_shared_nonsticky(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = meta.permissions().mode();
+    let shared = (mode & 0o022) != 0; // group- or world-writable
+    shared && !is_sticky(meta)
+}
+
+#[cfg(unix)]
+fn is_sticky(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    meta.permissions().mode() & 0o1000 != 0
+}
+
+#[cfg(unix)]
+fn ensure_private_dir(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(dir).map_err(|e| {
+        NirError::Io(format!(
+            "cannot create private staging base {}: {e}",
+            dir.display()
+        ))
+    })?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(|e| {
+        NirError::Io(format!(
+            "cannot set permissions on private staging base {}: {e}",
+            dir.display()
+        ))
+    })?;
+    Ok(())
 }
 
 /// Encode and flush one complete HDF5 file.
@@ -1078,5 +1245,40 @@ mod atomic_tests {
             0o444
         );
         assert_eq!(residue(dir.path()), vec!["readonly.nir"]);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn shared_nonsticky_parent_still_writes_cleanly() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // 0o777 without sticky: staging prefers sticky/private base, then
+        // promotes onto the destination (rename or cross-device copy).
+        let dir = TempDir::new().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
+        let path = dir.path().join("shared.nir");
+        std::fs::write(&path, b"old").unwrap();
+
+        write(&path, &NirGraph::new(), &WriteOptions::default()).unwrap();
+        let decoded =
+            super::super::hdf5_read::read(&path, &super::super::ReadOptions::default()).unwrap();
+        assert!(decoded.nodes.is_empty());
+        assert_eq!(residue(dir.path()), vec!["shared.nir"]);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn parent_is_shared_nonsticky_detects_world_writable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
+        let meta = std::fs::metadata(dir.path()).unwrap();
+        assert!(parent_is_shared_nonsticky(&meta));
+
+        // Sticky world-writable (/tmp style) is not treated as shared-nonsticky.
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o1777)).unwrap();
+        let meta = std::fs::metadata(dir.path()).unwrap();
+        assert!(!parent_is_shared_nonsticky(&meta));
     }
 }

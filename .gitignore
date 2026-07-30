@@ -20,3 +20,6 @@
 
 # Binary
 /target
+
+# Local Qodana CLI output
+.qodana/
