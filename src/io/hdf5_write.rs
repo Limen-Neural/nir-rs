@@ -138,13 +138,13 @@ fn promote_to_destination(temp_path: &Path, path: &Path) -> Result<()> {
     match std::fs::rename(temp_path, path) {
         Ok(()) => Ok(()),
         Err(e) if is_cross_device(&e) => {
+            let dest_parent = path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+
             #[cfg(unix)]
             {
-                let dest_parent = path
-                    .parent()
-                    .filter(|p| !p.as_os_str().is_empty())
-                    .unwrap_or(Path::new("."));
-
                 if let Ok(meta) = std::fs::metadata(dest_parent) {
                     if parent_is_shared_nonsticky(&meta, dest_parent)? {
                         return Err(NirError::Io(format!(
@@ -155,52 +155,26 @@ fn promote_to_destination(temp_path: &Path, path: &Path) -> Result<()> {
                         )));
                     }
                 }
+            }
 
-                let (local_temp, local_dir) = temporary_path_in(dest_parent, path)?;
-                let promote = (|| {
-                    std::fs::copy(temp_path, &local_temp).map_err(|e| {
-                        NirError::Io(format!(
-                            "cannot copy staged file to {}: {e}",
-                            local_temp.display()
-                        ))
-                    })?;
-                    if let Ok(metadata) = std::fs::metadata(path) {
-                        let _ = std::fs::set_permissions(&local_temp, metadata.permissions());
-                    }
-                    std::fs::rename(&local_temp, path).map_err(|e| {
-                        NirError::Io(format!("cannot atomically replace {}: {e}", path.display()))
-                    })
-                })();
-                let _ = std::fs::remove_file(&local_temp);
-                let _ = std::fs::remove_dir(&local_dir);
-                promote
-            }
-            #[cfg(not(unix))]
-            {
-                let (local_temp, local_dir) = temporary_path_in(
-                    path.parent()
-                        .filter(|p| !p.as_os_str().is_empty())
-                        .unwrap_or(Path::new(".")),
-                    path,
-                )?;
-                let promote = (|| {
-                    std::fs::copy(temp_path, &local_temp).map_err(|e| {
-                        NirError::Io(format!(
-                            "cannot copy staged file to {}: {e}",
-                            local_temp.display()
-                        ))
-                    })?;
-                    if let Ok(metadata) = std::fs::metadata(path) {
-                        let _ = std::fs::set_permissions(&local_temp, metadata.permissions());
-                    }
-                    std::fs::rename(&local_temp, path).map_err(|e| {
-                        NirError::Io(format!("cannot atomically replace {}: {e}", path.display()))
-                    })
-                })();
-                let _ = std::fs::remove_file(&local_temp);
-                let _ = std::fs::remove_dir(&local_dir);
-                promote
-            }
+            let (local_temp, local_dir) = temporary_path_in(dest_parent, path)?;
+            let promote = (|| {
+                std::fs::copy(temp_path, &local_temp).map_err(|e| {
+                    NirError::Io(format!(
+                        "cannot copy staged file to {}: {e}",
+                        local_temp.display()
+                    ))
+                })?;
+                if let Ok(metadata) = std::fs::metadata(path) {
+                    let _ = std::fs::set_permissions(&local_temp, metadata.permissions());
+                }
+                std::fs::rename(&local_temp, path).map_err(|e| {
+                    NirError::Io(format!("cannot atomically replace {}: {e}", path.display()))
+                })
+            })();
+            let _ = std::fs::remove_file(&local_temp);
+            let _ = std::fs::remove_dir(&local_dir);
+            promote
         }
         Err(e) => Err(NirError::Io(format!(
             "cannot atomically replace {}: {e}",
@@ -383,7 +357,12 @@ fn verify_owned_ancestry(path: &Path, expected_uid: u32) -> Result<bool> {
             return Ok(false);
         }
 
-        if meta.uid() != expected_uid {
+        let owner_uid = meta.uid();
+        if owner_uid == 0 {
+            return Ok(true);
+        }
+
+        if owner_uid != expected_uid {
             return Ok(false);
         }
     }
@@ -393,16 +372,11 @@ fn verify_owned_ancestry(path: &Path, expected_uid: u32) -> Result<bool> {
 
 #[cfg(unix)]
 fn parent_is_shared_nonsticky(meta: &std::fs::Metadata, path: &Path) -> Result<bool> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
 
     let mode = meta.permissions().mode();
     let shared = (mode & 0o022) != 0;
-    if !shared || is_sticky(meta) {
-        return Ok(false);
-    }
-
-    let current_uid = unsafe { libc::getuid() };
-    if meta.uid() != current_uid {
+    if shared && !is_sticky(meta) {
         return Ok(true);
     }
 

@@ -30,6 +30,9 @@ hdf5 = { package = "hdf5-metno", version = "0.14", optional = true }
 hdf5-sys = { package = "hdf5-metno-sys", version = "0.12", optional = true }
 tempfile = { version = "3", optional = true }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 
