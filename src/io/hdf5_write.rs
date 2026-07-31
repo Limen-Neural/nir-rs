@@ -126,36 +126,81 @@ fn write_atomically(
 
 /// Move a finished staging file onto `path`, with a same-parent fallback when
 /// the stage lives on another filesystem.
+///
+/// **SELinux context (Unix):** On SELinux-enforcing hosts, a same-filesystem
+/// `rename` preserves the source inode's security context rather than applying
+/// the destination directory's file-creation context. This can result in the
+/// promoted file having the staging directory's context instead of the expected
+/// destination context, potentially making it inaccessible to services that rely
+/// on that context. Callers requiring specific SELinux contexts should apply
+/// `restorecon` or `chcon` after this function returns successfully.
 fn promote_to_destination(temp_path: &Path, path: &Path) -> Result<()> {
     match std::fs::rename(temp_path, path) {
         Ok(()) => Ok(()),
         Err(e) if is_cross_device(&e) => {
-            // Stage lived on another mount (secure base). Rebuild beside the
-            // destination so rename can complete. Residual TOCTOU for the
-            // destination parent still applies on multi-user non-sticky dirs.
-            let (local_temp, local_dir) = temporary_path_in(
-                path.parent()
+            #[cfg(unix)]
+            {
+                let dest_parent = path
+                    .parent()
                     .filter(|p| !p.as_os_str().is_empty())
-                    .unwrap_or(Path::new(".")),
-                path,
-            )?;
-            let promote = (|| {
-                std::fs::copy(temp_path, &local_temp).map_err(|e| {
-                    NirError::Io(format!(
-                        "cannot copy staged file to {}: {e}",
-                        local_temp.display()
-                    ))
-                })?;
-                if let Ok(metadata) = std::fs::metadata(path) {
-                    let _ = std::fs::set_permissions(&local_temp, metadata.permissions());
+                    .unwrap_or(Path::new("."));
+
+                if let Ok(meta) = std::fs::metadata(dest_parent) {
+                    if parent_is_shared_nonsticky(&meta, dest_parent)? {
+                        return Err(NirError::Io(format!(
+                            "cannot promote cross-device staged file to {}: destination parent \
+                             is shared and non-sticky, which would reintroduce path-swap \
+                             vulnerability during local staging",
+                            path.display()
+                        )));
+                    }
                 }
-                std::fs::rename(&local_temp, path).map_err(|e| {
-                    NirError::Io(format!("cannot atomically replace {}: {e}", path.display()))
-                })
-            })();
-            let _ = std::fs::remove_file(&local_temp);
-            let _ = std::fs::remove_dir(&local_dir);
-            promote
+
+                let (local_temp, local_dir) = temporary_path_in(dest_parent, path)?;
+                let promote = (|| {
+                    std::fs::copy(temp_path, &local_temp).map_err(|e| {
+                        NirError::Io(format!(
+                            "cannot copy staged file to {}: {e}",
+                            local_temp.display()
+                        ))
+                    })?;
+                    if let Ok(metadata) = std::fs::metadata(path) {
+                        let _ = std::fs::set_permissions(&local_temp, metadata.permissions());
+                    }
+                    std::fs::rename(&local_temp, path).map_err(|e| {
+                        NirError::Io(format!("cannot atomically replace {}: {e}", path.display()))
+                    })
+                })();
+                let _ = std::fs::remove_file(&local_temp);
+                let _ = std::fs::remove_dir(&local_dir);
+                promote
+            }
+            #[cfg(not(unix))]
+            {
+                let (local_temp, local_dir) = temporary_path_in(
+                    path.parent()
+                        .filter(|p| !p.as_os_str().is_empty())
+                        .unwrap_or(Path::new(".")),
+                    path,
+                )?;
+                let promote = (|| {
+                    std::fs::copy(temp_path, &local_temp).map_err(|e| {
+                        NirError::Io(format!(
+                            "cannot copy staged file to {}: {e}",
+                            local_temp.display()
+                        ))
+                    })?;
+                    if let Ok(metadata) = std::fs::metadata(path) {
+                        let _ = std::fs::set_permissions(&local_temp, metadata.permissions());
+                    }
+                    std::fs::rename(&local_temp, path).map_err(|e| {
+                        NirError::Io(format!("cannot atomically replace {}: {e}", path.display()))
+                    })
+                })();
+                let _ = std::fs::remove_file(&local_temp);
+                let _ = std::fs::remove_dir(&local_dir);
+                promote
+            }
         }
         Err(e) => Err(NirError::Io(format!(
             "cannot atomically replace {}: {e}",
@@ -165,8 +210,14 @@ fn promote_to_destination(temp_path: &Path, path: &Path) -> Result<()> {
 }
 
 fn is_cross_device(err: &std::io::Error) -> bool {
-    // `ErrorKind::CrossesDevices` is stable on recent rustc; also match EXDEV.
-    err.kind() == std::io::ErrorKind::CrossesDevices || err.raw_os_error() == Some(18) // EXDEV on Linux/macOS/BSD
+    #[cfg(unix)]
+    {
+        err.kind() == std::io::ErrorKind::CrossesDevices || err.raw_os_error() == Some(18)
+    }
+    #[cfg(not(unix))]
+    {
+        err.kind() == std::io::ErrorKind::CrossesDevices
+    }
 }
 
 /// Create the staging file inside a private temporary directory.
@@ -237,9 +288,10 @@ fn temporary_path_in(base: &Path, path: &Path) -> Result<(std::path::PathBuf, st
 fn secure_staging_base(dest_parent: &Path) -> Result<std::path::PathBuf> {
     #[cfg(unix)]
     {
+        use std::os::unix::fs::MetadataExt;
+
         let dest_meta = match std::fs::metadata(dest_parent) {
             Ok(meta) => meta,
-            // Missing parent: keep the old create-time failure path.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(dest_parent.to_path_buf());
             }
@@ -250,43 +302,52 @@ fn secure_staging_base(dest_parent: &Path) -> Result<std::path::PathBuf> {
                 )));
             }
         };
-        if !parent_is_shared_nonsticky(&dest_meta) {
+        if !parent_is_shared_nonsticky(&dest_meta, dest_parent)? {
             return Ok(dest_parent.to_path_buf());
         }
 
-        // Prefer sticky system temp (e.g. /tmp): foreign users cannot rename
-        // our entries.
+        let current_uid = unsafe { libc::getuid() };
+
         let tmp = std::env::temp_dir();
         if let Ok(meta) = std::fs::metadata(&tmp)
             && is_sticky(&meta)
+            && meta.uid() == current_uid
+            && is_writable(&tmp)
         {
             return Ok(tmp);
         }
 
-        // Private per-user runtime or cache directory (mode 0700).
         if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
-            let dir = std::path::PathBuf::from(runtime).join("nir-rs-staging");
-            ensure_private_dir(&dir)?;
-            return Ok(dir);
+            let runtime_path = std::path::PathBuf::from(runtime);
+            if verify_owned_ancestry(&runtime_path, current_uid)? {
+                let dir = runtime_path.join("nir-rs-staging");
+                ensure_private_dir(&dir)?;
+                return Ok(dir);
+            }
         }
         if let Some(cache) = std::env::var_os("XDG_CACHE_HOME") {
-            let dir = std::path::PathBuf::from(cache)
-                .join("nir-rs")
-                .join("staging");
-            ensure_private_dir(&dir)?;
-            return Ok(dir);
+            let cache_path = std::path::PathBuf::from(cache);
+            if verify_owned_ancestry(&cache_path, current_uid)? {
+                let dir = cache_path.join("nir-rs").join("staging");
+                ensure_private_dir(&dir)?;
+                return Ok(dir);
+            }
         }
         if let Some(home) = std::env::var_os("HOME") {
-            let dir = std::path::PathBuf::from(home)
-                .join(".cache")
-                .join("nir-rs")
-                .join("staging");
-            ensure_private_dir(&dir)?;
-            return Ok(dir);
+            let home_path = std::path::PathBuf::from(home);
+            if verify_owned_ancestry(&home_path, current_uid)? {
+                let dir = home_path.join(".cache").join("nir-rs").join("staging");
+                ensure_private_dir(&dir)?;
+                return Ok(dir);
+            }
         }
 
-        // Last resort: still use dest parent; residual risk is documented.
-        Ok(dest_parent.to_path_buf())
+        Err(NirError::Io(format!(
+            "cannot find a safe staging base for shared non-sticky destination {}; \
+             sticky temp is not owned by current user, and XDG/HOME paths are unavailable \
+             or not safely owned",
+            dest_parent.display()
+        )))
     }
 
     #[cfg(not(unix))]
@@ -297,11 +358,72 @@ fn secure_staging_base(dest_parent: &Path) -> Result<std::path::PathBuf> {
 }
 
 #[cfg(unix)]
-fn parent_is_shared_nonsticky(meta: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt;
+fn is_writable(path: &Path) -> bool {
+    tempfile::Builder::new()
+        .prefix(".nir_write_test.")
+        .tempdir_in(path)
+        .map(|d| {
+            let _ = std::fs::remove_dir(d.path());
+            true
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn verify_owned_ancestry(path: &Path, expected_uid: u32) -> Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+
+    for ancestor in path.ancestors() {
+        let meta = match std::fs::symlink_metadata(ancestor) {
+            Ok(m) => m,
+            Err(_) => return Ok(false),
+        };
+
+        if meta.is_symlink() {
+            return Ok(false);
+        }
+
+        if meta.uid() != expected_uid {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+#[cfg(unix)]
+fn parent_is_shared_nonsticky(meta: &std::fs::Metadata, path: &Path) -> Result<bool> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
     let mode = meta.permissions().mode();
-    let shared = (mode & 0o022) != 0; // group- or world-writable
-    shared && !is_sticky(meta)
+    let shared = (mode & 0o022) != 0;
+    if !shared || is_sticky(meta) {
+        return Ok(false);
+    }
+
+    let current_uid = unsafe { libc::getuid() };
+    if meta.uid() != current_uid {
+        return Ok(true);
+    }
+
+    for ancestor in path.ancestors().skip(1) {
+        let ancestor_meta = match std::fs::symlink_metadata(ancestor) {
+            Ok(m) => m,
+            Err(_) => break,
+        };
+
+        if ancestor_meta.is_symlink() {
+            return Ok(true);
+        }
+
+        let ancestor_mode = ancestor_meta.permissions().mode();
+        let ancestor_shared = (ancestor_mode & 0o022) != 0;
+        if ancestor_shared && !is_sticky(&ancestor_meta) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 #[cfg(unix)]
@@ -1274,11 +1396,10 @@ mod atomic_tests {
         let dir = TempDir::new().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
         let meta = std::fs::metadata(dir.path()).unwrap();
-        assert!(parent_is_shared_nonsticky(&meta));
+        assert!(parent_is_shared_nonsticky(&meta, dir.path()).unwrap());
 
-        // Sticky world-writable (/tmp style) is not treated as shared-nonsticky.
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o1777)).unwrap();
         let meta = std::fs::metadata(dir.path()).unwrap();
-        assert!(!parent_is_shared_nonsticky(&meta));
+        assert!(!parent_is_shared_nonsticky(&meta, dir.path()).unwrap());
     }
 }
