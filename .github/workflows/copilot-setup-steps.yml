@@ -31,7 +31,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
-          # Reads rust-toolchain.toml when present; components match that file.
+          # Explicit channel required by this action pin; matches rust-toolchain.toml.
+          toolchain: stable
           components: clippy, rustfmt
 
       - name: Install libhdf5 (optional `hdf5` feature)
