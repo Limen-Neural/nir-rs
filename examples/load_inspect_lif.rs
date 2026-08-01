@@ -50,7 +50,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     io::write(&output, &graph)?;
     let reloaded = io::read(&output)?;
-    assert_eq!(reloaded, graph, "saved graph did not round-trip exactly");
+    // `PartialEq` on tensors is IEEE equality: graphs with NaN will not compare
+    // equal to themselves. The vendored LIF fixture is finite-only, which is
+    // the intended path for this demo.
+    assert_eq!(
+        reloaded, graph,
+        "saved graph did not round-trip exactly (finite values only)"
+    );
     println!("saved and verified {}", output.display());
 
     Ok(())
@@ -94,13 +100,19 @@ fn print_tensor(name: &str, tensor: &Tensor) {
     );
 
     match tensor.data() {
-        TensorData::F32(values) => println!("{:?}", preview(values)),
-        TensorData::F64(values) => println!("{:?}", preview(values)),
-        TensorData::I64(values) => println!("{:?}", preview(values)),
-        TensorData::Bool(values) => println!("{:?}", preview(values)),
+        TensorData::F32(values) => println!("{}", format_preview(values)),
+        TensorData::F64(values) => println!("{}", format_preview(values)),
+        TensorData::I64(values) => println!("{}", format_preview(values)),
+        TensorData::Bool(values) => println!("{}", format_preview(values)),
     }
 }
 
-fn preview<T>(values: &[T]) -> &[T] {
-    &values[..values.len().min(PREVIEW_ELEMENTS)]
+/// First `PREVIEW_ELEMENTS` values, with an ellipsis and total length when truncated.
+fn format_preview<T: std::fmt::Debug>(values: &[T]) -> String {
+    if values.len() <= PREVIEW_ELEMENTS {
+        format!("{values:?}")
+    } else {
+        let head = &values[..PREVIEW_ELEMENTS];
+        format!("{head:?}… ({} elements)", values.len())
+    }
 }
