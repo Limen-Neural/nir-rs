@@ -76,8 +76,8 @@ cargo clippy --all-targets --features hdf5,hdf5/static,hdf5/zlib -- -D warnings
 cargo test --features hdf5,hdf5/static,hdf5/zlib
 ```
 
-Pinned channel/components: [`rust-toolchain.toml`](rust-toolchain.toml)
-(`stable` + `rustfmt` + `clippy`).
+Configured channel/components: [`rust-toolchain.toml`](rust-toolchain.toml)
+(`stable` + `rustfmt` + `clippy`; `stable` tracks the latest stable release).
 
 ### Dev container / cloud agent images
 

@@ -13,7 +13,8 @@ reviews:
 
     If `cargo` is missing from PATH, run from the repo root:
       bash scripts/agent-bootstrap.sh
-    then re-export PATH with: source "$HOME/.cargo/env"
+    then re-export PATH with:
+      source "${CARGO_HOME:-$HOME/.cargo}/env"
 
     Required verification (prefer system libhdf5 when available):
       cargo fmt --check
@@ -22,9 +23,10 @@ reviews:
       cargo test --all-features
       cargo doc --no-deps --all-features
 
-    Hermetic fallback when libhdf5-dev is unavailable:
+    Hermetic fallback when libhdf5-dev is unavailable (needs cmake):
       cargo clippy --all-targets --features hdf5,hdf5/static,hdf5/zlib -- -D warnings
       cargo test --features hdf5,hdf5/static,hdf5/zlib
+      cargo doc --no-deps --features hdf5,hdf5/static,hdf5/zlib
 
     Wire type names must match neuromorphs/NIR exactly (CubaLIF, Conv2d,
     SumPool2d, …). Do not add Python. Prefer private destination directories

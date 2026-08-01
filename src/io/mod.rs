@@ -320,17 +320,19 @@ pub fn read_version_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<S
 /// destination. A failed write leaves an existing destination unchanged.
 ///
 /// **Staging base (Unix):** when the destination parent is untrusted —
-/// group/world-writable without the sticky bit, or owned by a UID other than
-/// the current process or root — staging attempts to use sticky temp (if owned
-/// by the current user and writable) or a private per-user runtime/cache
-/// directory (if all ancestors are owned by the current user or root and
-/// non-symlink) so other local users cannot rename the staging directory away
-/// and plant a path for the HDF5 reopen. Foreign-owned parents are treated as
-/// untrusted even at mode `0755`, because the directory owner can always rename
-/// entries (including under a sticky bit). If no safe staging base is found, the
-/// write fails rather than falling back to the untrusted destination parent. The
-/// final replace into a multi-user non-sticky parent still has residual rename
-/// races — prefer private destination directories on shared hosts.
+/// group/world-writable without the sticky bit, a symlink path component, or
+/// owned by a UID other than the process effective UID or root — staging
+/// attempts to use sticky temp (if owned by the current user or root, writable,
+/// and with verified symlink-free ancestry) or a private per-user runtime/cache
+/// directory (if all ancestors are owned by the current user or root, non-symlink,
+/// and free of non-sticky group/world-writable modes) so other local users cannot
+/// rename the staging directory away and plant a path for the HDF5 reopen.
+/// Foreign-owned parents are treated as untrusted even at mode `0755`, because
+/// the directory owner can always rename entries (including under a sticky bit).
+/// If no safe staging base is found, the write fails rather than falling back to
+/// the untrusted destination parent. The final replace into a multi-user
+/// non-sticky parent still has residual rename races — prefer private destination
+/// directories on shared hosts.
 ///
 /// Existing Unix file permissions (mode bits) are preserved, but **ownership
 /// and group are changed** to those of the writing process, and POSIX ACLs are

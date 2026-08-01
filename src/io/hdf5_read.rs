@@ -307,6 +307,15 @@ fn read_edges(ds: &Dataset, budget: &ReadBudget) -> Result<Vec<(String, String)>
     }
     // Already validated above; skip the second property-list walk.
     let flat = read_strings_unchecked(ds, KEY_EDGES, budget)?;
+    // `collect` into `Vec<(String, String)>` allocates a second header buffer
+    // while `flat` is still live; charge it before building the pairs so a
+    // hostile high-cardinality short-string edges dataset cannot slip under
+    // the budget at the boundary.
+    let edge_count = shape[0];
+    budget.charge(
+        KEY_EDGES,
+        edge_count.checked_mul(std::mem::size_of::<(String, String)>()),
+    )?;
     let mut strings = flat.into_iter();
     Ok(std::iter::from_fn(|| Some((strings.next()?, strings.next()?))).collect())
 }

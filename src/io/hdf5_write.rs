@@ -100,7 +100,11 @@ fn write_atomically(
         after_temp_created(&temp_path)?;
         write_file(&temp_path, graph, opts, version)?;
 
-        match std::fs::metadata(path) {
+        // Do not follow symlinks: writes replace the directory entry itself, so
+        // an inaccessible symlink target must not abort a legal replace, and we
+        // must not copy mode bits from a resolved target we are not updating.
+        match std::fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {}
             Ok(metadata) => {
                 std::fs::set_permissions(&temp_path, metadata.permissions()).map_err(|e| {
                     NirError::Io(format!(
@@ -135,7 +139,7 @@ fn write_atomically(
 /// on that context. Callers requiring specific SELinux contexts should apply
 /// `restorecon` or `chcon` after this function returns successfully.
 fn promote_to_destination(temp_path: &Path, path: &Path) -> Result<()> {
-    match std::fs::rename(temp_path, path) {
+    match rename_replace(temp_path, path) {
         Ok(()) => Ok(()),
         Err(e) if is_cross_device(&e) => {
             let dest_parent = path
@@ -165,10 +169,12 @@ fn promote_to_destination(temp_path: &Path, path: &Path) -> Result<()> {
                         local_temp.display()
                     ))
                 })?;
-                if let Ok(metadata) = std::fs::metadata(path) {
+                if let Ok(metadata) = std::fs::symlink_metadata(path)
+                    && !metadata.file_type().is_symlink()
+                {
                     let _ = std::fs::set_permissions(&local_temp, metadata.permissions());
                 }
-                std::fs::rename(&local_temp, path).map_err(|e| {
+                rename_replace(&local_temp, path).map_err(|e| {
                     NirError::Io(format!("cannot atomically replace {}: {e}", path.display()))
                 })
             })();
@@ -180,6 +186,26 @@ fn promote_to_destination(temp_path: &Path, path: &Path) -> Result<()> {
             "cannot atomically replace {}: {e}",
             path.display()
         ))),
+    }
+}
+
+/// Rename `from` onto `to`, replacing an existing destination when the platform
+/// requires an explicit remove-first step (Windows).
+fn rename_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    match std::fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        #[cfg(windows)]
+        Err(e) => {
+            // Windows does not allow `rename` over an existing file. Remove the
+            // destination first; this is not fully atomic but matches common
+            // portable replace strategies and restores overwrite behaviour.
+            match std::fs::remove_file(to).and_then(|_| std::fs::rename(from, to)) {
+                Ok(()) => Ok(()),
+                Err(_) => Err(e),
+            }
+        }
+        #[cfg(not(windows))]
+        Err(e) => Err(e),
     }
 }
 
@@ -280,18 +306,19 @@ fn secure_staging_base(dest_parent: &Path) -> Result<std::path::PathBuf> {
             return Ok(dest_parent.to_path_buf());
         }
 
-        // SAFETY: `getuid` is always safe; returns the caller's real UID.
-        let current_uid = unsafe { libc::getuid() };
+        // SAFETY: `geteuid` is always safe; effective UID is who performs the
+        // write (correct for setuid: real UID may own a hostile parent).
+        let current_uid = unsafe { libc::geteuid() };
 
-        // Prefer sticky system temp (e.g. root-owned `/tmp`): the sticky bit
-        // prevents other non-owners from renaming our entries. Root ownership is
-        // expected and fine; only a sticky temp owned by some *other* non-root
-        // user is rejected.
+        // Prefer sticky system temp (e.g. root-owned `/tmp`). Validate full
+        // ancestry (no intermediate symlinks; root-owned non-sticky shared dirs
+        // rejected) before accepting TMPDIR.
         let tmp = std::env::temp_dir();
         if let Ok(meta) = std::fs::metadata(&tmp)
             && is_sticky(&meta)
             && (meta.uid() == current_uid || meta.uid() == 0)
             && is_writable(&tmp)
+            && verify_owned_ancestry(&tmp, current_uid)?
         {
             return Ok(tmp);
         }
@@ -323,7 +350,7 @@ fn secure_staging_base(dest_parent: &Path) -> Result<std::path::PathBuf> {
 
         Err(NirError::Io(format!(
             "cannot find a safe staging base for shared non-sticky destination {}; \
-             sticky temp is not owned by current user, and XDG/HOME paths are unavailable \
+             sticky temp failed ancestry checks, and XDG/HOME paths are unavailable \
              or not safely owned",
             dest_parent.display()
         )))
@@ -348,9 +375,14 @@ fn is_writable(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// True when every path component is owned by `expected_uid` or root, is not a
+/// symlink, and is free of group/world-writable non-sticky modes.
+///
+/// Root-owned components are accepted only when not group/world-writable without
+/// the sticky bit (so a root-owned `0777` drop directory cannot validate a base).
 #[cfg(unix)]
 fn verify_owned_ancestry(path: &Path, expected_uid: u32) -> Result<bool> {
-    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     for ancestor in path.ancestors() {
         let meta = match std::fs::symlink_metadata(ancestor) {
@@ -358,16 +390,17 @@ fn verify_owned_ancestry(path: &Path, expected_uid: u32) -> Result<bool> {
             Err(_) => return Ok(false),
         };
 
-        if meta.is_symlink() {
+        if meta.file_type().is_symlink() {
             return Ok(false);
         }
 
         let owner_uid = meta.uid();
-        if owner_uid == 0 {
-            return Ok(true);
+        if owner_uid != 0 && owner_uid != expected_uid {
+            return Ok(false);
         }
 
-        if owner_uid != expected_uid {
+        let mode = meta.permissions().mode();
+        if (mode & 0o022) != 0 && !is_sticky(&meta) {
             return Ok(false);
         }
     }
@@ -379,22 +412,31 @@ fn verify_owned_ancestry(path: &Path, expected_uid: u32) -> Result<bool> {
 /// staging path after we create it.
 ///
 /// Treat as hostile when:
+/// - the path itself is a symlink (renameable by its owner under sticky parents),
 /// - group/world-writable without the sticky bit, or
-/// - owned by a UID other than the current process or root (the directory
+/// - owned by a UID other than the effective process UID or root (the directory
 ///   owner can always rename entries, including under a sticky bit; a
-///   privileged writer targeting a less-privileged 0755 parent is the
+///   setuid/privileged writer targeting a less-privileged 0755 parent is the
 ///   classic case), or
 /// - an ancestor is a symlink (renameable path component).
 #[cfg(unix)]
 fn parent_is_shared_nonsticky(meta: &std::fs::Metadata, path: &Path) -> Result<bool> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-    // SAFETY: `getuid` is always safe; returns the caller's real UID.
-    let current_uid = unsafe { libc::getuid() };
+    // SAFETY: `geteuid` is always safe; effective identity performs the write.
+    let current_uid = unsafe { libc::geteuid() };
     let untrusted_owner = |m: &std::fs::Metadata| {
         let uid = m.uid();
         uid != current_uid && uid != 0
     };
+
+    // Symlink parents under sticky `/tmp` are renameable by their owner even when
+    // the resolved target looks private.
+    if let Ok(link_meta) = std::fs::symlink_metadata(path)
+        && link_meta.file_type().is_symlink()
+    {
+        return Ok(true);
+    }
 
     // Directory owner (sticky or not) can rename entries we create there.
     if untrusted_owner(meta) {
@@ -412,7 +454,7 @@ fn parent_is_shared_nonsticky(meta: &std::fs::Metadata, path: &Path) -> Result<b
             Err(_) => break,
         };
 
-        if ancestor_meta.is_symlink() {
+        if ancestor_meta.file_type().is_symlink() {
             return Ok(true);
         }
 
