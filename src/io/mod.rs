@@ -319,15 +319,18 @@ pub fn read_version_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<S
 /// (mode `0700` on Unix), flushed, closed, and then atomically renamed over the
 /// destination. A failed write leaves an existing destination unchanged.
 ///
-/// **Staging base (Unix):** when the destination parent is group/world-writable
-/// and not sticky, staging attempts to use sticky temp (if owned by the current
-/// user and writable) or a private per-user runtime/cache directory (if all
-/// ancestors are owned by the current user and non-symlink) so other local users
-/// cannot rename the staging directory away and plant a path for the HDF5 reopen.
-/// If no safe staging base is found, the write fails rather than falling back to
-/// the untrusted destination parent. The final replace into a multi-user non-sticky
-/// parent still has residual rename races — prefer private destination directories
-/// on shared hosts.
+/// **Staging base (Unix):** when the destination parent is untrusted —
+/// group/world-writable without the sticky bit, or owned by a UID other than
+/// the current process or root — staging attempts to use sticky temp (if owned
+/// by the current user and writable) or a private per-user runtime/cache
+/// directory (if all ancestors are owned by the current user or root and
+/// non-symlink) so other local users cannot rename the staging directory away
+/// and plant a path for the HDF5 reopen. Foreign-owned parents are treated as
+/// untrusted even at mode `0755`, because the directory owner can always rename
+/// entries (including under a sticky bit). If no safe staging base is found, the
+/// write fails rather than falling back to the untrusted destination parent. The
+/// final replace into a multi-user non-sticky parent still has residual rename
+/// races — prefer private destination directories on shared hosts.
 ///
 /// Existing Unix file permissions (mode bits) are preserved, but **ownership
 /// and group are changed** to those of the writing process, and POSIX ACLs are
@@ -335,10 +338,13 @@ pub fn read_version_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<S
 /// process umask.
 ///
 /// **SELinux context (Unix):** On SELinux-enforcing hosts, same-filesystem renames
-/// preserve the source inode's security context. The written file may have the
-/// staging directory's context instead of the destination directory's expected
-/// context. If your application requires specific SELinux contexts, apply
-/// `restorecon` or `chcon` after this function returns.
+/// preserve the source inode's security context. When staging under a secure base
+/// such as `/tmp` and renaming onto the destination, the written file may keep
+/// the staging label rather than the destination directory's file-creation
+/// context, which can make it inaccessible to a confined consumer. Creating the
+/// final inode under a hostile (shared/non-sticky) destination parent would
+/// reintroduce path-swap races, so this residual is accepted: apply `restorecon`
+/// or `chcon` after a successful write when a specific context is required.
 ///
 /// This does not fsync the file or containing directory, so it
 /// is not a power-loss durability guarantee.
@@ -382,7 +388,7 @@ pub fn write(path: impl AsRef<Path>, graph: &NirGraph) -> Result<()> {
 ///
 /// **Multi-user destination directories**: Staging is hardened against parent
 /// directory rename races when the destination parent is shared and non-sticky
-/// (see [`write`]). If no safe staging base can be found (sticky temp owned by
+/// (see [`write()`]). If no safe staging base can be found (sticky temp owned by
 /// current user, or private per-user directories with verified ownership ancestry),
 /// the write fails. Cross-device promotion is also rejected when the destination
 /// parent is shared and non-sticky to prevent path-swap vulnerabilities during

@@ -145,15 +145,15 @@ fn promote_to_destination(temp_path: &Path, path: &Path) -> Result<()> {
 
             #[cfg(unix)]
             {
-                if let Ok(meta) = std::fs::metadata(dest_parent) {
-                    if parent_is_shared_nonsticky(&meta, dest_parent)? {
-                        return Err(NirError::Io(format!(
-                            "cannot promote cross-device staged file to {}: destination parent \
-                             is shared and non-sticky, which would reintroduce path-swap \
-                             vulnerability during local staging",
-                            path.display()
-                        )));
-                    }
+                if let Ok(meta) = std::fs::metadata(dest_parent)
+                    && parent_is_shared_nonsticky(&meta, dest_parent)?
+                {
+                    return Err(NirError::Io(format!(
+                        "cannot promote cross-device staged file to {}: destination parent \
+                         is shared/untrusted, which would reintroduce path-swap \
+                         vulnerability during local staging",
+                        path.display()
+                    )));
                 }
             }
 
@@ -280,12 +280,17 @@ fn secure_staging_base(dest_parent: &Path) -> Result<std::path::PathBuf> {
             return Ok(dest_parent.to_path_buf());
         }
 
+        // SAFETY: `getuid` is always safe; returns the caller's real UID.
         let current_uid = unsafe { libc::getuid() };
 
+        // Prefer sticky system temp (e.g. root-owned `/tmp`): the sticky bit
+        // prevents other non-owners from renaming our entries. Root ownership is
+        // expected and fine; only a sticky temp owned by some *other* non-root
+        // user is rejected.
         let tmp = std::env::temp_dir();
         if let Ok(meta) = std::fs::metadata(&tmp)
             && is_sticky(&meta)
-            && meta.uid() == current_uid
+            && (meta.uid() == current_uid || meta.uid() == 0)
             && is_writable(&tmp)
         {
             return Ok(tmp);
@@ -370,13 +375,34 @@ fn verify_owned_ancestry(path: &Path, expected_uid: u32) -> Result<bool> {
     Ok(true)
 }
 
+/// True when the destination parent (or an ancestor) can rename/replace our
+/// staging path after we create it.
+///
+/// Treat as hostile when:
+/// - group/world-writable without the sticky bit, or
+/// - owned by a UID other than the current process or root (the directory
+///   owner can always rename entries, including under a sticky bit; a
+///   privileged writer targeting a less-privileged 0755 parent is the
+///   classic case), or
+/// - an ancestor is a symlink (renameable path component).
 #[cfg(unix)]
 fn parent_is_shared_nonsticky(meta: &std::fs::Metadata, path: &Path) -> Result<bool> {
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    // SAFETY: `getuid` is always safe; returns the caller's real UID.
+    let current_uid = unsafe { libc::getuid() };
+    let untrusted_owner = |m: &std::fs::Metadata| {
+        let uid = m.uid();
+        uid != current_uid && uid != 0
+    };
+
+    // Directory owner (sticky or not) can rename entries we create there.
+    if untrusted_owner(meta) {
+        return Ok(true);
+    }
 
     let mode = meta.permissions().mode();
-    let shared = (mode & 0o022) != 0;
-    if shared && !is_sticky(meta) {
+    if (mode & 0o022) != 0 && !is_sticky(meta) {
         return Ok(true);
     }
 
@@ -390,9 +416,12 @@ fn parent_is_shared_nonsticky(meta: &std::fs::Metadata, path: &Path) -> Result<b
             return Ok(true);
         }
 
+        if untrusted_owner(&ancestor_meta) {
+            return Ok(true);
+        }
+
         let ancestor_mode = ancestor_meta.permissions().mode();
-        let ancestor_shared = (ancestor_mode & 0o022) != 0;
-        if ancestor_shared && !is_sticky(&ancestor_meta) {
+        if (ancestor_mode & 0o022) != 0 && !is_sticky(&ancestor_meta) {
             return Ok(true);
         }
     }
@@ -1373,6 +1402,13 @@ mod atomic_tests {
         assert!(parent_is_shared_nonsticky(&meta, dir.path()).unwrap());
 
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o1777)).unwrap();
+        let meta = std::fs::metadata(dir.path()).unwrap();
+        // Sticky + self-owned: not treated as shared (foreign owners are tested
+        // via the untrusted-owner branch; creating foreign-owned dirs needs root).
+        assert!(!parent_is_shared_nonsticky(&meta, dir.path()).unwrap());
+
+        // Private self-owned 0755 is safe for in-place staging.
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
         let meta = std::fs::metadata(dir.path()).unwrap();
         assert!(!parent_is_shared_nonsticky(&meta, dir.path()).unwrap());
     }

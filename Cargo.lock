@@ -209,6 +209,7 @@ dependencies = [
  "hdf5-metno",
  "hdf5-metno-sys",
  "indexmap",
+ "libc",
  "tempfile",
  "thiserror",
 ]
