@@ -4,6 +4,7 @@
 
 use nir_rs::types::{Tensor, TensorData};
 use nir_rs::{NirNode, io};
+use nir_rs::io::DEFAULT_NIR_VERSION;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -53,8 +54,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `PartialEq` on tensors is IEEE equality: graphs with NaN will not compare
     // equal to themselves. The vendored LIF fixture is finite-only, which is
     // the intended path for this demo.
+    let mut expected = graph.clone();
+    if expected.version.is_none() {
+        expected.version = Some(DEFAULT_NIR_VERSION.to_owned());
+    }
     assert_eq!(
-        reloaded, graph,
+        reloaded, expected,
         "saved graph did not round-trip exactly (finite values only)"
     );
     println!("saved and verified {}", output.display());
