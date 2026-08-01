@@ -1,0 +1,7 @@
+# Pinned toolchain for local dev, CI, Cursor cloud agents, and PR bots.
+# Edition 2024 requires a recent stable; Dockerfile pins 1.97 for the image.
+# `channel = "stable"` tracks latest stable; components ensure fmt/clippy exist.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

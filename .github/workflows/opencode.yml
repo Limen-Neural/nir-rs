@@ -78,6 +78,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          components: clippy, rustfmt
+
+      - name: Install libhdf5
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libhdf5-dev
+
       - name: Run opencode
         uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # github-v1.2.19 (tag: latest)
         env:
