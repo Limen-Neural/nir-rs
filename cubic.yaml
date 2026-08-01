@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=https://cubic.dev/schema/cubic-repository-config.schema.json
+#
+# Cubic AI review + fix-agent settings for nir-rs.
+# Fix agents that start without cargo must bootstrap first (see AGENTS.md).
+
+version: 1
+
+reviews:
+  enabled: true
+  custom_instructions: |
+    This is a pure-Rust crate (edition 2024). Never claim a fix is complete
+    without running the quality bar below.
+
+    If `cargo` is missing from PATH, run from the repo root:
+      bash scripts/agent-bootstrap.sh
+    then re-export PATH with:
+      source "${CARGO_HOME:-$HOME/.cargo}/env"
+
+    Required verification (prefer system libhdf5 when available):
+      cargo fmt --check
+      cargo test
+      cargo clippy --all-targets --all-features -- -D warnings
+      cargo test --all-features
+      cargo doc --no-deps --all-features
+
+    Hermetic fallback when libhdf5-dev is unavailable (needs cmake):
+      cargo clippy --all-targets --features hdf5,hdf5/static,hdf5/zlib -- -D warnings
+      cargo test --features hdf5,hdf5/static,hdf5/zlib
+      cargo doc --no-deps --features hdf5,hdf5/static,hdf5/zlib
+
+    Wire type names must match neuromorphs/NIR exactly (CubaLIF, Conv2d,
+    SumPool2d, …). Do not add Python. Prefer private destination directories
+    for multi-tenant atomic write residual risks already documented on `write`.
+
+issues:
+  fix_with_cubic_buttons: true
+  pr_comment_fixes: true
+  fix_commits_to_pr: true
+  # Default cubic agent: run scripts/agent-bootstrap.sh when cargo is missing.
+  # Optional: set coding_agent_provider to cursor_cloud_agent in the cubic UI
+  # (or here) after linking Cursor — that path uses .cursor/Dockerfile (Rust +
+  # libhdf5 preinstalled) instead of a bare sandbox.

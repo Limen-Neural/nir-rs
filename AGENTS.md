@@ -47,14 +47,49 @@ cargo doc --no-deps --all-features
 `--all-features` enables `hdf5`, which links libhdf5: install `libhdf5-dev`
 (Ubuntu) or `hdf5` (Homebrew) first.
 
-### Dev container / cloud agent
+Hermetic fallback (no system libhdf5):
 
-The repo ships a Dockerfile-backed environment so agents and local editors start
-with Rust 1.97 + `libhdf5-dev` already installed:
+```bash
+cargo clippy --all-targets --features hdf5,hdf5/static,hdf5/zlib -- -D warnings
+cargo test --features hdf5,hdf5/static,hdf5/zlib
+cargo doc --no-deps --features hdf5,hdf5/static,hdf5/zlib
+```
 
-- Cloud agents: [`.cursor/environment.json`](.cursor/environment.json) →
-  [`.cursor/Dockerfile`](.cursor/Dockerfile)
-- VS Code / Cursor Desktop: [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json)
+### Toolchain for PR / cloud agents (mandatory)
+
+If `cargo` is **not** on `PATH` (common in bare PR-fix sandboxes), install it
+**before** editing or claiming a fix:
+
+```bash
+bash scripts/agent-bootstrap.sh
+# then in the same shell:
+source "${CARGO_HOME:-$HOME/.cargo}/env"
+```
+
+Do **not** skip verification with “cargo not available”. Bootstrap, then run
+the quality bar above. Never post a fix commit without at least:
+
+```bash
+cargo fmt --check
+cargo test
+cargo clippy --all-targets --features hdf5,hdf5/static,hdf5/zlib -- -D warnings
+cargo test --features hdf5,hdf5/static,hdf5/zlib
+```
+
+Configured channel/components: [`rust-toolchain.toml`](rust-toolchain.toml)
+(`stable` + `rustfmt` + `clippy`; `stable` tracks the latest stable release).
+
+### Dev container / cloud agent images
+
+Prefer a prebuilt image when the host supports it (Rust 1.97 + `libhdf5-dev`):
+
+| Path | Consumer |
+|------|----------|
+| [`.cursor/environment.json`](.cursor/environment.json) → [`.cursor/Dockerfile`](.cursor/Dockerfile) | Cursor cloud agents |
+| [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) | VS Code / Cursor Desktop |
+| [`.github/workflows/copilot-setup-steps.yml`](.github/workflows/copilot-setup-steps.yml) | GitHub Copilot coding agent |
+| [`scripts/agent-bootstrap.sh`](scripts/agent-bootstrap.sh) | cubic / Claude / other bare sandboxes |
+| [`cubic.yaml`](cubic.yaml) | cubic review + fix instructions |
 
 **No Python.** Wire compatibility is verified by reading real `.nir` files
 vendored from upstream under `tests/fixtures/` — do not add Python scripts,

@@ -1,0 +1,52 @@
+# Preinstall tools for GitHub Copilot coding agent.
+# Job name must be exactly `copilot-setup-steps` (GitHub requirement).
+# Docs: https://docs.github.com/en/copilot/customizing-copilot/customizing-the-development-environment-for-copilot-coding-agent
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - rust-toolchain.toml
+      - scripts/agent-bootstrap.sh
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - rust-toolchain.toml
+      - scripts/agent-bootstrap.sh
+
+permissions:
+  contents: read
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          # Explicit channel required by this action pin; matches rust-toolchain.toml.
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: Install libhdf5 (optional `hdf5` feature)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libhdf5-dev build-essential
+
+      - name: Fetch crate dependencies
+        run: cargo fetch
+
+      - name: Smoke-check quality tools
+        run: |
+          cargo --version
+          rustc --version
+          cargo fmt --version
+          cargo clippy --version
