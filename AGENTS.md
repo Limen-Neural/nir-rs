@@ -87,9 +87,9 @@ Prefer a prebuilt image when the host supports it (Rust 1.97 + `libhdf5-dev`):
 |------|----------|
 | [`.cursor/environment.json`](.cursor/environment.json) → [`.cursor/Dockerfile`](.cursor/Dockerfile) | Cursor cloud agents |
 | [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) | VS Code / Cursor Desktop |
-| [`.github/workflows/copilot-setup-steps.yml`](.github/workflows/copilot-setup-steps.yml) | GitHub Copilot coding agent |
 | [`scripts/agent-bootstrap.sh`](scripts/agent-bootstrap.sh) | cubic / Claude / other bare sandboxes |
 | [`cubic.yaml`](cubic.yaml) | cubic review + fix instructions |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | GitHub Actions quality bar (`fmt` / `test` / `clippy` / `doc`) |
 
 **No Python.** Wire compatibility is verified by reading real `.nir` files
 vendored from upstream under `tests/fixtures/` — do not add Python scripts,

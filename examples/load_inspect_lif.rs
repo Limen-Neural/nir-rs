@@ -2,9 +2,9 @@
 
 //! Load a NIR fixture, inspect every LIF parameter, save it, and verify the copy.
 
+use nir_rs::io::DEFAULT_NIR_VERSION;
 use nir_rs::types::{Tensor, TensorData};
 use nir_rs::{NirNode, io};
-use nir_rs::io::DEFAULT_NIR_VERSION;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
