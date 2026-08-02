@@ -90,6 +90,7 @@ Prefer a prebuilt image when the host supports it (Rust 1.97 + `libhdf5-dev`):
 | [`scripts/agent-bootstrap.sh`](scripts/agent-bootstrap.sh) | cubic / Claude / other bare sandboxes |
 | [`cubic.yaml`](cubic.yaml) | cubic review + fix instructions |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | GitHub Actions quality bar (`fmt` / `test` / `clippy` / `doc`) |
+| [`.github/workflows/opencode.yml`](.github/workflows/opencode.yml) | OpenCode on `/opencode` or `/oc` (`opencode-go/gpt-5.6-luna`; `OPENCODE_API_KEY`) |
 
 **No Python.** Wire compatibility is verified by reading real `.nir` files
 vendored from upstream under `tests/fixtures/` — do not add Python scripts,

@@ -1,0 +1,128 @@
+# OpenCode agent: mention `/opencode` or `/oc` on an issue or PR comment.
+# Install: https://github.com/apps/opencode-agent + secrets (OPENCODE_API_KEY and/or OPENAI_API_KEY).
+name: opencode
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  gate:
+    # Cheap filter so ordinary comments do not allocate a runner.
+    if: |
+      contains(github.event.comment.body, '/oc') ||
+      contains(github.event.comment.body, '/opencode')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+      head_ref: ${{ steps.check.outputs.head_ref }}
+    steps:
+      - name: Check permissions, command, and PR head
+        id: check
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const comment = context.payload.comment.body;
+            const commandPattern = /(?:^|\s)\/(?:oc|opencode)(?:\s|$)/;
+
+            if (!commandPattern.test(comment)) {
+              core.setOutput('allowed', 'false');
+              return;
+            }
+
+            let permission;
+            try {
+              ({ data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor
+              }));
+            } catch (error) {
+              if (error.status === 404) {
+                core.setOutput('allowed', 'false');
+                return;
+              }
+              throw error;
+            }
+
+            const allowed = ['write', 'admin'].includes(permission.permission);
+            core.setOutput('allowed', String(allowed));
+            if (!allowed) return;
+
+            // Resolve PR number + head ref so we do not work on bare default branch.
+            let prNumber = null;
+            if (context.eventName === 'pull_request_review_comment') {
+              prNumber = context.payload.pull_request.number;
+            } else if (context.payload.issue && context.payload.issue.pull_request) {
+              prNumber = context.payload.issue.number;
+            }
+
+            if (prNumber) {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              core.setOutput('pr_number', String(prNumber));
+              core.setOutput('head_ref', pr.head.ref);
+            } else {
+              core.setOutput('pr_number', '');
+              core.setOutput('head_ref', '');
+            }
+
+  opencode:
+    needs: gate
+    if: needs.gate.outputs.allowed == 'true'
+    concurrency:
+      group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # PR comments: work on the PR head branch, not default main.
+          ref: ${{ needs.gate.outputs.head_ref != '' && needs.gate.outputs.head_ref || github.ref }}
+          fetch-depth: 0
+          # Needed so opencode can push commits back to the PR branch.
+          persist-credentials: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git author (opencode-agent[bot])
+        run: |
+          # Matches https://github.com/apps/opencode-agent — spoof identity so
+          # `git commit` works on the runner (previous failure: empty author).
+          # Official bot *badge* still requires the app to author the commit.
+          git config --global user.name "opencode-agent[bot]"
+          git config --global user.email "219766164+opencode-agent[bot]@users.noreply.github.com"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: Install libhdf5
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libhdf5-dev
+
+      - name: Run opencode
+        uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # github-v1.2.19
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # GPT-5.6 Luna via OpenCode Go (OPENCODE_API_KEY only; no OpenAI key).
+          model: opencode-go/gpt-5.6-luna
+          use_github_token: true
