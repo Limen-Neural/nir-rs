@@ -134,10 +134,11 @@ what `nir.read` produces in memory.
 
 ### Load, inspect, and save a LIF graph
 
-The public example loads the vendored LIF fixture, prints its graph structure
-and a preview of every `LIF` parameter tensor (first eight elements, with a
-total count when longer), writes a copy, then reads it back and checks graph
-equality on finite values:
+The public example loads a `.nir` graph (default: vendored LIF fixture), prints
+structure including nested `NIRGraph` nodes, previews every `LIF` parameter
+tensor (first eight elements, with a total count when longer), writes a copy,
+then verifies round-trip equality for finite graphs (skips the assert if any
+LIF float tensor contains NaN):
 
 ```bash
 cargo run --example load_inspect_lif --features hdf5

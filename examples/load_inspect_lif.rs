@@ -4,7 +4,7 @@
 
 use nir_rs::io::DEFAULT_NIR_VERSION;
 use nir_rs::types::{Tensor, TensorData};
-use nir_rs::{NirNode, io};
+use nir_rs::{NirGraph, NirNode, io};
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -22,28 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         graph.edges.len()
     );
 
-    for (name, node) in &graph.nodes {
-        println!("node {name:?}: {}", node.type_name());
-    }
-    for (source, target) in &graph.edges {
-        println!("edge {source:?} -> {target:?}");
-    }
+    print_graph_structure("", &graph);
 
     let mut lif_count = 0;
-    for (name, node) in &graph.nodes {
-        if let NirNode::Lif(lif) = node {
-            lif_count += 1;
-            println!("LIF node {name:?} parameters:");
-            print_tensor("tau", &lif.tau);
-            print_tensor("r", &lif.r);
-            print_tensor("v_leak", &lif.v_leak);
-            print_tensor("v_threshold", &lif.v_threshold);
-            match &lif.v_reset {
-                Some(v_reset) => print_tensor("v_reset", v_reset),
-                None => println!("  v_reset: <absent>"),
-            }
-        }
-    }
+    inspect_lifs("", &graph, &mut lif_count);
 
     if lif_count == 0 {
         println!("no LIF nodes found");
@@ -51,18 +33,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     io::write(&output, &graph)?;
     let reloaded = io::read(&output)?;
-    // `PartialEq` on tensors is IEEE equality: graphs with NaN will not compare
-    // equal to themselves. The vendored LIF fixture is finite-only, which is
-    // the intended path for this demo.
     let mut expected = graph.clone();
     if expected.version.is_none() {
         expected.version = Some(DEFAULT_NIR_VERSION.to_owned());
     }
-    assert_eq!(
-        reloaded, expected,
-        "saved graph did not round-trip exactly (finite values only)"
-    );
-    println!("saved and verified {}", output.display());
+
+    // IEEE PartialEq: NaN != NaN. User models may contain NaNs; skip assert then.
+    if graph_has_nan(&expected) {
+        println!(
+            "saved {} (skipped equality check: graph has NaN; IEEE PartialEq cannot verify)",
+            output.display()
+        );
+    } else {
+        assert_eq!(
+            reloaded, expected,
+            "saved graph did not round-trip exactly (finite values)"
+        );
+        println!("saved and verified {}", output.display());
+    }
 
     Ok(())
 }
@@ -95,6 +83,77 @@ fn invalid_arguments(extra: OsString) -> std::io::Error {
             extra
         ),
     )
+}
+
+fn print_graph_structure(prefix: &str, graph: &NirGraph) {
+    for (name, node) in &graph.nodes {
+        println!("{prefix}node {name:?}: {}", node.type_name());
+        if let NirNode::Graph(sub) = node {
+            print_graph_structure(&format!("{prefix}  "), sub);
+        }
+    }
+    for (source, target) in &graph.edges {
+        println!("{prefix}edge {source:?} -> {target:?}");
+    }
+}
+
+fn inspect_lifs(path: &str, graph: &NirGraph, lif_count: &mut usize) {
+    for (name, node) in &graph.nodes {
+        let label = if path.is_empty() {
+            name.clone()
+        } else {
+            format!("{path}/{name}")
+        };
+        match node {
+            NirNode::Lif(lif) => {
+                *lif_count += 1;
+                println!("LIF node {label:?} parameters:");
+                print_tensor("tau", &lif.tau);
+                print_tensor("r", &lif.r);
+                print_tensor("v_leak", &lif.v_leak);
+                print_tensor("v_threshold", &lif.v_threshold);
+                match &lif.v_reset {
+                    Some(v_reset) => print_tensor("v_reset", v_reset),
+                    None => println!("  v_reset: <absent>"),
+                }
+            }
+            NirNode::Graph(sub) => inspect_lifs(&label, sub, lif_count),
+            _ => {}
+        }
+    }
+}
+
+fn graph_has_nan(graph: &NirGraph) -> bool {
+    for node in graph.nodes.values() {
+        if node_has_nan(node) {
+            return true;
+        }
+    }
+    false
+}
+
+fn node_has_nan(node: &NirNode) -> bool {
+    match node {
+        NirNode::Lif(lif) => {
+            tensor_has_nan(&lif.tau)
+                || tensor_has_nan(&lif.r)
+                || tensor_has_nan(&lif.v_leak)
+                || tensor_has_nan(&lif.v_threshold)
+                || lif.v_reset.as_ref().is_some_and(tensor_has_nan)
+        }
+        NirNode::Graph(sub) => graph_has_nan(sub),
+        // Other node kinds may hold floats; scan all public tensors via type_name is incomplete.
+        // Walk common tensor-bearing variants used in fixtures/user models is enough for this demo.
+        _ => false,
+    }
+}
+
+fn tensor_has_nan(tensor: &Tensor) -> bool {
+    match tensor.data() {
+        TensorData::F32(values) => values.iter().any(|v| v.is_nan()),
+        TensorData::F64(values) => values.iter().any(|v| v.is_nan()),
+        TensorData::I64(_) | TensorData::Bool(_) => false,
+    }
 }
 
 fn print_tensor(name: &str, tensor: &Tensor) {
