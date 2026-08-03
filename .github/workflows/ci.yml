@@ -23,9 +23,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust stable
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
+          # Explicit channel required by this action pin; rust-toolchain.toml
+          # still selects the same channel/components for local agents.
           toolchain: stable
           components: clippy, rustfmt
 

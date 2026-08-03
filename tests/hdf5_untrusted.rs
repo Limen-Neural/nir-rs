@@ -7,6 +7,7 @@
 mod common;
 use common::{assert_err, write_then};
 use nir_rs::NirError;
+use nir_rs::io::ReadOptions;
 use tempfile::TempDir;
 
 //
@@ -20,6 +21,31 @@ use tempfile::TempDir;
 /// Build a well-formed file, then let `mutate` add something hostile to it.
 fn tampered(dir: &TempDir, name: &str, mutate: impl FnOnce(&hdf5::File)) -> std::path::PathBuf {
     write_then(dir, name, mutate)
+}
+
+fn bounded(max_bytes: usize) -> ReadOptions {
+    ReadOptions::default().with_max_bytes(Some(max_bytes))
+}
+
+fn assert_limit<T: std::fmt::Debug>(result: Result<T, NirError>, max_bytes: usize) -> NirError {
+    let err = result.expect_err("bounded read should exceed its allocation budget");
+    match &err {
+        NirError::ReadLimitExceeded {
+            limit,
+            used,
+            requested,
+            ..
+        } => {
+            assert_eq!(*limit, max_bytes);
+            assert!(*requested > 0);
+            assert!(
+                used.checked_add(*requested)
+                    .is_none_or(|total| total > *limit)
+            );
+        }
+        other => panic!("expected ReadLimitExceeded, got {other:?}"),
+    }
+    err
 }
 
 /// A second HDF5 file standing in for the attacker's target.
@@ -206,7 +232,7 @@ fn soft_link_is_rejected() {
 
 #[test]
 fn oversized_dataset_is_rejected() {
-    // Explicit element×decoded-width product above MAX_DATASET_BYTES (800 MB).
+    // Explicit element×decoded-width product above the caller's 800 MB budget.
     // 101M i64 values would decode to ~808 MB; creating the dataspace alone is
     // enough — rejection happens before `read_raw`. Complements the
     // fixed-string / narrow-integer cases that catch under-counting modes.
@@ -216,48 +242,52 @@ fn oversized_dataset_is_rejected() {
         node.unlink("shape").unwrap();
         node.new_dataset::<i64>()
             .shape([101_000_000])
+            .chunk([1024])
             .create("shape")
             .unwrap();
     });
 
-    assert_err(
-        nir_rs::io::read(&path),
-        NirError::InvalidGraph,
-        &["exceeds limit"],
+    let err = assert_limit(
+        nir_rs::io::read_with(&path, &bounded(800_000_000)),
+        800_000_000,
     );
+    assert!(err.to_string().contains("input.shape"));
 }
 
 #[test]
 fn ordinary_files_still_pass_the_guards() {
     // The guards must not reject the real thing.
     for name in ["lif_norse.nir", "cnn_sinabs.nir"] {
-        nir_rs::io::read(format!("tests/fixtures/{name}"))
-            .unwrap_or_else(|e| panic!("{name} should still read: {e}"));
+        let path = format!("tests/fixtures/{name}");
+        nir_rs::io::read(&path).unwrap_or_else(|e| panic!("{name} should still read: {e}"));
+        nir_rs::io::read_with(&path, &bounded(1_000_000_000))
+            .unwrap_or_else(|e| panic!("{name} should fit the generous budget: {e}"));
     }
 }
 
 #[test]
 fn a_wide_fixed_string_dataset_is_rejected_on_bytes_not_element_count() {
-    // 1M elements is far below any plausible element-count cap, but each is
+    // 200K elements is far below any plausible element-count cap, but each is
     // read through the capacity ladder as `FixedAscii<4096>`, so decoding
     // would materialize ~4 GB. A guard that counts elements accepts this; one
     // that charges bytes does not. No data is written, and the rejection
     // happens before `read_raw`, so the test never allocates it.
     let dir = TempDir::new().unwrap();
     let path = tampered(&dir, "wide_strings.nir", |file| {
-        let node = file.group("node/nodes/input").unwrap();
-        node.unlink("shape").unwrap();
-        node.new_dataset::<hdf5::types::FixedAscii<4096>>()
-            .shape([1_000_000])
-            .create("shape")
+        let root = file.group("node").unwrap();
+        root.unlink("edges").unwrap();
+        root.new_dataset::<hdf5::types::FixedAscii<4096>>()
+            .shape([100_000, 2])
+            .chunk([16, 2])
+            .create("edges")
             .unwrap();
     });
 
-    assert_err(
-        nir_rs::io::read(&path),
-        NirError::InvalidGraph,
-        &["exceeds limit", "4096"],
+    let err = assert_limit(
+        nir_rs::io::read_with(&path, &bounded(800_000_000)),
+        800_000_000,
     );
+    assert!(err.to_string().contains("edges"));
 }
 
 #[test]
@@ -272,13 +302,86 @@ fn a_narrow_integer_dataset_is_charged_at_its_decoded_width() {
         node.unlink("shape").unwrap();
         node.new_dataset::<i8>()
             .shape([150_000_000])
+            .chunk([4096])
             .create("shape")
             .unwrap();
     });
 
-    assert_err(
-        nir_rs::io::read(&path),
-        NirError::InvalidGraph,
-        &["exceeds limit"],
+    let err = assert_limit(
+        nir_rs::io::read_with(&path, &bounded(800_000_000)),
+        800_000_000,
     );
+    assert!(err.to_string().contains("input.shape"));
+}
+
+#[test]
+fn cumulative_budget_is_shared_across_datasets() {
+    // Two equal shape payloads under a limit that cannot cover both (plus the
+    // fixed graph overhead). The shared `ReadBudget` must reject the read
+    // rather than allocating both shapes unbounded.
+    //
+    // On HDF5 builds where scalar VLEN sizing falls back to the containing
+    // file size, the first over-budget charge can be an early type/version
+    // string with `used == 0`. That is still a correct rejection; when the
+    // overrun happens later, `used > 0` proves earlier charges applied.
+    const N: usize = 16;
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "cumulative.nir", |file| {
+        for node_name in ["input", "output"] {
+            let node = file.group(&format!("node/nodes/{node_name}")).unwrap();
+            node.unlink("shape").unwrap();
+            let ds = node
+                .new_dataset::<i64>()
+                .shape([N])
+                .create("shape")
+                .unwrap();
+            ds.write_raw(&[1_i64; N]).unwrap();
+        }
+    });
+
+    let known_data_size = 2 * N * std::mem::size_of::<i64>();
+    let limit = known_data_size + known_data_size / 2;
+
+    let err = assert_limit(nir_rs::io::read_with(&path, &bounded(limit)), limit);
+    let NirError::ReadLimitExceeded {
+        used,
+        requested,
+        limit: reported_limit,
+        ..
+    } = err
+    else {
+        unreachable!()
+    };
+    assert_eq!(reported_limit, limit);
+    assert!(requested > 0);
+    // Prefer the stronger cumulative signal when available.
+    if used > 0 {
+        assert!(
+            used.saturating_add(requested) > limit || used.checked_add(requested).is_none(),
+            "cumulative overrun expected: used={used} requested={requested} limit={limit}"
+        );
+    }
+}
+
+#[test]
+fn variable_length_payload_is_charged_before_read() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "large_version.nir", |file| {
+        file.unlink("version").unwrap();
+        let ds = file
+            .new_dataset::<hdf5::types::VarLenUnicode>()
+            .shape(())
+            .create("version")
+            .unwrap();
+        let payload = "v".repeat(16_384);
+        ds.write_scalar(&payload.parse::<hdf5::types::VarLenUnicode>().unwrap())
+            .unwrap();
+    });
+
+    let limit = 4096;
+    let err = assert_limit(nir_rs::io::read_version_with(&path, &bounded(limit)), limit);
+    assert!(err.to_string().contains("version"));
+
+    // The compatibility entry point remains intentionally unbounded.
+    assert_eq!(nir_rs::io::read_version(&path).unwrap(), "v".repeat(16_384));
 }

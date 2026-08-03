@@ -57,7 +57,7 @@ Not published to crates.io yet. Use a git or path dependency:
 
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "Main" }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main" }
 ```
 
 To also get HDF5 `.nir` I/O, enable the `hdf5` feature (see [File I/O](#file-io)
@@ -65,7 +65,7 @@ for the system dependency it brings):
 
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "Main", features = ["hdf5"] }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main", features = ["hdf5"] }
 ```
 
 ```rust
@@ -143,7 +143,7 @@ nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main", feat
 serde_json = "1"
 ```
 
-Consumers can use any Serde format directly, for example
+Consumers can use self-describing Serde formats (JSON, RON, YAML, etc.) directly, for example
 `serde_json::to_string_pretty(&graph)`. Tensor debug data is represented as
 `{ "shape": [...], "data": { "F64": [...] } }`, and deserialization checks
 the tensor shape/data-length invariant.

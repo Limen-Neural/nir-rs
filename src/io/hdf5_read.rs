@@ -15,6 +15,7 @@
 //! [`read_node`] is a flat dispatch table over the wire `type` string; the
 //! per-type functions below it own one node kind each.
 
+use super::ReadOptions;
 use super::wire::{self, KEY_EDGES, KEY_METADATA, KEY_NODE, KEY_NODES, KEY_TYPE, KEY_VERSION};
 use crate::error::{NirError, Result};
 use crate::graph::NirGraph;
@@ -28,6 +29,7 @@ use hdf5::types::{
     FixedAscii, FixedUnicode, FloatSize, IntSize, TypeDescriptor as Td, VarLenAscii, VarLenUnicode,
 };
 use hdf5::{Dataset, File, Group, LocationToken};
+use std::cell::Cell;
 use std::path::Path;
 
 /// Total `NIRGraph` groups decoded from one file, counting the root.
@@ -36,73 +38,94 @@ use std::path::Path;
 /// unbounded chain would overflow the stack, and hard-link aliases could
 /// re-expand a shared subtree exponentially. The writer enforces the same
 /// bound, so nesting alone never makes this crate emit a file it would then
-/// refuse to read. That symmetry is specific to this constant —
-/// [`MAX_DATASET_BYTES`] has no writer-side counterpart.
+/// refuse to read.
 pub(super) const MAX_NESTED_GRAPHS: usize = 1024;
 
-/// Per-dataset ceiling on the allocation a decode is *estimated* to make.
-///
-/// # What this does and does not bound
-///
-/// It is a coarse pre-filter, not a memory bound, and the distinction matters
-/// enough to spell out:
-///
-/// - **Bounded**: numerics and fixed-length strings, charged at the width they
-///   decode to rather than their on-disk width (see [`decoded_element_bytes`]).
-/// - **Not bounded — variable-length strings.** `VarLenAscii` / `VarLenUnicode`
-///   store a descriptor inline and the characters on HDF5's global heap, so
-///   the payload size is unknowable before the read. A single such value can
-///   exceed this ceiling.
-/// - **Not bounded — the total.** The budget resets per dataset, so a file of
-///   many datasets each just under the ceiling still sums without limit, and
-///   every decoded tensor stays resident in the returned graph.
-/// - **Not bounded — copies.** Strings are materialized into the raw buffer and
-///   then again as `String`, so peak usage is roughly double what is charged.
-///
-/// Closing those needs a cumulative budget charged *during* decode and sized by
-/// the caller, which is #21 and a v0.4 public-API change. Until then this stops
-/// the obvious one-dataset blowups and nothing more; do not read it as a
-/// guarantee against hostile input.
-///
-/// # Asymmetry with the write path
-///
-/// [`write`](super::write) applies no equivalent limit, so a graph holding a
-/// single array above this ceiling — roughly 100M `f64` or 200M `f32` — writes
-/// successfully and is then refused on readback. That is a real round-trip
-/// hole, not a deliberate policy: the ceiling is hardcoded here because v0.3
-/// has no way for a caller to say "this file is mine, decode it". Raising it
-/// blindly only moves the cliff, so the fix is the caller-sized budget in #21
-/// rather than a matching hardcoded check in the writer.
-const MAX_DATASET_BYTES: usize = 800_000_000;
+/// Monotonic decoded-allocation ledger shared by one read operation.
+struct ReadBudget {
+    limit: Option<usize>,
+    used: Cell<usize>,
+}
+
+impl ReadBudget {
+    fn new(opts: &ReadOptions) -> Self {
+        Self {
+            limit: opts.max_bytes,
+            used: Cell::new(0),
+        }
+    }
+
+    /// Charge before allocation. Overflow is reported through the same
+    /// structured limit error because no finite `usize` budget can admit it.
+    fn charge(&self, context: &str, requested: Option<usize>) -> Result<()> {
+        let Some(limit) = self.limit else {
+            return Ok(());
+        };
+        let used = self.used.get();
+        let Some(requested) = requested else {
+            return Err(NirError::ReadLimitExceeded {
+                context: context.to_owned(),
+                limit,
+                used,
+                requested: usize::MAX,
+            });
+        };
+        let Some(next) = used.checked_add(requested) else {
+            return Err(NirError::ReadLimitExceeded {
+                context: context.to_owned(),
+                limit,
+                used,
+                requested,
+            });
+        };
+        if next > limit {
+            return Err(NirError::ReadLimitExceeded {
+                context: context.to_owned(),
+                limit,
+                used,
+                requested,
+            });
+        }
+        self.used.set(next);
+        Ok(())
+    }
+
+    /// Dry-run check for a charge that must fit before an expensive operation.
+    fn would_fit(&self, context: &str, requested: Option<usize>) -> Result<()> {
+        let Some(limit) = self.limit else {
+            return Ok(());
+        };
+        let used = self.used.get();
+        let Some(requested) = requested else {
+            return Err(NirError::ReadLimitExceeded {
+                context: context.to_owned(),
+                limit,
+                used,
+                requested: usize::MAX,
+            });
+        };
+        let Some(next) = used.checked_add(requested) else {
+            return Err(NirError::ReadLimitExceeded {
+                context: context.to_owned(),
+                limit,
+                used,
+                requested,
+            });
+        };
+        if next > limit {
+            return Err(NirError::ReadLimitExceeded {
+                context: context.to_owned(),
+                limit,
+                used,
+                requested,
+            });
+        }
+        Ok(())
+    }
+}
 
 /// Requested capacities for fixed-length strings, smallest first.
 const FIXED_STRING_CAPS: [usize; 3] = [64, 256, 4096];
-
-/// Bytes one element of `descriptor` occupies **after** decoding.
-///
-/// The destination width, not the source width — the reader widens as it goes,
-/// so charging the on-disk descriptor undercounts. An `i8` dataset decodes into
-/// `TensorData::I64`, eight times its stored size, and a 64-byte fixed string
-/// is requested as the next ladder rung up.
-fn decoded_element_bytes(descriptor: &Td) -> usize {
-    match descriptor {
-        // `read_tensor` reads every integer width into `i64`, and `u64` goes
-        // through the same checked conversion.
-        Td::Integer(_) | Td::Unsigned(_) => size_of::<i64>(),
-        // Floats keep their width: `f32` never widens to `f64`.
-        Td::Float(FloatSize::U4) => size_of::<f32>(),
-        Td::Float(FloatSize::U8) => size_of::<f64>(),
-        Td::Boolean => size_of::<bool>(),
-        Td::FixedAscii(w) | Td::FixedUnicode(w) => FIXED_STRING_CAPS
-            .iter()
-            .copied()
-            .find(|cap| w <= cap)
-            .unwrap_or(*w),
-        // Variable-length payloads live on the global heap; the descriptor
-        // width is all that is knowable here. See `MAX_DATASET_BYTES`.
-        other => other.size(),
-    }
-}
 
 // The ladder is spelled out again in the `read_fixed!` calls inside
 // `read_strings_unchecked`, because the macro needs literals. Pin them here so
@@ -113,7 +136,8 @@ const _: () = assert!(
 );
 
 /// Read a whole `.nir` file.
-pub(super) fn read(path: &Path) -> Result<NirGraph> {
+pub(super) fn read(path: &Path, opts: &ReadOptions) -> Result<NirGraph> {
+    let budget = ReadBudget::new(opts);
     let file = open(path)?;
     // Check the file root before following `/node` or `/version`: opening an
     // external link is what leaves the container, so the check has to happen
@@ -140,6 +164,7 @@ pub(super) fn read(path: &Path) -> Result<NirGraph> {
             .dataset(KEY_TYPE)
             .map_err(|_| NirError::MissingField(format!("/{KEY_NODE}/{KEY_TYPE}")))?,
         KEY_NODE,
+        &budget,
     )?;
     if root_type != "NIRGraph" {
         return Err(NirError::InvalidGraph(format!(
@@ -147,10 +172,10 @@ pub(super) fn read(path: &Path) -> Result<NirGraph> {
         )));
     }
 
-    let mut graph = read_graph_body(&root, &format!("/{KEY_NODE}"), &mut Vec::new())?;
-    graph.metadata = read_metadata(&root)?;
+    let mut graph = read_graph_body(&root, &format!("/{KEY_NODE}"), &mut Vec::new(), &budget)?;
+    graph.metadata = read_metadata(&root, &budget)?;
     graph.version = match version_dataset(&file)? {
-        Some(ds) => Some(read_string_scalar(&ds, KEY_VERSION)?),
+        Some(ds) => Some(read_string_scalar(&ds, KEY_VERSION, &budget)?),
         None => None,
     };
     Ok(graph)
@@ -175,12 +200,13 @@ fn version_dataset(file: &File) -> Result<Option<Dataset>> {
 }
 
 /// Read only `/version`.
-pub(super) fn read_version(path: &Path) -> Result<String> {
+pub(super) fn read_version(path: &Path, opts: &ReadOptions) -> Result<String> {
+    let budget = ReadBudget::new(opts);
     let file = open(path)?;
     validate_group_links(&file, "/")?;
     let ds =
         version_dataset(&file)?.ok_or_else(|| NirError::MissingField(format!("/{KEY_VERSION}")))?;
-    read_string_scalar(&ds, KEY_VERSION)
+    read_string_scalar(&ds, KEY_VERSION, &budget)
 }
 
 fn open(path: &Path) -> Result<File> {
@@ -205,6 +231,7 @@ fn read_graph_body(
     group: &Group,
     context: &str,
     visited: &mut Vec<LocationToken>,
+    budget: &ReadBudget,
 ) -> Result<NirGraph> {
     // A deep but *acyclic* chain gives every level a unique token, so the
     // repeat check below cannot stop it; unbounded recursion would abort the
@@ -226,13 +253,14 @@ fn read_graph_body(
     // exponentially many graphs and exhaust memory. Every graph object is
     // therefore decoded at most once per file.
     visited.push(token);
-    read_graph_body_inner(group, context, visited)
+    read_graph_body_inner(group, context, visited, budget)
 }
 
 fn read_graph_body_inner(
     group: &Group,
     context: &str,
     visited: &mut Vec<LocationToken>,
+    budget: &ReadBudget,
 ) -> Result<NirGraph> {
     let mut graph = NirGraph::new();
 
@@ -252,19 +280,19 @@ fn read_graph_body_inner(
             .group(&name)
             .map_err(|e| NirError::Io(format!("node {name:?} is not a group: {e}")))?;
         validate_group_links(&node_group, &name)?;
-        let node = read_node(&node_group, &name, visited)?;
+        let node = read_node(&node_group, &name, visited, budget)?;
         graph.insert_node(name, node)?;
     }
 
     let edges = group
         .dataset(KEY_EDGES)
         .map_err(|_| NirError::MissingField(format!("{context}/{KEY_EDGES}")))?;
-    graph.edges = read_edges(&edges)?;
+    graph.edges = read_edges(&edges, budget)?;
 
     Ok(graph)
 }
 
-fn read_edges(ds: &Dataset) -> Result<Vec<(String, String)>> {
+fn read_edges(ds: &Dataset, budget: &ReadBudget) -> Result<Vec<(String, String)>> {
     validate_dataset_security(ds, KEY_EDGES)?;
     // h5py encodes an empty edge list as a zero-length dataset whose element
     // type is float, not string; treat any empty dataset as "no edges".
@@ -278,24 +306,40 @@ fn read_edges(ds: &Dataset) -> Result<Vec<(String, String)>> {
         )));
     }
     // Already validated above; skip the second property-list walk.
-    let flat = read_strings_unchecked(ds, KEY_EDGES)?;
-    Ok(flat
-        .chunks_exact(2)
-        .map(|pair| (pair[0].clone(), pair[1].clone()))
-        .collect())
+    let flat = read_strings_unchecked(ds, KEY_EDGES, budget)?;
+    // `collect` into `Vec<(String, String)>` allocates a second header buffer
+    // while `flat` is still live; charge it before building the pairs so a
+    // hostile high-cardinality short-string edges dataset cannot slip under
+    // the budget at the boundary.
+    let edge_count = shape[0];
+    budget.charge(
+        KEY_EDGES,
+        edge_count.checked_mul(std::mem::size_of::<(String, String)>()),
+    )?;
+    let mut strings = flat.into_iter();
+    Ok(std::iter::from_fn(|| Some((strings.next()?, strings.next()?))).collect())
 }
 
 // ---------------------------------------------------------------------------
 // Node dispatch
 // ---------------------------------------------------------------------------
 
-fn read_node(group: &Group, name: &str, visited: &mut Vec<LocationToken>) -> Result<NirNode> {
+fn read_node(
+    group: &Group,
+    name: &str,
+    visited: &mut Vec<LocationToken>,
+    budget: &ReadBudget,
+) -> Result<NirNode> {
     let type_ds = group
         .dataset(KEY_TYPE)
         .map_err(|_| NirError::MissingField(format!("{name}.{KEY_TYPE}")))?;
-    let ty = read_string_scalar(&type_ds, name)?;
-    let metadata = read_metadata(group)?;
-    let r = NodeReader { group, name };
+    let ty = read_string_scalar(&type_ds, name, budget)?;
+    let metadata = read_metadata(group, budget)?;
+    let r = NodeReader {
+        group,
+        name,
+        budget,
+    };
 
     let node = match ty.as_str() {
         "Input" => NirNode::Input(read_input(&r, metadata)?),
@@ -317,7 +361,7 @@ fn read_node(group: &Group, name: &str, visited: &mut Vec<LocationToken>) -> Res
         "AvgPool2d" => NirNode::AvgPool2d(read_avg_pool2d(&r, metadata)?),
         "Threshold" => NirNode::Threshold(read_threshold(&r, metadata)?),
         "NIRGraph" => {
-            let mut sub = read_graph_body(group, name, visited)?;
+            let mut sub = read_graph_body(group, name, visited, budget)?;
             sub.metadata = metadata;
             NirNode::Graph(Box::new(sub))
         }
@@ -665,6 +709,7 @@ fn read_threshold(r: &NodeReader, metadata: MetadataMap) -> Result<Threshold> {
 struct NodeReader<'a> {
     group: &'a Group,
     name: &'a str,
+    budget: &'a ReadBudget,
 }
 
 impl NodeReader<'_> {
@@ -696,23 +741,23 @@ impl NodeReader<'_> {
     }
 
     fn tensor(&self, field: &str) -> Result<Tensor> {
-        read_tensor(&self.required(field)?, &self.context(field))
+        read_tensor(&self.required(field)?, &self.context(field), self.budget)
     }
 
     fn opt_tensor(&self, field: &str) -> Result<Option<Tensor>> {
         match self.optional(field)? {
-            Some(ds) => read_tensor(&ds, &self.context(field)).map(Some),
+            Some(ds) => read_tensor(&ds, &self.context(field), self.budget).map(Some),
             None => Ok(None),
         }
     }
 
     fn ints(&self, field: &str) -> Result<Vec<i64>> {
-        read_ints(&self.required(field)?, &self.context(field))
+        read_ints(&self.required(field)?, &self.context(field), self.budget)
     }
 
     fn opt_ints(&self, field: &str) -> Result<Option<Vec<i64>>> {
         match self.optional(field)? {
-            Some(ds) => read_ints(&ds, &self.context(field)).map(Some),
+            Some(ds) => read_ints(&ds, &self.context(field), self.budget).map(Some),
             None => Ok(None),
         }
     }
@@ -729,12 +774,12 @@ impl NodeReader<'_> {
     }
 
     fn usizes(&self, field: &str) -> Result<Vec<usize>> {
-        to_usizes(self.ints(field)?, &self.context(field))
+        to_usizes(self.ints(field)?, &self.context(field), self.budget)
     }
 
     fn opt_usizes(&self, field: &str) -> Result<Option<Vec<usize>>> {
         match self.opt_ints(field)? {
-            Some(values) => to_usizes(values, &self.context(field)).map(Some),
+            Some(values) => to_usizes(values, &self.context(field), self.budget).map(Some),
             None => Ok(None),
         }
     }
@@ -758,30 +803,54 @@ impl NodeReader<'_> {
     fn padding(&self) -> Result<Padding> {
         let ds = self.required("padding")?;
         if is_string(&ds)? {
-            wire::padding_from_wire_str(&read_string_scalar(&ds, self.name)?)
+            wire::padding_from_wire_str(&read_string_scalar(&ds, self.name, self.budget)?)
         } else {
-            Ok(Padding::Explicit(read_ints(&ds, &self.context("padding"))?))
+            Ok(Padding::Explicit(read_ints(
+                &ds,
+                &self.context("padding"),
+                self.budget,
+            )?))
         }
     }
 
     /// `v_reset`, defaulting to `zeros_like(v_threshold)` as Python does.
     fn v_reset(&self, v_threshold: &Tensor) -> Result<Option<Tensor>> {
-        Ok(Some(
-            self.opt_tensor("v_reset")?
-                .unwrap_or_else(|| v_threshold.zeros_like()),
-        ))
+        match self.opt_tensor("v_reset")? {
+            Some(tensor) => Ok(Some(tensor)),
+            None => {
+                self.budget.charge(
+                    &self.context("v_reset (synthesized)"),
+                    v_threshold
+                        .data()
+                        .len()
+                        .checked_mul(v_threshold.dtype().size_of()),
+                )?;
+                Ok(Some(v_threshold.zeros_like()))
+            }
+        }
     }
 
     /// `w_in`, defaulting to `ones_like(v_leak)` as Python does.
     fn w_in(&self, v_leak: &Tensor) -> Result<Option<Tensor>> {
-        Ok(Some(
-            self.opt_tensor("w_in")?
-                .unwrap_or_else(|| v_leak.ones_like()),
-        ))
+        match self.opt_tensor("w_in")? {
+            Some(tensor) => Ok(Some(tensor)),
+            None => {
+                self.budget.charge(
+                    &self.context("w_in (synthesized)"),
+                    v_leak.data().len().checked_mul(v_leak.dtype().size_of()),
+                )?;
+                Ok(Some(v_leak.ones_like()))
+            }
+        }
     }
 }
 
-fn to_usizes(values: Vec<i64>, context: &str) -> Result<Vec<usize>> {
+fn to_usizes(values: Vec<i64>, context: &str, budget: &ReadBudget) -> Result<Vec<usize>> {
+    // `values` is still alive while `collect` allocates the `Vec<usize>`, so
+    // charge the destination buffer before conversion to keep the budget
+    // accurate. The `u64` -> `i64` path in `read_tensor` already charges both
+    // buffers; this mirrors that for `usize` extents.
+    budget.charge(context, values.len().checked_mul(size_of::<usize>()))?;
     values
         .into_iter()
         .map(|v| {
@@ -864,19 +933,6 @@ fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
         )));
     }
 
-    // Charge the allocation this dataset would actually make. `saturating_mul`
-    // rather than a checked product: an overflowing size is far past the limit
-    // either way, and saturating keeps the rejection on the normal path.
-    let elem_bytes = decoded_element_bytes(&ds.dtype()?.to_descriptor()?);
-    let bytes = ds.size().saturating_mul(elem_bytes);
-    if bytes > MAX_DATASET_BYTES {
-        return Err(NirError::InvalidGraph(format!(
-            "{context}: dataset would decode to {bytes} bytes \
-             ({} elements x {elem_bytes}), exceeds limit of {MAX_DATASET_BYTES}",
-            ds.size()
-        )));
-    }
-
     Ok(())
 }
 
@@ -884,7 +940,7 @@ fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
 // Metadata
 // ---------------------------------------------------------------------------
 
-fn read_metadata(group: &Group) -> Result<MetadataMap> {
+fn read_metadata(group: &Group, budget: &ReadBudget) -> Result<MetadataMap> {
     // Absent is fine (empty map). A present link of the wrong kind — e.g. a
     // dataset named `metadata` — is an error, not silent data loss.
     if !group.link_exists(KEY_METADATA) {
@@ -903,7 +959,7 @@ fn read_metadata(group: &Group) -> Result<MetadataMap> {
                 "metadata {key:?} must be a dataset, not a group: {e}"
             ))
         })?;
-        let value = read_metadata_value(&ds, &key)?;
+        let value = read_metadata_value(&ds, &key, budget)?;
         out.insert(key, value);
     }
     Ok(out)
@@ -933,13 +989,18 @@ fn read_metadata(group: &Group) -> Result<MetadataMap> {
 /// one would drop the nesting and write it back as rank-1, a silent reshape.
 /// Refusing loses nothing, since such a file did not load before `StringList`
 /// existed either — it just failed with a message about the wrong problem.
-fn read_string_metadata(ds: &Dataset, key: &str, context: &str) -> Result<MetadataValue> {
+fn read_string_metadata(
+    ds: &Dataset,
+    key: &str,
+    context: &str,
+    budget: &ReadBudget,
+) -> Result<MetadataValue> {
     match ds.shape().as_slice() {
         [] => Ok(MetadataValue::String(read_string_scalar_validated(
-            ds, key,
+            ds, key, budget,
         )?)),
         [_] => Ok(MetadataValue::StringList(read_strings_unchecked(
-            ds, context,
+            ds, context, budget,
         )?)),
         shape => Err(NirError::InvalidTensor(format!(
             "{context}: string metadata must be scalar or rank-1, found shape {shape:?}"
@@ -947,29 +1008,40 @@ fn read_string_metadata(ds: &Dataset, key: &str, context: &str) -> Result<Metada
     }
 }
 
-fn read_metadata_value(ds: &Dataset, key: &str) -> Result<MetadataValue> {
+fn read_metadata_value(ds: &Dataset, key: &str, budget: &ReadBudget) -> Result<MetadataValue> {
     validate_dataset_security(ds, &format!("{KEY_METADATA}.{key}"))?;
     let scalar = ds.shape().is_empty();
     let context = format!("{KEY_METADATA}.{key}");
     let value = match ds.dtype()?.to_descriptor()? {
         Td::VarLenUnicode | Td::VarLenAscii | Td::FixedAscii(_) | Td::FixedUnicode(_) => {
-            read_string_metadata(ds, key, &context)?
+            read_string_metadata(ds, key, &context, budget)?
         }
-        Td::Boolean if scalar => MetadataValue::Bool(ds.read_scalar::<bool>()?),
-        Td::Float(_) if scalar => MetadataValue::F64(ds.read_scalar::<f64>()?),
-        Td::Integer(_) if scalar => MetadataValue::I64(ds.read_scalar::<i64>()?),
+        Td::Boolean if scalar => {
+            budget.charge(&context, Some(size_of::<bool>()))?;
+            MetadataValue::Bool(ds.read_scalar::<bool>()?)
+        }
+        Td::Float(_) if scalar => {
+            budget.charge(&context, Some(size_of::<f64>()))?;
+            MetadataValue::F64(ds.read_scalar::<f64>()?)
+        }
+        Td::Integer(_) if scalar => {
+            budget.charge(&context, Some(size_of::<i64>()))?;
+            MetadataValue::I64(ds.read_scalar::<i64>()?)
+        }
         Td::Unsigned(IntSize::U8) if scalar => {
             // Same checked conversion as tensor `u64` payloads — HDF5's own
             // i64 cast can saturate above i64::MAX.
+            budget.charge(&context, Some(size_of::<i64>()))?;
             let v = ds.read_scalar::<u64>()?;
             MetadataValue::I64(i64::try_from(v).map_err(|_| {
                 NirError::InvalidTensor(format!("{context}: u64 value {v} does not fit in i64"))
             })?)
         }
         Td::Unsigned(IntSize::U1 | IntSize::U2 | IntSize::U4) if scalar => {
+            budget.charge(&context, Some(size_of::<i64>()))?;
             MetadataValue::I64(ds.read_scalar::<i64>()?)
         }
-        _ => MetadataValue::Tensor(read_tensor(ds, &context)?),
+        _ => MetadataValue::Tensor(read_tensor(ds, &context, budget)?),
     };
     Ok(value)
 }
@@ -983,17 +1055,34 @@ fn read_metadata_value(ds: &Dataset, key: &str) -> Result<MetadataValue> {
 /// Narrower integers widen into [`DType::I64`](crate::DType::I64); floats keep
 /// their width so an `f32` file never silently becomes `f64` (or worse, the
 /// reverse). Anything else is rejected rather than guessed at.
-fn read_tensor(ds: &Dataset, context: &str) -> Result<Tensor> {
+fn read_tensor(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<Tensor> {
     validate_dataset_security(ds, context)?;
     let descriptor = ds.dtype()?.to_descriptor()?;
     let data = match descriptor {
-        Td::Float(FloatSize::U4) => TensorData::F32(ds.read_raw::<f32>()?),
-        Td::Float(FloatSize::U8) => TensorData::F64(ds.read_raw::<f64>()?),
+        Td::Float(FloatSize::U4) => {
+            charge_elements(budget, ds, context, size_of::<f32>())?;
+            TensorData::F32(ds.read_raw::<f32>()?)
+        }
+        Td::Float(FloatSize::U8) => {
+            charge_elements(budget, ds, context, size_of::<f64>())?;
+            TensorData::F64(ds.read_raw::<f64>()?)
+        }
         Td::Integer(_) | Td::Unsigned(IntSize::U1 | IntSize::U2 | IntSize::U4) => {
+            charge_elements(budget, ds, context, size_of::<i64>())?;
             TensorData::I64(ds.read_raw::<i64>()?)
         }
-        Td::Unsigned(IntSize::U8) => TensorData::I64(read_u64_as_i64(ds, context)?),
-        Td::Boolean => TensorData::Bool(ds.read_raw::<bool>()?),
+        Td::Unsigned(IntSize::U8) => {
+            let two_buffers = size_of::<u64>().checked_add(size_of::<i64>());
+            budget.charge(
+                context,
+                two_buffers.and_then(|width| ds.size().checked_mul(width)),
+            )?;
+            TensorData::I64(read_u64_as_i64(ds, context)?)
+        }
+        Td::Boolean => {
+            charge_elements(budget, ds, context, size_of::<bool>())?;
+            TensorData::Bool(ds.read_raw::<bool>()?)
+        }
         other => {
             return Err(NirError::InvalidTensor(format!(
                 "{context}: element type {other} has no NIR dtype"
@@ -1001,6 +1090,15 @@ fn read_tensor(ds: &Dataset, context: &str) -> Result<Tensor> {
         }
     };
     Tensor::new(ds.shape(), data)
+}
+
+fn charge_elements(
+    budget: &ReadBudget,
+    ds: &Dataset,
+    context: &str,
+    decoded_width: usize,
+) -> Result<()> {
+    budget.charge(context, ds.size().checked_mul(decoded_width))
 }
 
 /// `u64` is the one integer width that does not fit losslessly in `i64`.
@@ -1015,11 +1113,11 @@ fn read_u64_as_i64(ds: &Dataset, context: &str) -> Result<Vec<i64>> {
         .collect()
 }
 
-fn read_ints(ds: &Dataset, context: &str) -> Result<Vec<i64>> {
+fn read_ints(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<Vec<i64>> {
     // `into_data` rather than cloning out of `data()`: the decoded buffer is
     // handed over instead of duplicated, so peak use on this path is one copy
     // rather than two.
-    match read_tensor(ds, context)?.into_data() {
+    match read_tensor(ds, context, budget)?.into_data() {
         TensorData::I64(values) => Ok(values),
         other => Err(NirError::InvalidTensor(format!(
             "{context}: expected integer data, found {:?}",
@@ -1035,21 +1133,25 @@ fn is_string(ds: &Dataset) -> Result<bool> {
     ))
 }
 
-fn read_string_scalar(ds: &Dataset, context: &str) -> Result<String> {
+fn read_string_scalar(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<String> {
     validate_dataset_security(ds, context)?;
-    read_string_scalar_validated(ds, context)
+    read_string_scalar_validated(ds, context, budget)
 }
 
 /// Cardinality check + decode for a string dataset that has already passed
 /// [`validate_dataset_security`].
-fn read_string_scalar_validated(ds: &Dataset, context: &str) -> Result<String> {
+fn read_string_scalar_validated(
+    ds: &Dataset,
+    context: &str,
+    budget: &ReadBudget,
+) -> Result<String> {
     let size = ds.size();
     if size != 1 {
         return Err(NirError::Io(format!(
             "{context}: expected a single string, found {size} elements"
         )));
     }
-    let mut values = read_strings_unchecked(ds, context)?;
+    let mut values = read_strings_unchecked(ds, context, budget)?;
     match values.len() {
         1 => Ok(values.remove(0)),
         n => Err(NirError::Io(format!(
@@ -1065,7 +1167,9 @@ fn read_string_scalar_validated(ds: &Dataset, context: &str) -> Result<String> {
 /// entry points that still need a validating wrapper are
 /// [`read_string_scalar`] and the edges path, both of which call
 /// `validate_dataset_security` themselves first.
-fn read_strings_unchecked(ds: &Dataset, context: &str) -> Result<Vec<String>> {
+fn read_strings_unchecked(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<Vec<String>> {
+    charge_strings(ds, context, budget)?;
+
     macro_rules! read_fixed {
         ($ty:ident, $width:expr, $($cap:literal),+) => {
             $(if $width <= $cap {
@@ -1104,6 +1208,88 @@ fn read_strings_unchecked(ds: &Dataset, context: &str) -> Result<Vec<String>> {
             "{context}: expected a string dataset, found {other}"
         ))),
     }
+}
+
+/// Charge every allocation performed while decoding a string dataset.
+fn charge_strings(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<()> {
+    if budget.limit.is_none() {
+        return Ok(());
+    }
+
+    let count = ds.size();
+    let headers = count.checked_mul(size_of::<String>());
+    let requested = match ds.dtype()?.to_descriptor()? {
+        Td::VarLenUnicode => {
+            let descriptors = count.checked_mul(size_of::<VarLenUnicode>());
+            // Reject enormous declared counts before asking HDF5 to size the
+            // heap, since the VLEN sizing call itself must traverse the data.
+            let min = checked_sum([descriptors, headers]);
+            budget.would_fit(context, min)?;
+            let payload = vlen_payload_bytes(ds, context)?;
+            checked_sum([descriptors, Some(payload), headers, Some(payload)])
+        }
+        Td::VarLenAscii => {
+            let descriptors = count.checked_mul(size_of::<VarLenAscii>());
+            let min = checked_sum([descriptors, headers]);
+            budget.would_fit(context, min)?;
+            let payload = vlen_payload_bytes(ds, context)?;
+            checked_sum([descriptors, Some(payload), headers, Some(payload)])
+        }
+        Td::FixedAscii(width) | Td::FixedUnicode(width) => {
+            let Some(capacity) = FIXED_STRING_CAPS.iter().copied().find(|cap| width <= *cap) else {
+                return Ok(());
+            };
+            checked_sum([
+                count.checked_mul(capacity),
+                headers,
+                count.checked_mul(width),
+            ])
+        }
+        _ => return Ok(()),
+    };
+    budget.charge(context, requested)
+}
+
+fn checked_sum<const N: usize>(parts: [Option<usize>; N]) -> Option<usize> {
+    parts
+        .into_iter()
+        .try_fold(0usize, |sum, part| sum.checked_add(part?))
+}
+
+/// Ask HDF5 how many heap bytes a VLEN dataset will allocate during `H5Dread`.
+#[allow(deprecated)]
+fn vlen_payload_bytes(ds: &Dataset, context: &str) -> Result<usize> {
+    // `H5Dvlen_get_buf_size` aborts on scalar VLEN across multiple HDF5
+    // releases, including the 1.10 series in CI. The containing file size is
+    // a safe upper bound for a single in-container scalar heap payload;
+    // external storage and VDS have already been rejected.
+    if ds.shape().is_empty() {
+        return usize::try_from(ds.file()?.size()).map_err(|_| {
+            NirError::Io(format!(
+                "{context}: containing file size does not fit usize"
+            ))
+        });
+    }
+
+    let dtype = ds.dtype()?;
+    let space = ds.space()?;
+    let mut bytes: hdf5_sys::h5::hsize_t = 0;
+    let status = hdf5::sync::sync(|| {
+        // SAFETY: `ds`, `dtype`, and `space` keep live borrowed HDF5 IDs for
+        // this call; `&mut bytes` is a valid output pointer, no ownership is
+        // transferred, and the hdf5-metno global lock is held by `sync`.
+        unsafe { hdf5_sys::h5d::H5Dvlen_get_buf_size(ds.id(), dtype.id(), space.id(), &mut bytes) }
+    });
+    hdf5::h5check(status).map_err(|e| {
+        NirError::Io(format!(
+            "{context}: cannot determine variable-length string allocation: {e}"
+        ))
+    })?;
+    usize::try_from(bytes).map_err(|_| {
+        NirError::Io(format!(
+            "{context}: variable-length string allocation does not fit usize"
+        ))
+    })
 }
 
 fn too_wide(context: &str, width: usize) -> NirError {

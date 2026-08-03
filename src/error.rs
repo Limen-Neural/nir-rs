@@ -52,6 +52,21 @@ pub enum NirError {
     #[error("invalid tensor: {0}")]
     InvalidTensor(String),
 
+    /// A bounded read would exceed its decoded-allocation budget.
+    #[error(
+        "read allocation limit exceeded at {context}: limit {limit} bytes, used {used} bytes, requested {requested} bytes"
+    )]
+    ReadLimitExceeded {
+        /// Dataset or synthesized field being charged.
+        context: String,
+        /// Configured decoded-allocation limit in bytes.
+        limit: usize,
+        /// Bytes already charged by earlier allocations.
+        used: usize,
+        /// Bytes requested by the allocation that was rejected.
+        requested: usize,
+    },
+
     /// Filesystem or HDF5 library failure while reading or writing a `.nir` file.
     ///
     /// The underlying `hdf5::Error` is rendered into the message rather than
@@ -129,6 +144,20 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "invalid tensor: shape product 4 != data len 3"
+        );
+    }
+
+    #[test]
+    fn read_limit_display() {
+        let err = NirError::ReadLimitExceeded {
+            context: "lif.tau".into(),
+            limit: 1024,
+            used: 768,
+            requested: 512,
+        };
+        assert_eq!(
+            err.to_string(),
+            "read allocation limit exceeded at lif.tau: limit 1024 bytes, used 768 bytes, requested 512 bytes"
         );
     }
 

@@ -19,7 +19,7 @@ default = []
 # HDF5 `.nir` read/write. Opt-in because it links the native libhdf5 library:
 # `apt install libhdf5-dev` (Ubuntu) or `brew install hdf5` (macOS). For a
 # hermetic build, see the static-linking note in README.md.
-hdf5 = ["dep:hdf5"]
+hdf5 = ["dep:hdf5", "dep:hdf5-sys", "dep:tempfile", "dep:libc"]
 # Debug/export traits only. JSON helpers intentionally remain consumer-side.
 serde = ["dep:serde", "indexmap/serde"]
 
@@ -30,6 +30,11 @@ thiserror = "2"
 # (last released 2021) must not be used.
 hdf5 = { package = "hdf5-metno", version = "0.14", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
+hdf5-sys = { package = "hdf5-metno-sys", version = "0.12", optional = true }
+tempfile = { version = "3", optional = true }
+# Used only by the HDF5 writer (Unix staging ownership checks). Optional so
+# graph-only consumers do not pull it under the default feature set.
+libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 serde_json = "1"
