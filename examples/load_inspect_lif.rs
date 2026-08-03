@@ -34,8 +34,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Try a validating write first. If the graph contains values the wire
     // format cannot preserve exactly (dangling edges, nested graph versions,
     // rank-0 metadata tensors, etc.), `io::write` rejects it even though
-    // `io::read` loaded it. Fall back to preservation mode for those files
-    // and skip exact round-trip verification.
+    // `io::read` loaded it. Fall back to preservation mode for those files,
+    // verifying round-trip equality whenever the file can be preserved exactly.
+    let mut expected = graph.clone();
+    if expected.version.is_none() {
+        expected.version = Some(DEFAULT_NIR_VERSION.to_owned());
+    }
+    let has_nan = graph_has_nan(&expected);
+    let has_lossy = graph_has_lossy_values(&graph);
+
     if let Err(e) = io::write(&output, &graph) {
         if is_representability_or_structure_error(&e) {
             io::write_with(
@@ -43,33 +50,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &graph,
                 &io::WriteOptions::default().with_validation(false),
             )?;
-            println!(
-                "saved {} (validation skipped: {e}; round-trip verification not possible)",
-                output.display()
-            );
+            if has_nan || has_lossy {
+                println!(
+                    "saved {} (validation skipped: {e}; round-trip verification not possible)",
+                    output.display()
+                );
+            } else {
+                let reloaded = io::read(&output)?;
+                assert_eq!(
+                    reloaded, expected,
+                    "saved graph did not round-trip exactly (finite values)"
+                );
+                println!("saved and verified {}", output.display());
+            }
         } else {
             return Err(e.into());
         }
+    } else if has_nan {
+        println!(
+            "saved {} (skipped equality check: graph has NaN; IEEE PartialEq cannot verify)",
+            output.display()
+        );
+    } else if has_lossy {
+        println!(
+            "saved {} (skipped equality check: graph contains values the NIR wire cannot preserve exactly)",
+            output.display()
+        );
     } else {
         let reloaded = io::read(&output)?;
-        let mut expected = graph.clone();
-        if expected.version.is_none() {
-            expected.version = Some(DEFAULT_NIR_VERSION.to_owned());
-        }
-
-        // IEEE PartialEq: NaN != NaN. User models may contain NaNs; skip assert then.
-        if graph_has_nan(&expected) {
-            println!(
-                "saved {} (skipped equality check: graph has NaN; IEEE PartialEq cannot verify)",
-                output.display()
-            );
-        } else {
-            assert_eq!(
-                reloaded, expected,
-                "saved graph did not round-trip exactly (finite values)"
-            );
-            println!("saved and verified {}", output.display());
-        }
+        assert_eq!(
+            reloaded, expected,
+            "saved graph did not round-trip exactly (finite values)"
+        );
+        println!("saved and verified {}", output.display());
     }
 
     Ok(())
@@ -249,6 +262,54 @@ fn is_representability_or_structure_error(e: &NirError) -> bool {
         e,
         NirError::InvalidGraph(_) | NirError::MissingNode(_) | NirError::DuplicateEdge(..)
     )
+}
+
+fn graph_has_lossy_values(graph: &NirGraph) -> bool {
+    if metadata_has_lossy_values(&graph.metadata) {
+        return true;
+    }
+    for node in graph.nodes.values() {
+        if node_has_lossy_values(node) {
+            return true;
+        }
+    }
+    false
+}
+
+fn node_has_lossy_values(node: &NirNode) -> bool {
+    let node_lossy = |metadata: &MetadataMap| metadata_has_lossy_values(metadata);
+    match node {
+        NirNode::Input(n) => node_lossy(&n.metadata),
+        NirNode::Output(n) => node_lossy(&n.metadata),
+        NirNode::Affine(n) => node_lossy(&n.metadata),
+        NirNode::Linear(n) => node_lossy(&n.metadata),
+        NirNode::Scale(n) => node_lossy(&n.metadata),
+        NirNode::Conv1d(n) => node_lossy(&n.metadata),
+        NirNode::Conv2d(n) => node_lossy(&n.metadata),
+        NirNode::CubaLi(n) => node_lossy(&n.metadata),
+        NirNode::CubaLif(n) => node_lossy(&n.metadata),
+        NirNode::Delay(n) => node_lossy(&n.metadata),
+        NirNode::Flatten(n) => node_lossy(&n.metadata),
+        NirNode::I(n) => node_lossy(&n.metadata),
+        NirNode::If(n) => node_lossy(&n.metadata),
+        NirNode::Li(n) => node_lossy(&n.metadata),
+        NirNode::Lif(n) => node_lossy(&n.metadata),
+        NirNode::SumPool2d(n) => node_lossy(&n.metadata),
+        NirNode::AvgPool2d(n) => node_lossy(&n.metadata),
+        NirNode::Threshold(n) => node_lossy(&n.metadata),
+        NirNode::Graph(n) => n.version.is_some() || graph_has_lossy_values(n),
+    }
+}
+
+fn metadata_has_lossy_values(metadata: &MetadataMap) -> bool {
+    for value in metadata.values() {
+        if let MetadataValue::Tensor(t) = value
+            && t.shape().is_empty()
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn tensor_has_nan(tensor: &Tensor) -> bool {
