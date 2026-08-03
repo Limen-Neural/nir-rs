@@ -163,6 +163,7 @@ jobs:
           cargo doc --no-deps --all-features
 
       - name: Run opencode
+        id: opencode
         uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # github-v1.2.19
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
@@ -171,3 +172,12 @@ jobs:
           # GPT-5.6 Luna via OpenCode Go (OPENCODE_API_KEY only).
           model: opencode-go/gpt-5.6-luna
           use_github_token: true
+
+      - name: Run quality bar after opencode
+        if: steps.opencode.outcome == 'success' || steps.opencode.outcome == 'failure'
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test
+          cargo test --all-features
+          cargo doc --no-deps --all-features

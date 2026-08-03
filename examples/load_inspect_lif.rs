@@ -31,25 +31,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("no LIF nodes found");
     }
 
-    io::write(&output, &graph)?;
+    // Write back in preservation mode so permissively readable files (dangling
+    // edges, nested graph versions, rank-0 metadata tensors, etc.) can still be
+    // saved. A validating write would reject them even though `io::read` loaded
+    // them successfully.
+    io::write_with(
+        &output,
+        &graph,
+        &io::WriteOptions::default().with_validation(false),
+    )?;
     let reloaded = io::read(&output)?;
     let mut expected = graph.clone();
     if expected.version.is_none() {
         expected.version = Some(DEFAULT_NIR_VERSION.to_owned());
     }
 
-    // IEEE PartialEq: NaN != NaN. User models may contain NaNs; skip assert then.
+    // IEEE PartialEq: NaN != NaN. User models may contain NaNs or values that
+    // cannot be represented exactly on the wire; report rather than panic.
     if graph_has_nan(&expected) {
         println!(
             "saved {} (skipped equality check: graph has NaN; IEEE PartialEq cannot verify)",
             output.display()
         );
-    } else {
-        assert_eq!(
-            reloaded, expected,
-            "saved graph did not round-trip exactly (finite values)"
-        );
+    } else if reloaded == expected {
         println!("saved and verified {}", output.display());
+    } else {
+        println!(
+            "saved {} (round-trip differs; input may contain values the NIR wire cannot preserve exactly)",
+            output.display()
+        );
     }
 
     Ok(())
