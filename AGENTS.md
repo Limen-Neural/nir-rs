@@ -112,7 +112,7 @@ See [REVIEW.md](REVIEW.md) for the local quality bar.
 - Branch prefixes: `feat/`, `fix/`, `chore/`, `docs/`
 - Prefer one issue (or one milestone slice) per PR
 - Link PR to GitHub issue and Linear ID when known
-- Default branch on GitHub is `main` (lowercase)
+- Default branch on GitHub is **`Main`** (capital M)
 
 ## References
 
