@@ -3,7 +3,7 @@
 //! Load a NIR fixture, inspect every LIF parameter, save it, and verify the copy.
 
 use nir_rs::io::DEFAULT_NIR_VERSION;
-use nir_rs::types::{Tensor, TensorData};
+use nir_rs::types::{MetadataMap, MetadataValue, Tensor, TensorData};
 use nir_rs::{NirGraph, NirNode, io};
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -124,6 +124,9 @@ fn inspect_lifs(path: &str, graph: &NirGraph, lif_count: &mut usize) {
 }
 
 fn graph_has_nan(graph: &NirGraph) -> bool {
+    if metadata_has_nan(&graph.metadata) {
+        return true;
+    }
     for node in graph.nodes.values() {
         if node_has_nan(node) {
             return true;
@@ -134,18 +137,91 @@ fn graph_has_nan(graph: &NirGraph) -> bool {
 
 fn node_has_nan(node: &NirNode) -> bool {
     match node {
-        NirNode::Lif(lif) => {
-            tensor_has_nan(&lif.tau)
-                || tensor_has_nan(&lif.r)
-                || tensor_has_nan(&lif.v_leak)
-                || tensor_has_nan(&lif.v_threshold)
-                || lif.v_reset.as_ref().is_some_and(tensor_has_nan)
+        NirNode::Input(n) => metadata_has_nan(&n.metadata),
+        NirNode::Output(n) => metadata_has_nan(&n.metadata),
+        NirNode::Affine(n) => {
+            metadata_has_nan(&n.metadata) || tensor_has_nan(&n.weight) || tensor_has_nan(&n.bias)
         }
-        NirNode::Graph(sub) => graph_has_nan(sub),
-        // Other node kinds may hold floats; scan all public tensors via type_name is incomplete.
-        // Walk common tensor-bearing variants used in fixtures/user models is enough for this demo.
-        _ => false,
+        NirNode::Linear(n) => metadata_has_nan(&n.metadata) || tensor_has_nan(&n.weight),
+        NirNode::Scale(n) => metadata_has_nan(&n.metadata) || tensor_has_nan(&n.scale),
+        NirNode::Conv1d(n) => {
+            metadata_has_nan(&n.metadata) || tensor_has_nan(&n.weight) || tensor_has_nan(&n.bias)
+        }
+        NirNode::Conv2d(n) => {
+            metadata_has_nan(&n.metadata) || tensor_has_nan(&n.weight) || tensor_has_nan(&n.bias)
+        }
+        NirNode::CubaLi(n) => {
+            metadata_has_nan(&n.metadata)
+                || tensor_has_nan(&n.tau_syn)
+                || tensor_has_nan(&n.tau_mem)
+                || tensor_has_nan(&n.r)
+                || tensor_has_nan(&n.v_leak)
+                || n.w_in.as_ref().is_some_and(tensor_has_nan)
+        }
+        NirNode::CubaLif(n) => {
+            metadata_has_nan(&n.metadata)
+                || tensor_has_nan(&n.tau_syn)
+                || tensor_has_nan(&n.tau_mem)
+                || tensor_has_nan(&n.r)
+                || tensor_has_nan(&n.v_leak)
+                || tensor_has_nan(&n.v_threshold)
+                || n.v_reset.as_ref().is_some_and(tensor_has_nan)
+                || n.w_in.as_ref().is_some_and(tensor_has_nan)
+        }
+        NirNode::Delay(n) => metadata_has_nan(&n.metadata) || tensor_has_nan(&n.delay),
+        NirNode::Flatten(n) => metadata_has_nan(&n.metadata),
+        NirNode::I(n) => metadata_has_nan(&n.metadata) || tensor_has_nan(&n.r),
+        NirNode::If(n) => {
+            metadata_has_nan(&n.metadata)
+                || tensor_has_nan(&n.r)
+                || tensor_has_nan(&n.v_threshold)
+                || n.v_reset.as_ref().is_some_and(tensor_has_nan)
+        }
+        NirNode::Li(n) => {
+            metadata_has_nan(&n.metadata)
+                || tensor_has_nan(&n.tau)
+                || tensor_has_nan(&n.r)
+                || tensor_has_nan(&n.v_leak)
+        }
+        NirNode::Lif(n) => {
+            metadata_has_nan(&n.metadata)
+                || tensor_has_nan(&n.tau)
+                || tensor_has_nan(&n.r)
+                || tensor_has_nan(&n.v_leak)
+                || tensor_has_nan(&n.v_threshold)
+                || n.v_reset.as_ref().is_some_and(tensor_has_nan)
+        }
+        NirNode::SumPool2d(n) => {
+            metadata_has_nan(&n.metadata)
+                || tensor_has_nan(&n.kernel_size)
+                || tensor_has_nan(&n.stride)
+                || tensor_has_nan(&n.padding)
+        }
+        NirNode::AvgPool2d(n) => {
+            metadata_has_nan(&n.metadata)
+                || tensor_has_nan(&n.kernel_size)
+                || tensor_has_nan(&n.stride)
+                || tensor_has_nan(&n.padding)
+        }
+        NirNode::Threshold(n) => metadata_has_nan(&n.metadata) || tensor_has_nan(&n.threshold),
+        NirNode::Graph(n) => graph_has_nan(n),
     }
+}
+
+fn metadata_has_nan(metadata: &MetadataMap) -> bool {
+    for value in metadata.values() {
+        if let MetadataValue::F64(v) = value
+            && v.is_nan()
+        {
+            return true;
+        }
+        if let MetadataValue::Tensor(t) = value
+            && tensor_has_nan(t)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn tensor_has_nan(tensor: &Tensor) -> bool {

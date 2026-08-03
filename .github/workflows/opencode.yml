@@ -90,7 +90,14 @@ jobs:
 
             const baseFull = `${context.repo.owner}/${context.repo.repo}`;
             // Fork PRs: head.ref lives on the fork; checkout of base would be wrong/dangerous.
-            if (!pr.head.repo || pr.head.repo.full_name !== baseFull) {
+            // Same-repo PRs must not use the repository's default branch as the head
+            // (e.g. main targeting a release branch), or an agent could push directly
+            // to the protected default branch.
+            if (
+              !pr.head.repo ||
+              pr.head.repo.full_name !== baseFull ||
+              pr.head.ref === pr.head.repo.default_branch
+            ) {
               core.setOutput('allowed', 'false');
               core.setOutput('pr_number', '');
               core.setOutput('head_ref', '');
@@ -109,7 +116,10 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
+      # OpenCode needs contents:write to commit and push agent-generated changes,
+      # plus pull-requests:write and issues:write to post comments/status updates.
+      # id-token:write is omitted because `use_github_token: true` uses GITHUB_TOKEN
+      # (or the optional OPENCODE_GH_PAT) rather than OIDC.
       contents: write
       pull-requests: write
       issues: write
@@ -143,6 +153,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends pkg-config libhdf5-dev
+
+      - name: Run quality bar
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test
+          cargo test --all-features
+          cargo doc --no-deps --all-features
 
       - name: Run opencode
         uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # github-v1.2.19
