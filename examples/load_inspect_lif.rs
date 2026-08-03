@@ -3,6 +3,7 @@
 //! Load a NIR fixture, inspect every LIF parameter, save it, and verify the copy.
 
 use nir_rs::io::DEFAULT_NIR_VERSION;
+use nir_rs::nodes::Padding;
 use nir_rs::types::{MetadataMap, MetadataValue, Tensor, TensorData};
 use nir_rs::{NirError, NirGraph, NirNode, io};
 use std::ffi::OsString;
@@ -285,7 +286,7 @@ fn node_has_lossy_values(node: &NirNode) -> bool {
         NirNode::Linear(n) => node_lossy(&n.metadata),
         NirNode::Scale(n) => node_lossy(&n.metadata),
         NirNode::Conv1d(n) => node_lossy(&n.metadata),
-        NirNode::Conv2d(n) => node_lossy(&n.metadata),
+        NirNode::Conv2d(n) => conv2d_has_lossy_extents(n) || node_lossy(&n.metadata),
         NirNode::CubaLi(n) => node_lossy(&n.metadata),
         NirNode::CubaLif(n) => node_lossy(&n.metadata),
         NirNode::Delay(n) => node_lossy(&n.metadata),
@@ -310,6 +311,12 @@ fn metadata_has_lossy_values(metadata: &MetadataMap) -> bool {
         }
     }
     false
+}
+
+fn conv2d_has_lossy_extents(conv: &nir_rs::nodes::Conv2d) -> bool {
+    conv.stride.len() == 1
+        || conv.dilation.len() == 1
+        || matches!(&conv.padding, Padding::Explicit(extents) if extents.len() == 1)
 }
 
 fn tensor_has_nan(tensor: &Tensor) -> bool {
