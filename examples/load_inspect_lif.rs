@@ -4,7 +4,7 @@
 
 use nir_rs::io::DEFAULT_NIR_VERSION;
 use nir_rs::types::{MetadataMap, MetadataValue, Tensor, TensorData};
-use nir_rs::{NirGraph, NirNode, io};
+use nir_rs::{NirError, NirGraph, NirNode, io};
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -31,35 +31,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("no LIF nodes found");
     }
 
-    // Write back in preservation mode so permissively readable files (dangling
-    // edges, nested graph versions, rank-0 metadata tensors, etc.) can still be
-    // saved. A validating write would reject them even though `io::read` loaded
-    // them successfully.
-    io::write_with(
-        &output,
-        &graph,
-        &io::WriteOptions::default().with_validation(false),
-    )?;
-    let reloaded = io::read(&output)?;
-    let mut expected = graph.clone();
-    if expected.version.is_none() {
-        expected.version = Some(DEFAULT_NIR_VERSION.to_owned());
-    }
-
-    // IEEE PartialEq: NaN != NaN. User models may contain NaNs or values that
-    // cannot be represented exactly on the wire; report rather than panic.
-    if graph_has_nan(&expected) {
-        println!(
-            "saved {} (skipped equality check: graph has NaN; IEEE PartialEq cannot verify)",
-            output.display()
-        );
-    } else if reloaded == expected {
-        println!("saved and verified {}", output.display());
+    // Try a validating write first. If the graph contains values the wire
+    // format cannot preserve exactly (dangling edges, nested graph versions,
+    // rank-0 metadata tensors, etc.), `io::write` rejects it even though
+    // `io::read` loaded it. Fall back to preservation mode for those files
+    // and skip exact round-trip verification.
+    if let Err(e) = io::write(&output, &graph) {
+        if is_representability_or_structure_error(&e) {
+            io::write_with(
+                &output,
+                &graph,
+                &io::WriteOptions::default().with_validation(false),
+            )?;
+            println!(
+                "saved {} (validation skipped: {e}; round-trip verification not possible)",
+                output.display()
+            );
+        } else {
+            return Err(e.into());
+        }
     } else {
-        println!(
-            "saved {} (round-trip differs; input may contain values the NIR wire cannot preserve exactly)",
-            output.display()
-        );
+        let reloaded = io::read(&output)?;
+        let mut expected = graph.clone();
+        if expected.version.is_none() {
+            expected.version = Some(DEFAULT_NIR_VERSION.to_owned());
+        }
+
+        // IEEE PartialEq: NaN != NaN. User models may contain NaNs; skip assert then.
+        if graph_has_nan(&expected) {
+            println!(
+                "saved {} (skipped equality check: graph has NaN; IEEE PartialEq cannot verify)",
+                output.display()
+            );
+        } else {
+            assert_eq!(
+                reloaded, expected,
+                "saved graph did not round-trip exactly (finite values)"
+            );
+            println!("saved and verified {}", output.display());
+        }
     }
 
     Ok(())
@@ -232,6 +242,13 @@ fn metadata_has_nan(metadata: &MetadataMap) -> bool {
         }
     }
     false
+}
+
+fn is_representability_or_structure_error(e: &NirError) -> bool {
+    matches!(
+        e,
+        NirError::InvalidGraph(_) | NirError::MissingNode(_) | NirError::DuplicateEdge(..)
+    )
 }
 
 fn tensor_has_nan(tensor: &Tensor) -> bool {
