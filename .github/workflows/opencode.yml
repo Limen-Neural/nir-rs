@@ -174,7 +174,7 @@ jobs:
           use_github_token: true
 
       - name: Run quality bar after opencode
-        if: steps.opencode.outcome == 'success' || steps.opencode.outcome == 'failure'
+        if: always() && (steps.opencode.outcome == 'success' || steps.opencode.outcome == 'failure')
         run: |
           cargo fmt --check
           cargo clippy --all-targets --all-features -- -D warnings
