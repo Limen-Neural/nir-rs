@@ -261,7 +261,11 @@ fn metadata_has_nan(metadata: &MetadataMap) -> bool {
 fn is_representability_or_structure_error(e: &NirError) -> bool {
     matches!(
         e,
-        NirError::InvalidGraph(_) | NirError::MissingNode(_) | NirError::DuplicateEdge(..)
+        NirError::InvalidGraph(_)
+            | NirError::MissingNode(_)
+            | NirError::DuplicateEdge(..)
+            | NirError::UnsupportedVersion(_)
+            | NirError::MissingField(_)
     )
 }
 
@@ -314,9 +318,12 @@ fn metadata_has_lossy_values(metadata: &MetadataMap) -> bool {
 }
 
 fn conv2d_has_lossy_extents(conv: &nir_rs::nodes::Conv2d) -> bool {
-    conv.stride.len() == 1
-        || conv.dilation.len() == 1
-        || matches!(&conv.padding, Padding::Explicit(extents) if extents.len() == 1)
+    // Conv2d stride/dilation/padding are pairs on the wire. A single value is
+    // the scalar form the writer expands to a pair; zero or more than two values
+    // are not representable, so exact round-trip equality cannot be guaranteed.
+    !matches!(conv.stride.as_slice(), [_, _])
+        || !matches!(conv.dilation.as_slice(), [_, _])
+        || matches!(&conv.padding, Padding::Explicit(extents) if !matches!(extents.as_slice(), [_, _]))
 }
 
 fn tensor_has_nan(tensor: &Tensor) -> bool {

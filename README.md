@@ -138,7 +138,7 @@ The public example loads a `.nir` graph (default: vendored LIF fixture), prints
 structure including nested `NIRGraph` nodes, previews every `LIF` parameter
 tensor (first eight elements, with a total count when longer), writes a copy,
 then verifies round-trip equality for finite graphs (skips the assert if any
-LIF float tensor contains NaN):
+float tensor contains NaN):
 
 ```bash
 cargo run --example load_inspect_lif --features hdf5

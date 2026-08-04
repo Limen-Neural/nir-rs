@@ -155,12 +155,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends pkg-config libhdf5-dev
 
       - name: Run quality bar
-        run: |
-          cargo fmt --check
-          cargo clippy --all-targets --all-features -- -D warnings
-          cargo test
-          cargo test --all-features
-          cargo doc --no-deps --all-features
+        run: bash scripts/quality-bar.sh
 
       - name: Run opencode
         id: opencode
@@ -175,9 +170,4 @@ jobs:
 
       - name: Run quality bar after opencode
         if: always() && (steps.opencode.outcome == 'success' || steps.opencode.outcome == 'failure')
-        run: |
-          cargo fmt --check
-          cargo clippy --all-targets --all-features -- -D warnings
-          cargo test
-          cargo test --all-features
-          cargo doc --no-deps --all-features
+        run: bash scripts/quality-bar.sh
