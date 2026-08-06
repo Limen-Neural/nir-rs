@@ -1,3 +1,7 @@
+# OpenCode agent: mention `/opencode` or `/oc` on a **PR** comment (issue-only
+# comments are rejected so the agent cannot push to default `main`).
+# Install: https://github.com/apps/opencode-agent + secret OPENCODE_API_KEY.
+# Optional: OPENCODE_GH_PAT so agent pushes re-trigger CI (GITHUB_TOKEN does not).
 name: opencode
 
 on:
@@ -8,21 +12,21 @@ on:
 
 jobs:
   gate:
-    # Cheap superset filter so an ordinary comment does not allocate a runner.
-    # The script below is the authoritative check; this only has to avoid
-    # false negatives, so it matches the command substring without boundaries.
+    # Cheap filter so ordinary comments do not allocate a runner.
     if: |
       contains(github.event.comment.body, '/oc') ||
       contains(github.event.comment.body, '/opencode')
     runs-on: ubuntu-latest
-    # Only needs to read the collaborator permission level; the privileged
-    # scopes belong to the `opencode` job alone.
     permissions:
       contents: read
+      # Required for pulls.get (unspecified perms are none when permissions: is set).
+      pull-requests: read
     outputs:
       allowed: ${{ steps.check.outputs.allowed }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+      head_ref: ${{ steps.check.outputs.head_ref }}
     steps:
-      - name: Check permissions and command
+      - name: Check permissions, command, and PR head
         id: check
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
@@ -43,11 +47,6 @@ jobs:
                 username: context.actor
               }));
             } catch (error) {
-              // A non-collaborator is a 404, not a failure: denying them is the
-              // gate working. Letting it throw would fail the job on every
-              // outsider comment, turning a routine denial into a red check.
-              // Anything else is a real API problem and must not be swallowed
-              // into a silent deny.
               if (error.status === 404) {
                 core.setOutput('allowed', 'false');
                 return;
@@ -55,28 +54,94 @@ jobs:
               throw error;
             }
 
-            // `getCollaboratorPermissionLevel` returns only admin/write/read/none —
-            // 'maintain' collapses to 'write' and is never emitted.
-            const allowed = ['write', 'admin'].includes(permission.permission);
-            core.setOutput('allowed', String(allowed));
+            if (!['write', 'admin'].includes(permission.permission)) {
+              core.setOutput('allowed', 'false');
+              return;
+            }
+
+            // PR only: never allow bare issue comments to write on default branch.
+            let prNumber = null;
+            if (context.eventName === 'pull_request_review_comment') {
+              prNumber = context.payload.pull_request.number;
+            } else if (context.payload.issue && context.payload.issue.pull_request) {
+              prNumber = context.payload.issue.number;
+            }
+
+            if (!prNumber) {
+              core.setOutput('allowed', 'false');
+              core.setOutput('pr_number', '');
+              core.setOutput('head_ref', '');
+              return;
+            }
+
+            let pr;
+            try {
+              ({ data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              }));
+            } catch (error) {
+              core.setOutput('allowed', 'false');
+              core.setOutput('pr_number', '');
+              core.setOutput('head_ref', '');
+              return;
+            }
+
+            const baseFull = `${context.repo.owner}/${context.repo.repo}`;
+            // Fork PRs: head.ref lives on the fork; checkout of base would be wrong/dangerous.
+            // Same-repo PRs must not use the repository's default branch as the head
+            // (e.g. main targeting a release branch), or an agent could push directly
+            // to the protected default branch.
+            if (
+              !pr.head.repo ||
+              pr.head.repo.full_name !== baseFull ||
+              pr.head.ref === pr.head.repo.default_branch
+            ) {
+              core.setOutput('allowed', 'false');
+              core.setOutput('pr_number', '');
+              core.setOutput('head_ref', '');
+              return;
+            }
+
+            core.setOutput('allowed', 'true');
+            core.setOutput('pr_number', String(prNumber));
+            core.setOutput('head_ref', pr.head.ref);
 
   opencode:
     needs: gate
     if: needs.gate.outputs.allowed == 'true'
     concurrency:
-      group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}
+      group: opencode-${{ needs.gate.outputs.pr_number }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
+      # OpenCode needs contents:write to commit and push agent-generated changes,
+      # plus pull-requests:write and issues:write to post comments/status updates.
+      # id-token:write is omitted because `use_github_token: true` uses GITHUB_TOKEN
+      # (or the optional OPENCODE_GH_PAT) rather than OIDC.
       contents: write
       pull-requests: write
       issues: write
     steps:
-      - name: Checkout repository
+      - name: Checkout PR head
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          persist-credentials: false
+          ref: ${{ needs.gate.outputs.head_ref }}
+          fetch-depth: 0
+          # GITHUB_TOKEN pushes do not re-trigger workflows; optional PAT does.
+          # Prefer OPENCODE_GH_PAT (classic/fine-grained with contents+workflows)
+          # when you want CI on agent commits; otherwise rely on repo CI after
+          # human push or re-run.
+          persist-credentials: true
+          token: ${{ secrets.OPENCODE_GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Configure git author (opencode-agent[bot])
+        run: |
+          # Author identity for commits made on the runner (empty ident was a prior failure).
+          # Official bot *badge* still requires the OpenCode GitHub App to author the commit.
+          git config --global user.name "opencode-agent[bot]"
+          git config --global user.email "219766164+opencode-agent[bot]@users.noreply.github.com"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
@@ -89,11 +154,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends pkg-config libhdf5-dev
 
+      - name: Run quality bar
+        run: bash scripts/quality-bar.sh
+
       - name: Run opencode
-        uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # github-v1.2.19 (tag: latest)
+        id: opencode
+        uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # github-v1.2.19
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.OPENCODE_GH_PAT || secrets.GITHUB_TOKEN }}
         with:
-          model: opencode-go/kimi-k3
+          # GPT-5.6 Luna via OpenCode Go (OPENCODE_API_KEY only).
+          model: opencode-go/gpt-5.6-luna
           use_github_token: true
+
+      - name: Run quality bar after opencode
+        if: always() && (steps.opencode.outcome == 'success' || steps.opencode.outcome == 'failure')
+        run: bash scripts/quality-bar.sh

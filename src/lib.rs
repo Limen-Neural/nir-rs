@@ -9,10 +9,11 @@
 //!
 //! # Status
 //!
-//! **v0.3 — HDF5 I/O**: [`io::read`] / [`io::write`] handle the `.nir` wire
-//! format, on top of the v0.2 core — the closed [`NirNode`] enum (wire-accurate
-//! type strings), [`NirGraph`] with ordered nodes/edges, [`Tensor`] / metadata
-//! types, and structured [`NirError`].
+//! **v0.4 — developer experience**: a public load-inspect-save example makes
+//! the HDF5 workflow executable end to end, on top of the v0.3 I/O and v0.2
+//! graph model — the closed [`NirNode`] enum (wire-accurate type strings),
+//! [`NirGraph`] with ordered nodes/edges, [`Tensor`] / metadata types, and
+//! structured [`NirError`].
 //!
 //! I/O lives behind the opt-in **`hdf5`** feature because it links the native
 //! libhdf5 library; the graph model itself has no system dependencies. See the
@@ -27,7 +28,13 @@
 //! guaranteed to round-trip.
 //!
 //! ```toml
-//! nir-rs = { version = "0.3", features = ["hdf5"] }
+//! nir-rs = { version = "0.4", features = ["hdf5"] }
+//! ```
+//!
+//! Run the complete fixture workflow from a checkout with:
+//!
+//! ```text
+//! cargo run --example load_inspect_lif --features hdf5
 //! ```
 //!
 //! # Example
