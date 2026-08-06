@@ -19,6 +19,13 @@
 //! [`io`] module for the feature gate, the file layout, and the version-string
 //! policy.
 //!
+//! The independent opt-in **`serde`** feature implements Serde traits for the
+//! graph model. Formats such as JSON are useful for debugging and tests only:
+//! they are not a stable NIR schema or an interchange format. Use HDF5 `.nir`
+//! through [`io::read`] / [`io::write`] for interoperability. JSON also cannot
+//! represent non-finite floats faithfully, so NaN and infinities are not
+//! guaranteed to round-trip.
+//!
 //! ```toml
 //! nir-rs = { version = "0.3", features = ["hdf5"] }
 //! ```

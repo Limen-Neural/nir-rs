@@ -57,7 +57,7 @@ Not published to crates.io yet. Use a git or path dependency:
 
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "Main" }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main" }
 ```
 
 To also get HDF5 `.nir` I/O, enable the `hdf5` feature (see [File I/O](#file-io)
@@ -65,7 +65,7 @@ for the system dependency it brings):
 
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "Main", features = ["hdf5"] }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main", features = ["hdf5"] }
 ```
 
 ```rust
@@ -130,6 +130,29 @@ such as group ordering and chunk layout may differ from h5py. In-memory dtypes
 types are widened to `i64` on read. Absent optional fields (`v_reset`, `w_in`)
 are filled with the same defaults Python uses, so a graph read here matches
 what `nir.read` produces in memory.
+
+## Debug serialization
+
+The opt-in `serde` feature implements `Serialize` and `Deserialize` for the
+graph, all wire node variants, metadata, and tensors. It is independent of the
+`hdf5` feature:
+
+```toml
+[dependencies]
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main", features = ["serde"] }
+serde_json = "1"
+```
+
+Consumers can use self-describing Serde formats (JSON, RON, YAML, etc.) directly, for example
+`serde_json::to_string_pretty(&graph)`. Tensor debug data is represented as
+`{ "shape": [...], "data": { "F64": [...] } }`, and deserialization checks
+the tensor shape/data-length invariant.
+
+**JSON is debug/test output, not a NIR interchange standard or a stable schema.**
+Use HDF5 `.nir` through `io::read` / `io::write` for Python NIR and hardware
+tool interoperability. JSON cannot represent NaN or infinities faithfully, so
+graphs containing non-finite floats are not guaranteed to round-trip through
+JSON; tests and debug round-trips should use finite values.
 
 ### Develop
 
