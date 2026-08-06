@@ -152,6 +152,28 @@ cargo run --example load_inspect_lif --features hdf5 -- model.nir copy.nir
 
 When omitted, the input is `tests/fixtures/lif_norse.nir` and the output is a
 PID-qualified file in the system temporary directory.
+## Debug serialization
+
+The opt-in `serde` feature implements `Serialize` and `Deserialize` for the
+graph, all wire node variants, metadata, and tensors. It is independent of the
+`hdf5` feature:
+
+```toml
+[dependencies]
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main", features = ["serde"] }
+serde_json = "1"
+```
+
+Consumers can use self-describing Serde formats (JSON, RON, YAML, etc.) directly, for example
+`serde_json::to_string_pretty(&graph)`. Tensor debug data is represented as
+`{ "shape": [...], "data": { "F64": [...] } }`, and deserialization checks
+the tensor shape/data-length invariant.
+
+**JSON is debug/test output, not a NIR interchange standard or a stable schema.**
+Use HDF5 `.nir` through `io::read` / `io::write` for Python NIR and hardware
+tool interoperability. JSON cannot represent NaN or infinities faithfully, so
+graphs containing non-finite floats are not guaranteed to round-trip through
+JSON; tests and debug round-trips should use finite values.
 
 ### Develop
 

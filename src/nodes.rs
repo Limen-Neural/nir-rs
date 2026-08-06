@@ -17,6 +17,7 @@ use crate::types::{MetadataMap, Tensor};
 ///
 /// Upstream NIR accepts integer extents or the string modes `"same"` / `"valid"`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum Padding {
     /// Explicit per-axis padding extents (length 1 for 1d, 2 for 2d, …).
@@ -46,45 +47,68 @@ impl Padding {
 /// Exhaustive matching is intentional for silicon-bridge and other consumers.
 /// This enum is **not** `#[non_exhaustive]` so downstream mappers can cover all
 /// wire types without a wildcard arm (new wire types are a major API change).
+/// With the `serde` feature, the representation is internally tagged by
+/// `"type"`; every tag is explicitly renamed to [`Self::type_name`].
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(tag = "type"))]
 pub enum NirNode {
     /// Graph input port (`type = "Input"`).
+    #[cfg_attr(feature = "serde", serde(rename = "Input"))]
     Input(Input),
     /// Graph output port (`type = "Output"`).
+    #[cfg_attr(feature = "serde", serde(rename = "Output"))]
     Output(Output),
     /// Affine transform `y = W x + b` (`type = "Affine"`).
+    #[cfg_attr(feature = "serde", serde(rename = "Affine"))]
     Affine(Affine),
     /// Linear transform without bias (`type = "Linear"`).
+    #[cfg_attr(feature = "serde", serde(rename = "Linear"))]
     Linear(Linear),
     /// Elementwise scale (`type = "Scale"`).
+    #[cfg_attr(feature = "serde", serde(rename = "Scale"))]
     Scale(Scale),
     /// 1-D convolution (`type = "Conv1d"`).
+    #[cfg_attr(feature = "serde", serde(rename = "Conv1d"))]
     Conv1d(Conv1d),
     /// 2-D convolution (`type = "Conv2d"`).
+    #[cfg_attr(feature = "serde", serde(rename = "Conv2d"))]
     Conv2d(Conv2d),
     /// Current-based leaky integrator (`type = "CubaLI"`).
+    #[cfg_attr(feature = "serde", serde(rename = "CubaLI"))]
     CubaLi(CubaLi),
     /// Current-based LIF (`type = "CubaLIF"`).
+    #[cfg_attr(feature = "serde", serde(rename = "CubaLIF"))]
     CubaLif(CubaLif),
     /// Pure delay (`type = "Delay"`).
+    #[cfg_attr(feature = "serde", serde(rename = "Delay"))]
     Delay(Delay),
     /// Flatten (`type = "Flatten"`).
+    #[cfg_attr(feature = "serde", serde(rename = "Flatten"))]
     Flatten(Flatten),
     /// Integrator (`type = "I"`).
+    #[cfg_attr(feature = "serde", serde(rename = "I"))]
     I(I),
     /// Integrate-and-fire (`type = "IF"`).
+    #[cfg_attr(feature = "serde", serde(rename = "IF"))]
     If(If),
     /// Leaky integrator (`type = "LI"`).
+    #[cfg_attr(feature = "serde", serde(rename = "LI"))]
     Li(Li),
     /// Leaky integrate-and-fire (`type = "LIF"`).
+    #[cfg_attr(feature = "serde", serde(rename = "LIF"))]
     Lif(Lif),
     /// Sum pooling 2-D (`type = "SumPool2d"`).
+    #[cfg_attr(feature = "serde", serde(rename = "SumPool2d"))]
     SumPool2d(SumPool2d),
     /// Average pooling 2-D (`type = "AvgPool2d"`).
+    #[cfg_attr(feature = "serde", serde(rename = "AvgPool2d"))]
     AvgPool2d(AvgPool2d),
     /// Heaviside threshold (`type = "Threshold"`).
+    #[cfg_attr(feature = "serde", serde(rename = "Threshold"))]
     Threshold(Threshold),
     /// Nested subgraph (`type = "NIRGraph"`).
+    #[cfg_attr(feature = "serde", serde(rename = "NIRGraph"))]
     Graph(Box<NirGraph>),
 }
 
@@ -120,6 +144,7 @@ impl NirNode {
 ///
 /// Wire field: `shape` (array of axis lengths).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Input {
     /// Shape of the input tensor.
     pub shape: Vec<usize>,
@@ -131,6 +156,7 @@ pub struct Input {
 ///
 /// Wire field: `shape` (array of axis lengths).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Output {
     /// Shape of the output tensor.
     pub shape: Vec<usize>,
@@ -140,6 +166,7 @@ pub struct Output {
 
 /// Affine map `y = W x + b`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Affine {
     /// Weight matrix / tensor.
     pub weight: Tensor,
@@ -151,6 +178,7 @@ pub struct Affine {
 
 /// Linear map without bias `y = W x`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Linear {
     /// Weight matrix / tensor.
     pub weight: Tensor,
@@ -160,6 +188,7 @@ pub struct Linear {
 
 /// Elementwise scale `y = x ⊙ s`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Scale {
     /// Per-element scale factors.
     pub scale: Tensor,
@@ -169,6 +198,7 @@ pub struct Scale {
 
 /// 1-D convolution.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Conv1d {
     /// Kernel weights, typically `(C_out, C_in, K)`.
     pub weight: Tensor,
@@ -190,6 +220,7 @@ pub struct Conv1d {
 
 /// 2-D convolution.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Conv2d {
     /// Kernel weights, typically `(C_out, C_in, Kh, Kw)`.
     pub weight: Tensor,
@@ -211,6 +242,7 @@ pub struct Conv2d {
 
 /// Current-based leaky integrator (`CubaLI`).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CubaLi {
     /// Synaptic time constant.
     pub tau_syn: Tensor,
@@ -232,6 +264,7 @@ pub struct CubaLi {
 
 /// Current-based leaky integrate-and-fire (`CubaLIF`).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CubaLif {
     /// Synaptic time constant.
     pub tau_syn: Tensor,
@@ -257,6 +290,7 @@ pub struct CubaLif {
 
 /// Pure delay `y(t) = x(t − τ)`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Delay {
     /// Delay amount(s).
     pub delay: Tensor,
@@ -266,6 +300,7 @@ pub struct Delay {
 
 /// Flatten a contiguous range of dimensions.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Flatten {
     /// First dimension to flatten (Python default: 1).
     pub start_dim: i64,
@@ -279,6 +314,7 @@ pub struct Flatten {
 
 /// Integrator neuron (`I`): `dv/dt = R I`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct I {
     /// Resistance.
     pub r: Tensor,
@@ -288,6 +324,7 @@ pub struct I {
 
 /// Integrate-and-fire neuron (`IF`).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct If {
     /// Resistance.
     pub r: Tensor,
@@ -301,6 +338,7 @@ pub struct If {
 
 /// Leaky integrator (`LI`).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Li {
     /// Membrane time constant.
     pub tau: Tensor,
@@ -314,6 +352,7 @@ pub struct Li {
 
 /// Leaky integrate-and-fire (`LIF`).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Lif {
     /// Membrane time constant.
     pub tau: Tensor,
@@ -331,6 +370,7 @@ pub struct Lif {
 
 /// 2-D sum pooling.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SumPool2d {
     /// Kernel size `(H, W)`.
     pub kernel_size: Tensor,
@@ -344,6 +384,7 @@ pub struct SumPool2d {
 
 /// 2-D average pooling.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AvgPool2d {
     /// Kernel size `(H, W)`.
     pub kernel_size: Tensor,
@@ -357,6 +398,7 @@ pub struct AvgPool2d {
 
 /// Heaviside threshold / surrogate step.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Threshold {
     /// Threshold value(s).
     pub threshold: Tensor,
@@ -553,6 +595,12 @@ mod tests {
         assert_eq!(cases.len(), 19, "expected all wire node types");
         for (wire, node) in cases {
             assert_eq!(node.type_name(), wire);
+            #[cfg(feature = "serde")]
+            {
+                let value = serde_json::to_value(&node).unwrap();
+                assert_eq!(value["type"], wire);
+                assert_eq!(serde_json::from_value::<NirNode>(value).unwrap(), node);
+            }
         }
     }
 
