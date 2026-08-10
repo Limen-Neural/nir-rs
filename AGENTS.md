@@ -40,6 +40,7 @@ You are a Rust-focused coding agent implementing a pure-Rust Neuromorphic Interm
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test                 # graph model only; must pass without libhdf5
+cargo test --features serde
 cargo test --all-features
 cargo doc --no-deps --all-features
 ```
@@ -47,7 +48,13 @@ cargo doc --no-deps --all-features
 `--all-features` enables `hdf5`, which links libhdf5: install `libhdf5-dev`
 (Ubuntu) or `hdf5` (Homebrew) first.
 
-Hermetic fallback (no system libhdf5):
+**Toolchain:** CI and agents pin **Rust 1.97.1** (`rust-toolchain.toml`).
+`package.rust-version` (**1.85.1**) is a cargo floor only — do **not** point the
+OS matrix at an old rustc. Default/`serde` and `--all-features` tests run on
+**Linux, macOS, and Windows** with `toolchain: "1.97.1"`.
+
+Hermetic fallback (no system libhdf5) — may lag if vendored HDF5 and
+`hdf5-metno-sys` disagree; prefer system libhdf5 in CI:
 
 ```bash
 cargo clippy --all-targets --features hdf5,hdf5/static,hdf5/zlib -- -D warnings
@@ -77,7 +84,7 @@ cargo test --features hdf5,hdf5/static,hdf5/zlib
 ```
 
 Configured channel/components: [`rust-toolchain.toml`](rust-toolchain.toml)
-(`stable` + `rustfmt` + `clippy`; `stable` tracks the latest stable release).
+(`1.97.1` + `rustfmt` + `clippy`).
 
 ### Dev container / cloud agent images
 
