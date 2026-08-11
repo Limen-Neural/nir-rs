@@ -174,7 +174,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash -l {0}
         run: |
-          conda install -y -c conda-forge hdf5 pkg-config
+          # hdf5-metno-sys 0.12.1 knows 1.14.[0-6] and 2.[0-1].0 — not conda-forge's
+          # current HDF5 2.2.x (build panics: Invalid H5_VERSION "2.2.0").
+          conda install -y -c conda-forge "hdf5=1.14.6" pkg-config
           echo "HDF5_DIR=$CONDA_PREFIX" >> "$GITHUB_ENV"
           echo "PKG_CONFIG_PATH=$CONDA_PREFIX/lib/pkgconfig:$CONDA_PREFIX/Library/lib/pkgconfig" >> "$GITHUB_ENV"
           echo "$CONDA_PREFIX/Library/bin" >> "$GITHUB_PATH"
