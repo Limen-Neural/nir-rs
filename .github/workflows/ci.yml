@@ -149,16 +149,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libhdf5-dev pkg-config
 
-      - name: Install libhdf5 (macOS)
-        if: runner.os == 'macOS'
-        run: brew install hdf5 pkg-config
-
-      # Windows: conda-forge provides a consistent HDF5 + pkg-config story
-      # (matches how hdf5-metno CI exercises Windows). Login shell keeps conda active.
-      - name: Install Miniconda (Windows)
-        if: runner.os == 'Windows'
-        # Pin full commit of tag v3.2.0 (invalid SHAs fail "Set up job" on every
-        # matrix OS because Actions resolves all `uses:` before step `if`s).
+      # macOS + Windows: pin HDF5 1.14.6 via conda-forge.
+      # Homebrew's current hdf5 is 2.2.0; hdf5-metno-sys 0.12.1 only accepts
+      # 1.14.[0-6] and 2.[0-1].0 (Invalid H5_VERSION "2.2.0" otherwise).
+      # Pin full commit of tag v3.2.0 (invalid SHAs fail "Set up job" on every
+      # matrix OS because Actions resolves all `uses:` before step `if`s).
+      - name: Install Miniconda (macOS / Windows)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
         uses: conda-incubator/setup-miniconda@835234971496cad1653abb28a638a281cf32541f # v3.2.0
         with:
           auto-update-conda: false
@@ -170,12 +167,10 @@ jobs:
           channel-priority: strict
           conda-remove-defaults: true
 
-      - name: Install libhdf5 (Windows / conda-forge)
-        if: runner.os == 'Windows'
+      - name: Install libhdf5 (macOS / Windows / conda-forge)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
         shell: bash -l {0}
         run: |
-          # hdf5-metno-sys 0.12.1 knows 1.14.[0-6] and 2.[0-1].0 — not conda-forge's
-          # current HDF5 2.2.x (build panics: Invalid H5_VERSION "2.2.0").
           conda install -y -c conda-forge "hdf5=1.14.6" pkg-config
           echo "HDF5_DIR=$CONDA_PREFIX" >> "$GITHUB_ENV"
           echo "PKG_CONFIG_PATH=$CONDA_PREFIX/lib/pkgconfig:$CONDA_PREFIX/Library/lib/pkgconfig" >> "$GITHUB_ENV"
@@ -183,10 +178,11 @@ jobs:
           echo "$CONDA_PREFIX/bin" >> "$GITHUB_PATH"
 
       - name: Run tests (all features)
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
         run: cargo test --all-features
 
-      - name: Run tests (all features, Windows)
-        if: runner.os == 'Windows'
+      # Login shell keeps conda env active for the native lib path.
+      - name: Run tests (all features, macOS / Windows)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
         shell: bash -l {0}
         run: cargo test --all-features
