@@ -97,14 +97,6 @@ Prefer a prebuilt image when the host supports it (Rust 1.97 + `libhdf5-dev`):
 | [`scripts/agent-bootstrap.sh`](scripts/agent-bootstrap.sh) | cubic / Claude / other bare sandboxes |
 | [`cubic.yaml`](cubic.yaml) | cubic review + fix instructions |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | GitHub Actions quality bar (`fmt` / `test` / `clippy` / `doc`) |
-| [`.github/workflows/opencode.yml`](.github/workflows/opencode.yml) | OpenCode on **PR** comments `/opencode` or `/oc` only |
-
-**OpenCode notes:** model is `opencode-go/gpt-5.6-luna` with secret **`OPENCODE_API_KEY`**
-only (no `OPENAI_API_KEY`). Plain issue comments, fork PRs, and PR heads on the
-repository's default branch are rejected so the agent cannot push to the default
-branch or a wrong repo. Optional secret **`OPENCODE_GH_PAT`** re-triggers Actions
-on agent commits (`GITHUB_TOKEN` alone does not). The agent must still run the
-quality bar before claiming a fix; OpenCode does not enforce it.
 
 **No Python.** Wire compatibility is verified by reading real `.nir` files
 vendored from upstream under `tests/fixtures/` — do not add Python scripts,
