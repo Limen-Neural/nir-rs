@@ -164,6 +164,10 @@ jobs:
           auto-update-conda: false
           activate-environment: nir-rs-hdf5
           python-version: "3.12"
+          # `conda-remove-defaults` needs an explicit channel or env create fails
+          # with NoChannelsConfiguredError on current conda.
+          channels: conda-forge
+          channel-priority: strict
           conda-remove-defaults: true
 
       - name: Install libhdf5 (Windows / conda-forge)

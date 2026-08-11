@@ -1438,7 +1438,16 @@ mod atomic_tests {
     fn parent_is_shared_nonsticky_detects_world_writable() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = TempDir::new().unwrap();
+        // Create under the workspace (not $TMPDIR). On macOS GitHub runners,
+        // `$TMPDIR` lives under `/var/folders/...` and ancestor policy can mark
+        // every path "shared", which hides the leaf sticky/private cases this
+        // unit test is meant to cover.
+        let cwd = std::env::current_dir().expect("cwd");
+        let dir = tempfile::Builder::new()
+            .prefix("nir-atomic-shared-")
+            .tempdir_in(&cwd)
+            .expect("tempdir under cwd");
+
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
         let meta = std::fs::metadata(dir.path()).unwrap();
         assert!(parent_is_shared_nonsticky(&meta, dir.path()).unwrap());
@@ -1447,6 +1456,11 @@ mod atomic_tests {
         let meta = std::fs::metadata(dir.path()).unwrap();
         // Sticky + self-owned: not treated as shared (foreign owners are tested
         // via the untrusted-owner branch; creating foreign-owned dirs needs root).
+        assert!(
+            is_sticky(&meta),
+            "expected sticky bit after chmod 1777; mode={:#o}",
+            meta.permissions().mode()
+        );
         assert!(!parent_is_shared_nonsticky(&meta, dir.path()).unwrap());
 
         // Private self-owned 0755 is safe for in-place staging.
