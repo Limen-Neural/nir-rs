@@ -57,6 +57,11 @@ jobs:
       # Required by optional `hdf5` so clippy sees all-features bodies.
       - name: Install libhdf5
         run: |
+          # GH Ubuntu images sometimes ship Microsoft/Azure apt sources that 403
+          # and fail `apt-get update` before we can install libhdf5-dev.
+          for f in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*; do
+            [ -e "$f" ] && sudo mv "$f" "${f}.disabled" || true
+          done
           sudo apt-get update
           sudo apt-get install -y libhdf5-dev pkg-config
 
@@ -82,6 +87,11 @@ jobs:
 
       - name: Install libhdf5
         run: |
+          # GH Ubuntu images sometimes ship Microsoft/Azure apt sources that 403
+          # and fail `apt-get update` before we can install libhdf5-dev.
+          for f in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*; do
+            [ -e "$f" ] && sudo mv "$f" "${f}.disabled" || true
+          done
           sudo apt-get update
           sudo apt-get install -y libhdf5-dev pkg-config
 
@@ -146,6 +156,11 @@ jobs:
       - name: Install libhdf5 (Ubuntu)
         if: runner.os == 'Linux'
         run: |
+          # GH Ubuntu images sometimes ship Microsoft/Azure apt sources that 403
+          # and fail `apt-get update` before we can install libhdf5-dev.
+          for f in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*; do
+            [ -e "$f" ] && sudo mv "$f" "${f}.disabled" || true
+          done
           sudo apt-get update
           sudo apt-get install -y libhdf5-dev pkg-config
 
