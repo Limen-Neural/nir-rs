@@ -13,49 +13,196 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  validate:
-    name: Validate, Test & Doc
+  fmt:
+    name: Format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
-          # Explicit channel required by this action pin; rust-toolchain.toml
-          # still selects the same channel/components for local agents.
-          toolchain: stable
-          components: clippy, rustfmt
-
-      - name: Cache cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+          # Keep in sync with rust-toolchain.toml channel = "1.97.1".
+          toolchain: "1.97.1"
+          components: rustfmt
 
       - name: Check formatting
         run: cargo fmt --check
 
-      # Runs BEFORE libhdf5 is installed, so it genuinely proves the graph
-      # model builds and tests without the native dependency — which is what
-      # consumers get from a plain `cargo add nir-rs`. Moving this after the
-      # install step would make it pass vacuously.
-      - name: Run tests (default features, no libhdf5)
-        run: cargo test
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
-      # Required by the optional `hdf5` feature (hdf5-metno links libhdf5).
-      # Ubuntu's package registers hdf5.pc, so pkg-config finds it unaided.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: "1.97.1"
+          components: clippy
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      # Required by optional `hdf5` so clippy sees all-features bodies.
       - name: Install libhdf5
         run: |
+          # GH Ubuntu images sometimes ship Microsoft/Azure apt sources that 403
+          # and fail `apt-get update` before we can install libhdf5-dev.
+          for f in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*; do
+            [ -e "$f" ] && sudo mv "$f" "${f}.disabled" || true
+          done
           sudo apt-get update
-          sudo apt-get install -y libhdf5-dev
+          sudo apt-get install -y libhdf5-dev pkg-config
 
-      - name: Clippy (lint)
+      - name: Clippy (all features)
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Run tests (all features)
-        run: cargo test --all-features
+  doc:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: "1.97.1"
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Install libhdf5
+        run: |
+          # GH Ubuntu images sometimes ship Microsoft/Azure apt sources that 403
+          # and fail `apt-get update` before we can install libhdf5-dev.
+          for f in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*; do
+            [ -e "$f" ] && sudo mv "$f" "${f}.disabled" || true
+          done
+          sudo apt-get update
+          sudo apt-get install -y libhdf5-dev pkg-config
 
       - name: Verify documentation
         run: cargo doc --no-deps --all-features
+
+  # Pure graph model: no native deps. Linux / macOS / Windows on **Rust 1.97.1**.
+  test-default:
+    name: Test default (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: "1.97.1"
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: default-${{ matrix.os }}-1.97.1
+
+      # Proves the default graph-only build needs no libhdf5 (crates.io default).
+      - name: Run tests (default features)
+        run: cargo test
+
+      - name: Run tests (serde feature)
+        run: cargo test --features serde
+
+  # HDF5 + serde: system libhdf5 on each OS. Same OS matrix, Rust 1.97.1.
+  test-hdf5:
+    name: Test hdf5 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: "1.97.1"
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: hdf5-${{ matrix.os }}-1.97.1
+
+      - name: Install libhdf5 (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          # GH Ubuntu images sometimes ship Microsoft/Azure apt sources that 403
+          # and fail `apt-get update` before we can install libhdf5-dev.
+          for f in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*; do
+            [ -e "$f" ] && sudo mv "$f" "${f}.disabled" || true
+          done
+          sudo apt-get update
+          sudo apt-get install -y libhdf5-dev pkg-config
+
+      # macOS + Windows: pin HDF5 1.14.6 via conda-forge.
+      # Homebrew's current hdf5 is 2.2.0; hdf5-metno-sys 0.12.1 only accepts
+      # 1.14.[0-6] and 2.[0-1].0 (Invalid H5_VERSION "2.2.0" otherwise).
+      # Pin full commit of tag v3.2.0 (invalid SHAs fail "Set up job" on every
+      # matrix OS because Actions resolves all `uses:` before step `if`s).
+      - name: Install Miniconda (macOS / Windows)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
+        uses: conda-incubator/setup-miniconda@835234971496cad1653abb28a638a281cf32541f # v3.2.0
+        with:
+          auto-update-conda: false
+          activate-environment: nir-rs-hdf5
+          python-version: "3.12"
+          # `conda-remove-defaults` needs an explicit channel or env create fails
+          # with NoChannelsConfiguredError on current conda.
+          channels: conda-forge
+          channel-priority: strict
+          conda-remove-defaults: true
+
+      - name: Install libhdf5 (macOS / Windows / conda-forge)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
+        shell: bash -l {0}
+        run: |
+          conda install -y -c conda-forge "hdf5=1.14.6" pkg-config
+          echo "HDF5_DIR=$CONDA_PREFIX" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$CONDA_PREFIX/lib/pkgconfig:$CONDA_PREFIX/Library/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "$CONDA_PREFIX/Library/bin" >> "$GITHUB_PATH"
+          echo "$CONDA_PREFIX/bin" >> "$GITHUB_PATH"
+          # macOS dyld does not search conda lib by default (@rpath/libhdf5.*.dylib).
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            echo "DYLD_LIBRARY_PATH=$CONDA_PREFIX/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+            echo "DYLD_FALLBACK_LIBRARY_PATH=$CONDA_PREFIX/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run tests (all features)
+        if: runner.os == 'Linux'
+        run: cargo test --all-features
+
+      # Login shell keeps conda env active for the native lib path.
+      - name: Run tests (all features, macOS / Windows)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
+        shell: bash -l {0}
+        run: cargo test --all-features

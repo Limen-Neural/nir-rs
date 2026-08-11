@@ -423,6 +423,16 @@ mod tests {
         Tensor::from_f64(vec![3], vec![1.0, 1.0, 1.0]).unwrap()
     }
 
+    /// Shared `(kernel_size, stride, padding)` tensors for SumPool2d / AvgPool2d
+    /// wire-name samples (keeps the two cases from being pure copy-paste).
+    fn sample_pool2d_fields() -> (Tensor, Tensor, Tensor) {
+        (
+            Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
+            Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
+            Tensor::from_i64(vec![2], vec![0, 0]).unwrap(),
+        )
+    }
+
     #[test]
     fn all_type_names_match_wire_strings() {
         let cases: Vec<(&str, NirNode)> = vec![
@@ -564,24 +574,30 @@ mod tests {
                     metadata: Default::default(),
                 }),
             ),
-            (
-                "SumPool2d",
-                NirNode::SumPool2d(SumPool2d {
-                    kernel_size: Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
-                    stride: Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
-                    padding: Tensor::from_i64(vec![2], vec![0, 0]).unwrap(),
-                    metadata: Default::default(),
-                }),
-            ),
-            (
-                "AvgPool2d",
-                NirNode::AvgPool2d(AvgPool2d {
-                    kernel_size: Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
-                    stride: Tensor::from_i64(vec![2], vec![2, 2]).unwrap(),
-                    padding: Tensor::from_i64(vec![2], vec![0, 0]).unwrap(),
-                    metadata: Default::default(),
-                }),
-            ),
+            {
+                let (kernel_size, stride, padding) = sample_pool2d_fields();
+                (
+                    "SumPool2d",
+                    NirNode::SumPool2d(SumPool2d {
+                        kernel_size,
+                        stride,
+                        padding,
+                        metadata: Default::default(),
+                    }),
+                )
+            },
+            {
+                let (kernel_size, stride, padding) = sample_pool2d_fields();
+                (
+                    "AvgPool2d",
+                    NirNode::AvgPool2d(AvgPool2d {
+                        kernel_size,
+                        stride,
+                        padding,
+                        metadata: Default::default(),
+                    }),
+                )
+            },
             (
                 "Threshold",
                 NirNode::Threshold(Threshold {

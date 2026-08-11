@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 #
-# Shared quality bar used by the OpenCode agent workflow before and after the
-# agent runs, to ensure the repo starts green and stays green.
+# Shared quality bar for agents and local release gates.
 
 set -euo pipefail
 

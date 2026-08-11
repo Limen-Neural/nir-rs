@@ -51,13 +51,28 @@ This crate does **not** own:
 
 Tracking: [GitHub milestones](https://github.com/Limen-Neural/nir-rs/milestones) · [LIM-822](https://linear.app/rpd-34/issue/LIM-822)
 
+## Toolchain & MSRV
+
+**CI and local development pin Rust 1.97.1** (`rust-toolchain.toml`
+`channel = "1.97.1"`; GitHub Actions `toolchain: "1.97.1"`).
+
+**Declared floor (`package.rust-version`): 1.85.1** — cargo/crates.io metadata
+only (Edition 2024 + `hdf5-metno` 0.14). We do **not** run a multi-OS CI matrix
+on that older compiler; the supported quality bar is **1.97.1**.
+
+| Policy | Detail |
+|--------|--------|
+| Dev / CI | **1.97.1** on **Linux, macOS, and Windows** |
+| `rust-version` | Minimum floor for installers; raise when deps require it |
+| Pinning day-to-day work to the cargo floor | **Not** required or recommended |
+
 ## Quick start
 
-Not published to crates.io yet. Use a git or path dependency:
+Not published to crates.io yet. Prefer a **git tag** pin (or path) over a floating branch:
 
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main" }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.0" }
 ```
 
 To also get HDF5 `.nir` I/O, enable the `hdf5` feature (see [File I/O](#file-io)
@@ -65,7 +80,7 @@ for the system dependency it brings):
 
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main", features = ["hdf5"] }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.0", features = ["hdf5"] }
 ```
 
 ```rust
@@ -160,7 +175,7 @@ graph, all wire node variants, metadata, and tensors. It is independent of the
 
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main", features = ["serde"] }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.0", features = ["serde"] }
 serde_json = "1"
 ```
 
@@ -180,14 +195,20 @@ JSON; tests and debug round-trips should use finite values.
 ```bash
 cargo fmt --check
 cargo test                 # graph model only, no libhdf5 required
+cargo test --features serde
 cargo test --all-features  # + HDF5 I/O, fixtures and round-trip
 cargo clippy --all-targets --all-features -- -D warnings
 cargo doc --no-deps --all-features
 ```
 
+CI mirrors this on **ubuntu-latest**, **macos-latest**, and **windows-latest**
+using **Rust 1.97.1**. Format, clippy, and docs stay on Ubuntu; see
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
 Wire compatibility is checked against real `.nir` files written by the Python
 implementation and vendored under `tests/fixtures/` (BSD-3, see the README
-there). Nothing in the build, tests, or CI needs a Python interpreter.
+there). Nothing in the default build, tests, or CI needs a Python interpreter
+(Windows HDF5 in CI is installed via conda-forge for the native library only).
 
 See [REVIEW.md](REVIEW.md) and [AGENTS.md](AGENTS.md).
 

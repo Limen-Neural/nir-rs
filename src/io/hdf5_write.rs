@@ -1438,15 +1438,45 @@ mod atomic_tests {
     fn parent_is_shared_nonsticky_detects_world_writable() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = TempDir::new().unwrap();
+        // Prefer a private nest under the workspace over `$TMPDIR`. On macOS GH
+        // runners `$TMPDIR` is under `/var/folders/...` and ancestor policy can
+        // mark every path "shared", which hides leaf sticky/private cases.
+        // Still skip the sticky/private asserts when *cwd* ancestors themselves
+        // are already shared (world-writable / foreign / symlink path) so the
+        // test stays hermetic rather than failing on a bad checkout root.
+        let cwd = std::env::current_dir().expect("cwd");
+        let outer = tempfile::Builder::new()
+            .prefix("nir-atomic-outer-")
+            .tempdir_in(&cwd)
+            .expect("outer tempdir under cwd");
+        std::fs::set_permissions(outer.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let dir = tempfile::Builder::new()
+            .prefix("nir-atomic-leaf-")
+            .tempdir_in(outer.path())
+            .expect("leaf tempdir");
+
+        // World-writable leaf is always shared, even if ancestors are hostile.
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
         let meta = std::fs::metadata(dir.path()).unwrap();
         assert!(parent_is_shared_nonsticky(&meta, dir.path()).unwrap());
+
+        let outer_meta = std::fs::metadata(outer.path()).unwrap();
+        if parent_is_shared_nonsticky(&outer_meta, outer.path()).unwrap() {
+            // Cannot prove sticky/private negatives when the nest sits under a
+            // shared ancestor tree — leaf mode is masked by ancestor policy.
+            return;
+        }
 
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o1777)).unwrap();
         let meta = std::fs::metadata(dir.path()).unwrap();
         // Sticky + self-owned: not treated as shared (foreign owners are tested
         // via the untrusted-owner branch; creating foreign-owned dirs needs root).
+        assert!(
+            is_sticky(&meta),
+            "expected sticky bit after chmod 1777; mode={:#o}",
+            meta.permissions().mode()
+        );
         assert!(!parent_is_shared_nonsticky(&meta, dir.path()).unwrap());
 
         // Private self-owned 0755 is safe for in-place staging.
