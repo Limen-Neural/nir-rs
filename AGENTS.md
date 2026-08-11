@@ -53,6 +53,29 @@ cargo doc --no-deps --all-features
 OS matrix at an old rustc. Default/`serde` and `--all-features` tests run on
 **Linux, macOS, and Windows** with `toolchain: "1.97.1"`.
 
+### Package / semver CI (release gate)
+
+Separate workflow: [`.github/workflows/package.yml`](.github/workflows/package.yml)
+(`cargo package` + required-file checks + `cargo-semver-checks`).
+
+- **Package job** validates the crates.io *artifact* boundary, not only the
+  checkout (licenses, README, fixtures, default-feature tests from the pack).
+- **Semver job** compares the public API to tag **`v0.4.0`** (git baseline until
+  the crate is on crates.io — see #26). After the first publish, prefer a
+  registry baseline (`baseline-version` / crates.io) and bump the floor when
+  cutting releases.
+
+**Escape hatch (deliberate breaks):** during `0.x`, intentional public API
+breaks require a **minor** bump (e.g. `0.4.0` → `0.5.0`), not a silent patch.
+Document the break in the PR/changelog, update `package.version`, and either:
+
+1. temporarily point the semver job at the new baseline tag after merge, or
+2. land the break in a PR that also updates the `baseline-rev` / version once
+   the intentional change is accepted.
+
+Do **not** disable the job to force a green PR. Consumer-only work (#15 / #16)
+does not change crate semver.
+
 Hermetic fallback (no system libhdf5) — may lag if vendored HDF5 and
 `hdf5-metno-sys` disagree; prefer system libhdf5 in CI:
 
@@ -97,6 +120,7 @@ Prefer a prebuilt image when the host supports it (Rust 1.97 + `libhdf5-dev`):
 | [`scripts/agent-bootstrap.sh`](scripts/agent-bootstrap.sh) | cubic / Claude / other bare sandboxes |
 | [`cubic.yaml`](cubic.yaml) | cubic review + fix instructions |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | GitHub Actions quality bar (`fmt` / `test` / `clippy` / `doc`) |
+| [`.github/workflows/package.yml`](.github/workflows/package.yml) | Package artifact + public-API semver gate |
 
 **No Python.** Wire compatibility is verified by reading real `.nir` files
 vendored from upstream under `tests/fixtures/` — do not add Python scripts,

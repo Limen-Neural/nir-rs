@@ -65,6 +65,8 @@ on that older compiler; the supported quality bar is **1.97.1**.
 | Dev / CI | **1.97.1** on **Linux, macOS, and Windows** |
 | `rust-version` | Minimum floor for installers; raise when deps require it |
 | Pinning day-to-day work to the cargo floor | **Not** required or recommended |
+| Package / semver CI | `.github/workflows/package.yml` — `cargo package` + public API vs `v0.4.0` |
+| Deliberate public breaks (`0.x`) | Intentional **minor** bump (`0.5.0`); do not silence the semver job |
 
 ## Quick start
 

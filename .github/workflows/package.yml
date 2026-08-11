@@ -1,0 +1,127 @@
+# Release-oriented packaging / semver gate (issue #28).
+# Separate from the main fmt/clippy/test/doc quality bar in ci.yml.
+name: Package
+
+on:
+  push:
+    branches: [Main, main]
+  pull_request:
+    branches: [Main, main]
+
+concurrency:
+  group: package-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    name: cargo package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          # Keep in sync with rust-toolchain.toml / ci.yml.
+          toolchain: "1.97.1"
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: package-1.97.1
+
+      - name: cargo package --list
+        run: cargo package --list --allow-dirty
+
+      - name: cargo package
+        # allow-dirty: checkout may have no local edits, but keep consistent with
+        # agents that package from a worktree with ignored files present.
+        run: cargo package --allow-dirty
+
+      - name: Assert required files are in the package
+        run: |
+          set -euo pipefail
+          list="$(cargo package --list --allow-dirty)"
+          required=(
+            LICENSE-MIT
+            LICENSE-APACHE-2.0
+            README.md
+            Cargo.toml
+            src/lib.rs
+            examples/load_inspect_lif.rs
+            tests/fixtures/lif_norse.nir
+            tests/fixtures/two_lif_neurons.nir
+          )
+          missing=0
+          for f in "${required[@]}"; do
+            if ! printf '%s\n' "$list" | grep -Fxq "$f"; then
+              echo "::error::package is missing required path: $f"
+              missing=1
+            fi
+          done
+          # At least one vendored .nir fixture must ship for packaged tests/docs.
+          if ! printf '%s\n' "$list" | grep -E '^tests/fixtures/.*\.nir$' >/dev/null; then
+            echo "::error::package has no tests/fixtures/*.nir fixtures"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "---- package --list ----"
+            printf '%s\n' "$list"
+            exit 1
+          fi
+          echo "Required package paths present."
+
+      - name: Test packaged crate (default features)
+        run: |
+          set -euo pipefail
+          # cargo package writes target/package/nir-rs-<version>.crate and unpacks
+          # a matching directory when packing.
+          ver="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          pkg_dir="target/package/nir-rs-${ver}"
+          test -d "$pkg_dir"
+          # Default feature set only (no system libhdf5 required).
+          (cd "$pkg_dir" && cargo test --locked)
+
+  semver:
+    name: cargo-semver-checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          # Need full history so baseline-rev tags resolve.
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: "1.97.1"
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: semver-1.97.1
+
+      # crate is not on crates.io yet (README / issue #26). Use the last release
+      # tag as the public API baseline until a registry version exists.
+      # Install latest cargo-semver-checks so rustdoc JSON format matches 1.97.x.
+      - name: Install cargo-semver-checks
+        run: cargo install cargo-semver-checks --locked
+
+      - name: Check public API vs tag v0.4.0
+        run: |
+          cargo semver-checks check-release \
+            --package nir-rs \
+            --baseline-rev v0.4.0 \
+            --default-features
+
