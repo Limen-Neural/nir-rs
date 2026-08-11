@@ -176,6 +176,11 @@ jobs:
           echo "PKG_CONFIG_PATH=$CONDA_PREFIX/lib/pkgconfig:$CONDA_PREFIX/Library/lib/pkgconfig" >> "$GITHUB_ENV"
           echo "$CONDA_PREFIX/Library/bin" >> "$GITHUB_PATH"
           echo "$CONDA_PREFIX/bin" >> "$GITHUB_PATH"
+          # macOS dyld does not search conda lib by default (@rpath/libhdf5.*.dylib).
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            echo "DYLD_LIBRARY_PATH=$CONDA_PREFIX/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+            echo "DYLD_FALLBACK_LIBRARY_PATH=$CONDA_PREFIX/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          fi
 
       - name: Run tests (all features)
         if: runner.os == 'Linux'
