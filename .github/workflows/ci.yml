@@ -157,7 +157,9 @@ jobs:
       # (matches how hdf5-metno CI exercises Windows). Login shell keeps conda active.
       - name: Install Miniconda (Windows)
         if: runner.os == 'Windows'
-        uses: conda-incubator/setup-miniconda@a2223048f58c2a4c1d4cba4b68f21e5da66c1da5 # v3.2.0
+        # Pin full commit of tag v3.2.0 (invalid SHAs fail "Set up job" on every
+        # matrix OS because Actions resolves all `uses:` before step `if`s).
+        uses: conda-incubator/setup-miniconda@835234971496cad1653abb28a638a281cf32541f # v3.2.0
         with:
           auto-update-conda: false
           activate-environment: nir-rs-hdf5

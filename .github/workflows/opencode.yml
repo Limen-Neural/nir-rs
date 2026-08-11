@@ -146,7 +146,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
-          toolchain: stable
+          # Keep in sync with rust-toolchain.toml / ci.yml (1.97.1).
+          toolchain: "1.97.1"
           components: clippy, rustfmt
 
       - name: Install libhdf5
