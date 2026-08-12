@@ -16,6 +16,8 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 - Compatibility matrix and changelog policy (this document) (#31).
 - Expanded real-world fixture corpus: Rockpool LIF + noBias braille variants,
   `MANIFEST.toml`, coverage checklist (#29).
+- Property tests (`proptest`) for tensor/graph/wire invariants and HDF5
+  write→read; optional `cargo-fuzz` harnesses under `fuzz/` (#30).
 
 ## [0.4.0] - 2026-08-06
 
