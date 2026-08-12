@@ -14,6 +14,8 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 - Package workflow: `cargo package` artifact checks + public-API semver gate vs
   git tag `v0.4.0` (#28, #33).
 - Compatibility matrix and changelog policy (this document) (#31).
+- Expanded real-world fixture corpus: Rockpool LIF + noBias braille variants,
+  `MANIFEST.toml`, coverage checklist (#29).
 
 ## [0.4.0] - 2026-08-06
 

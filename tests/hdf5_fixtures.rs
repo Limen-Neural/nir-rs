@@ -121,6 +121,63 @@ fn read_version_matches_graph_version() {
 }
 
 // ---------------------------------------------------------------------------
+// lif_rockpool.nir — Rockpool producer; Linear (no bias); underscore names
+// ---------------------------------------------------------------------------
+
+#[test]
+fn lif_rockpool_structure_and_values() {
+    let g = read("lif_rockpool.nir");
+
+    // Rockpool paper artifact embeds NIR version 0.2.0 (others are 0.1.1).
+    assert_eq!(g.version.as_deref(), Some("0.2.0"));
+    assert_eq!(
+        type_names(&g),
+        [
+            ("0_LinearTorch", "Linear"),
+            ("1_LIFNeuronTorch", "LIF"),
+            ("input", "Input"),
+            ("output", "Output"),
+        ]
+    );
+    // Wire edge order (not necessarily topological).
+    assert_eq!(
+        g.edges,
+        [
+            ("0_LinearTorch".to_owned(), "1_LIFNeuronTorch".to_owned()),
+            ("1_LIFNeuronTorch".to_owned(), "output".to_owned()),
+            ("input".to_owned(), "0_LinearTorch".to_owned()),
+        ]
+    );
+    g.validate_structure().unwrap();
+
+    let NirNode::Linear(linear) = g.get("0_LinearTorch").unwrap() else {
+        panic!("expected Linear (Rockpool exports Linear, not Affine)");
+    };
+    assert_eq!(linear.weight.shape(), [1, 1]);
+    assert_eq!(f32s(linear.weight.data()), [0.04]);
+
+    let NirNode::Lif(lif) = g.get("1_LIFNeuronTorch").unwrap() else {
+        panic!("expected LIF");
+    };
+    assert_eq!(lif.tau.dtype(), DType::F32);
+    assert_eq!(f32s(lif.tau.data()), [0.0025]);
+    assert_eq!(f32s(lif.r.data()), [24.019_737]);
+    assert_eq!(f32s(lif.v_threshold.data()), [0.1]);
+    // v_reset absent on the wire → defaulted like Norse fixture.
+    let v_reset = lif.v_reset.as_ref().expect("v_reset defaulted");
+    assert_eq!(f32s(v_reset.data()), [0.0]);
+
+    let NirNode::Output(output) = g.get("output").unwrap() else {
+        panic!("expected Output");
+    };
+    assert_eq!(
+        output.shape,
+        [1, 1, 1],
+        "Rockpool uses a 3-axis output shape"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // two_lif_neurons.nir — f64 throughout
 // ---------------------------------------------------------------------------
 
@@ -208,7 +265,54 @@ fn braille_has_recurrence_and_dotted_node_names() {
 }
 
 // ---------------------------------------------------------------------------
-// braille_..._subgraph.nir — nested NIRGraph on the wire
+// braille_noDelay_noBias_subtract.nir — Linear (no bias) RNN variant
+// ---------------------------------------------------------------------------
+
+#[test]
+fn braille_nobias_uses_linear_not_affine() {
+    let g = read("braille_noDelay_noBias_subtract.nir");
+
+    assert_eq!(
+        type_names(&g),
+        [
+            ("fc1", "Linear"),
+            ("fc2", "Linear"),
+            ("input", "Input"),
+            ("lif1.lif", "CubaLIF"),
+            ("lif1.w_rec", "Linear"),
+            ("lif2", "CubaLIF"),
+            ("output", "Output"),
+        ]
+    );
+    // Recurrent pair preserved with Linear recurrence weights.
+    assert!(
+        g.edges
+            .contains(&("lif1.lif".to_owned(), "lif1.w_rec".to_owned()))
+    );
+    assert!(
+        g.edges
+            .contains(&("lif1.w_rec".to_owned(), "lif1.lif".to_owned()))
+    );
+    g.validate_structure().unwrap();
+
+    let NirNode::Linear(fc1) = g.get("fc1").unwrap() else {
+        panic!("expected Linear");
+    };
+    assert_eq!(fc1.weight.shape(), [40, 12]);
+    assert_eq!(fc1.weight.dtype(), DType::F32);
+
+    let NirNode::CubaLif(cuba) = g.get("lif1.lif").unwrap() else {
+        panic!("expected CubaLIF");
+    };
+    assert_eq!(cuba.tau_syn.shape(), [40]);
+    assert_eq!(cuba.tau_syn.dtype(), DType::F64);
+    assert_eq!(f64s(cuba.tau_mem.data())[0], 0.0006666667726304965);
+    let w_in = cuba.w_in.as_ref().expect("w_in present");
+    assert_eq!(f64s(w_in.data())[0], 4.0);
+}
+
+// ---------------------------------------------------------------------------
+// braille_*_subgraph.nir — nested NIRGraph on the wire
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -239,19 +343,55 @@ fn nested_nirgraph_becomes_a_boxed_subgraph() {
 }
 
 #[test]
+fn nested_nobias_subgraph_uses_linear_inner_recurrence() {
+    let g = read("braille_noDelay_noBias_subtract_subgraph.nir");
+
+    let NirNode::Graph(sub) = g.get("lif1").unwrap() else {
+        panic!("expected nested NIRGraph");
+    };
+    assert_eq!(
+        type_names(sub),
+        [
+            ("input", "Input"),
+            ("lif1", "CubaLIF"),
+            ("lin", "Linear"),
+            ("output", "Output"),
+        ]
+    );
+    let NirNode::Linear(lin) = sub.get("lin").unwrap() else {
+        panic!("expected Linear inside subgraph");
+    };
+    assert_eq!(lin.weight.shape(), [40, 40]);
+    assert_eq!(lin.weight.dtype(), DType::F32);
+
+    let NirNode::CubaLif(cuba) = sub.get("lif1").unwrap() else {
+        panic!("expected CubaLIF");
+    };
+    assert_eq!(cuba.tau_syn.shape(), [40]);
+}
+
+#[test]
 fn upstream_subgraph_fixture_has_an_unresolved_inner_edge() {
     // Documented upstream quirk: the inner graph's edges name a node "lif",
     // but the node is called "lif1". Python only loads this file with
     // type_check=False. `read` stays faithful to the file, and validation is
-    // where the inconsistency surfaces.
-    let g = read("braille_noDelay_bias_zero_subgraph.nir");
-    let err = g.validate_structure().unwrap_err();
-    let message = err.to_string();
-    assert!(
-        message.contains("lif1"),
-        "should name the subgraph: {message}"
-    );
-    assert!(message.contains("lif"), "should name the edge: {message}");
+    // where the inconsistency surfaces. Both subgraph paper variants share it.
+    for name in [
+        "braille_noDelay_bias_zero_subgraph.nir",
+        "braille_noDelay_noBias_subtract_subgraph.nir",
+    ] {
+        let g = read(name);
+        let err = g.validate_structure().unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("lif1"),
+            "{name}: should name the subgraph: {message}"
+        );
+        assert!(
+            message.contains("lif"),
+            "{name}: should name the edge: {message}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -325,13 +465,32 @@ fn every_fixture_node_is_a_known_wire_type() {
         }
     }
 
-    for name in [
-        "lif_norse.nir",
-        "two_lif_neurons.nir",
-        "braille_noDelay_bias_zero.nir",
-        "braille_noDelay_bias_zero_subgraph.nir",
-        "cnn_sinabs.nir",
-    ] {
+    for name in ALL_FIXTURES {
         check(&read(name));
+    }
+}
+
+/// Every vendored interoperability fixture under `tests/fixtures/`.
+const ALL_FIXTURES: [&str; 8] = [
+    "lif_norse.nir",
+    "lif_rockpool.nir",
+    "two_lif_neurons.nir",
+    "braille_noDelay_bias_zero.nir",
+    "braille_noDelay_noBias_subtract.nir",
+    "braille_noDelay_bias_zero_subgraph.nir",
+    "braille_noDelay_noBias_subtract_subgraph.nir",
+    "cnn_sinabs.nir",
+];
+
+#[test]
+fn every_interop_fixture_loads() {
+    for name in ALL_FIXTURES {
+        let g = read(name);
+        assert!(!g.nodes.is_empty(), "{name} should have nodes");
+        let version = g.version.as_deref().expect("{name} should carry /version");
+        assert!(
+            version == "0.1.1" || version == "0.2.0",
+            "{name}: unexpected NIR version {version}"
+        );
     }
 }
