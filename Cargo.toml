@@ -1,6 +1,6 @@
 [package]
 name = "nir-rs"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 # Floor only (cargo/crates.io metadata). Edition 2024 needs ≥1.85.0; optional
 # `hdf5` (hdf5-metno 0.14) needs ≥1.85.1. Day-to-day dev and CI pin **1.97.1**
@@ -11,9 +11,23 @@ license = "MIT OR Apache-2.0"
 authors = ["Raul Montoya Cardenas <montoyaraul34@gmail.com>"]
 description = "Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR) — the standard interchange format for spiking neural networks."
 repository = "https://github.com/Limen-Neural/nir-rs"
+homepage = "https://github.com/Limen-Neural/nir-rs"
+documentation = "https://docs.rs/nir-rs"
 readme = "README.md"
 keywords = ["nir", "neuromorphic", "snn", "spiking", "interoperability"]
 categories = ["science", "algorithms", "encoding"]
+exclude = [
+    "/.cursor/",
+    "/.devcontainer/",
+    "/.github/",
+    "/AGENTS.md",
+    "/CLAUDE.md",
+    "/REVIEW.md",
+    "/cubic.yaml",
+    "/fuzz/",
+    "/qodana.yaml",
+    "/scripts/",
+]
 
 [lib]
 name = "nir_rs"

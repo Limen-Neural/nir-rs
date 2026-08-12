@@ -8,21 +8,30 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-12
+
+First **crates.io** release of the 0.4 line (package name `nir-rs`).
+
 ### Added
 
 - Multi-OS CI: default and HDF5 tests on Linux, macOS, and Windows (#27, #32).
 - Package workflow: `cargo package` artifact checks + public-API semver gate vs
   git tag `v0.4.0` (#28, #33).
-- Compatibility matrix and changelog policy (this document) (#31).
+- Compatibility matrix and changelog policy (#31).
 - Expanded real-world fixture corpus: Rockpool LIF + noBias braille variants,
   `MANIFEST.toml`, coverage checklist (#29).
 - Property tests (`proptest`) for tensor/graph/wire invariants and HDF5
   write→read; optional `cargo-fuzz` harnesses under `fuzz/` (#30).
 
+### Documentation
+
+- README crates.io / docs.rs badges and dependency snippets (#26).
+- [TESTING.md](TESTING.md) for property tests and local fuzz invocation.
+
 ## [0.4.0] - 2026-08-06
 
-First **git-tagged** library release intended as the consumer baseline
-(`tag = "v0.4.0"`). **Not yet published to crates.io** (see #26).
+First **git-tagged** library release (`tag = "v0.4.0"`). Superseded as the
+crates.io baseline by **0.4.1**.
 
 ### Added
 
