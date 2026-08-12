@@ -1,0 +1,63 @@
+# Machine-readable catalog of vendored interoperability fixtures.
+# Source of truth for provenance; keep in sync with README.md SHA table.
+
+upstream_repo = "https://github.com/neuromorphs/NIR"
+upstream_commit = "7883c3c85f1be27ed113ccc9e8d6ab47ab541df4"
+license = "BSD-3-Clause"
+modified = false
+
+[[fixture]]
+file = "lif_norse.nir"
+upstream_path = "paper/01_lif/lif_norse.nir"
+producer = "norse"
+sha256 = "0dd9143ef624892d4a6461f474d93653a337b3490a62e23ec9ec5d18fde9b7b6"
+covers = ["Input", "Affine", "LIF", "Output", "f32", "v_reset_absent"]
+
+[[fixture]]
+file = "lif_rockpool.nir"
+upstream_path = "paper/01_lif/lif_rockpool.nir"
+producer = "rockpool"
+sha256 = "f493a2cd00e20be6305acd7808faa1d4558993c91f3af43454bf637371e543d6"
+covers = ["Input", "Linear", "LIF", "Output", "f32", "underscore_node_names", "v_reset_absent"]
+
+[[fixture]]
+file = "two_lif_neurons.nir"
+upstream_path = "paper/01_lif/debug_spike_representation/two_lif_neurons.nir"
+producer = "norse"
+sha256 = "806c7c1cfae72b5be92ce15a670f37014b82a5d4fba8a077efce46d193c21a82"
+covers = ["Input", "Linear", "LIF", "Output", "f64"]
+
+[[fixture]]
+file = "braille_noDelay_bias_zero.nir"
+upstream_path = "paper/03_rnn/braille_noDelay_bias_zero.nir"
+producer = "braille_rnn"
+sha256 = "f1aab3ce74024e7feac508a03b04c58d483ee3a01e293dba4b53d0b519b8650e"
+covers = ["CubaLIF", "Affine", "recurrence", "dotted_names", "w_in_present", "f32_f64_mix"]
+
+[[fixture]]
+file = "braille_noDelay_noBias_subtract.nir"
+upstream_path = "paper/03_rnn/braille_noDelay_noBias_subtract.nir"
+producer = "braille_rnn"
+sha256 = "14f59e0903d76437be3cb23d7e4be6b4e08ea476e482f7478dbb4592b29377d3"
+covers = ["CubaLIF", "Linear", "recurrence", "dotted_names", "w_in_present", "f32_f64_mix"]
+
+[[fixture]]
+file = "braille_noDelay_bias_zero_subgraph.nir"
+upstream_path = "paper/03_rnn/extras/braille_noDelay_bias_zero_subgraph.nir"
+producer = "braille_rnn"
+sha256 = "58132a83a42d614b411948a9f2bc9817e648577b58b70b5b2c4c86021d437a1b"
+covers = ["NIRGraph_nested", "CubaLIF", "Affine", "upstream_unresolved_inner_edge"]
+
+[[fixture]]
+file = "braille_noDelay_noBias_subtract_subgraph.nir"
+upstream_path = "paper/03_rnn/extras/braille_noDelay_noBias_subtract_subgraph.nir"
+producer = "braille_rnn"
+sha256 = "8038ab6b095554950ec966da0f9cb72d5a97593afd6bb4b37a7887c4bfd81b9a"
+covers = ["NIRGraph_nested", "CubaLIF", "Linear", "upstream_unresolved_inner_edge"]
+
+[[fixture]]
+file = "cnn_sinabs.nir"
+upstream_path = "paper/02_cnn/cnn_sinabs.nir"
+producer = "sinabs"
+sha256 = "e2fa55bda7aab5a772485e1b690358bcb825b303eca7dc426e3973937fcb5bcb"
+covers = ["Conv2d", "IF", "SumPool2d", "Flatten", "Affine", "multi_axis_shapes", "explicit_padding"]

@@ -8,7 +8,7 @@ and what each release line claims.
 | nir-rs line | Git tag / crates.io | Upstream NIR (fixtures) | Notes |
 |-------------|---------------------|-------------------------|--------|
 | **0.4.x** | `v0.4.0` (git; crates.io pending #26) | Vendored from neuromorphs/NIR @ `7883c3c` (see `tests/fixtures/README.md`) | Graph model + HDF5 I/O + serde DX |
-| Unreleased post-0.4.0 | `main` | Same fixture corpus | Multi-OS CI + package/semver gates |
+| Unreleased post-0.4.0 | `main` | Full paper corpus @ `7883c3c` (8 `.nir` files) | Multi-OS CI + package/semver gates; fixture expansion (#29) |
 
 **Only fixture-backed claims are made.** A newer upstream NIR release is **not**
 automatically supported until fixtures (and tests) are updated.
@@ -18,12 +18,16 @@ automatically supported until fixtures (and tests) are updated.
 | Fixture | Exercises (node families / structure) |
 |---------|----------------------------------------|
 | `lif_norse.nir` | Input / Affine / LIF / Output; `f32`; optional `v_reset` **absent** |
+| `lif_rockpool.nir` | Rockpool: Input / **Linear** / LIF / Output; underscore names |
 | `two_lif_neurons.nir` | Linear + LIF; `f64` |
-| `braille_noDelay_bias_zero.nir` | CubaLIF, multi-edge, dotted names |
-| `braille_noDelay_bias_zero_subgraph.nir` | Nested `NIRGraph` |
+| `braille_noDelay_bias_zero.nir` | CubaLIF, multi-edge, dotted names; Affine + zero bias |
+| `braille_noDelay_noBias_subtract.nir` | CubaLIF RNN with **Linear** (no bias) |
+| `braille_noDelay_bias_zero_subgraph.nir` | Nested `NIRGraph` (Affine inner) |
+| `braille_noDelay_noBias_subtract_subgraph.nir` | Nested `NIRGraph` (Linear inner) |
 | `cnn_sinabs.nir` | Conv2d, IF, SumPool2d, Flatten, Affine |
 
-Provenance, SHAs, and license for fixtures: [`tests/fixtures/README.md`](tests/fixtures/README.md).
+Provenance, SHAs, MANIFEST, and real-vs-synthetic coverage checklist:
+[`tests/fixtures/README.md`](tests/fixtures/README.md).
 
 ## Fidelity semantics
 

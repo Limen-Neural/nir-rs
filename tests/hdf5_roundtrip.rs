@@ -26,11 +26,14 @@ use nir_rs::types::{MetadataValue, Tensor};
 use nir_rs::{NirGraph, NirNode};
 use tempfile::TempDir;
 
-const FIXTURES: [&str; 5] = [
+const FIXTURES: [&str; 8] = [
     "lif_norse.nir",
+    "lif_rockpool.nir",
     "two_lif_neurons.nir",
     "braille_noDelay_bias_zero.nir",
+    "braille_noDelay_noBias_subtract.nir",
     "braille_noDelay_bias_zero_subgraph.nir",
+    "braille_noDelay_noBias_subtract_subgraph.nir",
     "cnn_sinabs.nir",
 ];
 
