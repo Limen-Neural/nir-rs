@@ -8,6 +8,11 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Added
+
+- Docker image + dual publish to **GHCR** (`ghcr.io/limen-neural/nir-rs`) and
+  **Docker Hub** (`$DOCKER_USER/nir-rs`); PR verify / main+tag push (#26).
+
 ## [0.4.1] - 2026-08-12
 
 First **crates.io** release of the 0.4 line (package name `nir-rs`).

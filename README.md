@@ -3,6 +3,7 @@
 **Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR)**
 
 [![CI](https://github.com/Limen-Neural/nir-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions)
+[![Docker](https://github.com/Limen-Neural/nir-rs/actions/workflows/docker.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions/workflows/docker.yml)
 [![crates.io](https://img.shields.io/crates/v/nir-rs.svg)](https://crates.io/crates/nir-rs)
 [![docs.rs](https://docs.rs/nir-rs/badge.svg)](https://docs.rs/nir-rs)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
@@ -61,6 +62,30 @@ Tracking: [GitHub milestones](https://github.com/Limen-Neural/nir-rs/milestones)
 | [COMPATIBILITY.md](COMPATIBILITY.md) | Release ↔ upstream NIR matrix, fidelity semantics, features, MSRV |
 
 Compatibility claims are **fixture-backed** only; see also `tests/fixtures/`.
+
+## Docker (GHCR + Docker Hub)
+
+Published images ship a **Rust 1.97 + libhdf5** toolchain with the crate tree and
+the `load_inspect_lif` example binary (not an SNN simulator). CI verifies on
+PRs and pushes on `main` / version tags — see [`.github/workflows/docker.yml`](.github/workflows/docker.yml).
+
+```bash
+# GitHub Container Registry
+docker pull ghcr.io/limen-neural/nir-rs:0.4.1
+docker pull ghcr.io/limen-neural/nir-rs:latest
+
+# Docker Hub (org/user from publish config)
+docker pull limenneural/nir-rs:0.4.1   # replace if DOCKER_USER differs
+
+docker run --rm ghcr.io/limen-neural/nir-rs:0.4.1 rustc --version
+docker run --rm ghcr.io/limen-neural/nir-rs:0.4.1 load_inspect_lif --help || true
+```
+
+Local build:
+
+```bash
+docker build -t nir-rs:local .
+```
 
 ## Toolchain & MSRV
 
