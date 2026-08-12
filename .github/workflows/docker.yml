@@ -2,7 +2,7 @@
 # Third-party Actions pinned to immutable commit SHAs.
 # Local Buildx only (no Docker Build Cloud).
 #
-# PR: verify build only (contents: read; no packages: write).
+# PR: verify build only (contents: read; no registry secrets / packages: write).
 # Upstream main: SHA + latest only (never overwrite :X.Y.Z).
 # Upstream v* tag matching Cargo.toml: SHA + X.Y.Z + latest.
 name: Docker
@@ -14,6 +14,11 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
+
+# Cancel superseded publish runs so :latest cannot race backward.
+concurrency:
+  group: docker-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -31,14 +36,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Log in to Docker Hub
-        # Same-repo human PRs may pull private base layers; Dependabot has no secrets.
-        if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          username: ${{ vars.DOCKER_USER }}
-          password: ${{ secrets.DOCKER_PAT }}
-
+      # No Docker Hub / GHCR login on PRs — never expose DOCKER_PAT to PR code.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
@@ -48,8 +46,8 @@ jobs:
           set -euo pipefail
           SHA="${{ github.sha }}"
           echo "runtime_tag=nir-rs:pr-${SHA}" >> "$GITHUB_OUTPUT"
-          echo "builder_tag=nir-rs:builder-pr-${SHA}" >> "$GITHUB_OUTPUT"
 
+      # Full Dockerfile build already runs cargo test in the builder stage.
       - name: Build runtime image (load locally)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -67,16 +65,8 @@ jobs:
           docker run --rm "${TAG}" sh -c 'pkg-config --exists hdf5'
           # Default path uses fixtures under CARGO_MANIFEST_DIR=/src
           docker run --rm "${TAG}" load_inspect_lif
-
-      # Builder stage already runs cargo test --all-features during the image build.
-      - name: Build builder stage (exercises tests inside Dockerfile)
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          push: false
-          load: true
-          target: builder
-          tags: ${{ steps.image.outputs.builder_tag }}
+          # Runtime user can write target/ for agent cargo builds
+          docker run --rm "${TAG}" sh -c 'touch /src/.write-check && rm /src/.write-check'
 
   docker-publish:
     name: docker publish
@@ -125,13 +115,11 @@ jobs:
             exit 1
           fi
 
-          # Lowercase owner for GHCR (org names are case-insensitive but tags must be lower).
           OWNER=$(printf '%s' "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
           HUB="${DOCKER_USER}/nir-rs"
           GHCR="ghcr.io/${OWNER}/nir-rs"
 
           if [ "${REF}" = "refs/heads/main" ]; then
-            # Never overwrite :X.Y.Z from unreleased main; only SHA + latest.
             TAGS="${HUB}:${SHA},${HUB}:latest,${GHCR}:${SHA},${GHCR}:latest"
           elif [[ "${REF}" == refs/tags/v* ]]; then
             TAG_NAME="${REF#refs/tags/}"
@@ -146,7 +134,6 @@ jobs:
           fi
 
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
-          echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0

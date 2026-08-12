@@ -74,8 +74,8 @@ PRs and pushes on `main` / version tags — see [`.github/workflows/docker.yml`]
 docker pull ghcr.io/limen-neural/nir-rs:0.4.1
 docker pull ghcr.io/limen-neural/nir-rs:latest
 
-# Docker Hub (org/user from publish config)
-docker pull limenneural/nir-rs:0.4.1   # replace if DOCKER_USER differs
+# Docker Hub — image is ${DOCKER_USER}/nir-rs (repo var DOCKER_USER on publish)
+docker pull ${DOCKER_USER:-YOUR_DOCKERHUB_USER}/nir-rs:latest
 
 docker run --rm ghcr.io/limen-neural/nir-rs:0.4.1 rustc --version
 # Default input: tests/fixtures/lif_norse.nir (writes a temp copy)

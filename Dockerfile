@@ -4,7 +4,8 @@
 # Builder: cargo test --all-features + release example with system libhdf5.
 # Runtime: Rust pin + libhdf5 + source (no target/) + example binary.
 # WORKDIR stays /src so env!(CARGO_MANIFEST_DIR) from the builder still finds
-# tests/fixtures. Non-root user. No Python (AGENTS.md).
+# tests/fixtures. Non-root user owns /src so cargo can recreate target/.
+# No Python (AGENTS.md).
 
 ARG RUST_IMAGE=rust:1.97-bookworm
 
@@ -42,6 +43,8 @@ RUN apt-get update \
     && useradd --create-home --uid 10001 --shell /bin/bash nir
 
 # Match builder path for CARGO_MANIFEST_DIR baked into the example binary.
+# Own /src itself so the runtime user can recreate target/ for cargo build/test.
+RUN mkdir -p /src && chown nir:nir /src
 WORKDIR /src
 COPY --from=builder --chown=nir:nir /src /src
 COPY --from=builder /tmp/load_inspect_lif /usr/local/bin/load_inspect_lif
@@ -49,7 +52,8 @@ RUN chmod 755 /usr/local/bin/load_inspect_lif
 
 USER nir
 ENV CARGO_HOME=/home/nir/.cargo \
-    CARGO_TERM_COLOR=always
+    CARGO_TERM_COLOR=always \
+    PATH=/home/nir/.cargo/bin:/usr/local/cargo/bin:$PATH
 # Pre-warm crate index for agent use; tolerate offline builders.
 RUN cargo fetch || true
 

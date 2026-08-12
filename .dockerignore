@@ -1,7 +1,6 @@
 # Keep Docker context small and free of secrets / build junk.
 .git
 .github
-.target
 target
 **/target
 fuzz/target
