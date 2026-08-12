@@ -70,16 +70,17 @@ the `load_inspect_lif` example binary (not an SNN simulator). CI verifies on
 PRs and pushes on `main` / version tags — see [`.github/workflows/docker.yml`](.github/workflows/docker.yml).
 
 ```bash
-# GitHub Container Registry
-docker pull ghcr.io/limen-neural/nir-rs:0.4.1
+# Preferred: GitHub Container Registry (stable org path)
 docker pull ghcr.io/limen-neural/nir-rs:latest
+# Version tag appears after a matching git tag push (e.g. v0.4.1 → :0.4.1)
+docker pull ghcr.io/limen-neural/nir-rs:0.4.1
 
-# Docker Hub — image is ${DOCKER_USER}/nir-rs (repo var DOCKER_USER on publish)
-docker pull ${DOCKER_USER:-YOUR_DOCKERHUB_USER}/nir-rs:latest
+# Docker Hub: published as <vars.DOCKER_USER>/nir-rs (same tags as GHCR).
+# Use the org/user from GitHub Actions repo variables, not a shell placeholder.
 
-docker run --rm ghcr.io/limen-neural/nir-rs:0.4.1 rustc --version
+docker run --rm ghcr.io/limen-neural/nir-rs:latest rustc --version
 # Default input: tests/fixtures/lif_norse.nir (writes a temp copy)
-docker run --rm ghcr.io/limen-neural/nir-rs:0.4.1 load_inspect_lif
+docker run --rm ghcr.io/limen-neural/nir-rs:latest load_inspect_lif
 ```
 
 Local build:
