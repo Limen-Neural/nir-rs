@@ -74,11 +74,14 @@ jobs:
       github.repository == 'Limen-Neural/nir-rs' &&
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main' || startsWith(github.ref, 'refs/tags/v'))
-    # Shared group serializes main + tag publishes so :latest cannot race.
-    # cancel-in-progress: false — never abort an in-flight version-tag publish.
+    # Separate branch vs tag groups so a main push never drops a queued v* publish.
+    # Tags: never cancel (protect immutable :X.Y.Z). Branch: cancel superseded mains.
     concurrency:
-      group: docker-publish-${{ github.repository }}
-      cancel-in-progress: false
+      group: >-
+        docker-publish-${{ github.repository }}-${{
+          startsWith(github.ref, 'refs/tags/') && 'tag' || 'branch'
+        }}
+      cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: read
       packages: write
