@@ -222,7 +222,8 @@ there). Nothing in the default build, tests, or CI needs a Python interpreter
 (Windows HDF5 in CI is installed via conda-forge for the native library only).
 Full matrix and fidelity rules: [COMPATIBILITY.md](COMPATIBILITY.md).
 
-See [REVIEW.md](REVIEW.md) and [AGENTS.md](AGENTS.md).
+See [REVIEW.md](REVIEW.md), [AGENTS.md](AGENTS.md), and [TESTING.md](TESTING.md)
+(property tests + optional `cargo-fuzz` harnesses).
 
 ## License
 

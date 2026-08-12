@@ -1,0 +1,33 @@
+[package]
+name = "nir-rs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+nir-rs = { path = ".." }
+
+[[bin]]
+name = "tensor_new"
+path = "fuzz_targets/tensor_new.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "graph_structure"
+path = "fuzz_targets/graph_structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_names"
+path = "fuzz_targets/link_names.rs"
+test = false
+doc = false
+bench = false

@@ -45,6 +45,9 @@ cargo test --all-features
 cargo doc --no-deps --all-features
 ```
 
+Property tests (`proptest`, `tests/prop_*.rs`) run inside `cargo test`. Optional
+nightly fuzz harnesses: see [TESTING.md](TESTING.md) (`cargo +nightly fuzz run …`).
+
 `--all-features` enables `hdf5`, which links libhdf5: install `libhdf5-dev`
 (Ubuntu) or `hdf5` (Homebrew) first.
 
