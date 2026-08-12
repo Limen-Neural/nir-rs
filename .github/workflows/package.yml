@@ -84,8 +84,9 @@ jobs:
         run: |
           set -euo pipefail
           # cargo package writes target/package/nir-rs-<version>.crate and unpacks
-          # a matching directory when packing.
-          ver="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          # a matching directory when packing. Version from Cargo.toml only (no Python).
+          ver="$(awk -F'"' '/^version = / { print $2; exit }' Cargo.toml)"
+          test -n "$ver"
           pkg_dir="target/package/nir-rs-${ver}"
           test -d "$pkg_dir"
           # Default feature set only (no system libhdf5 required).
@@ -114,9 +115,10 @@ jobs:
 
       # crate is not on crates.io yet (README / issue #26). Use the last release
       # tag as the public API baseline until a registry version exists.
-      # Install latest cargo-semver-checks so rustdoc JSON format matches 1.97.x.
+      # Pin cargo-semver-checks so rustdoc JSON format stays compatible with 1.97.1
+      # (older 0.40.x fails on rustdoc v57). Bump with the CI toolchain when needed.
       - name: Install cargo-semver-checks
-        run: cargo install cargo-semver-checks --locked
+        run: cargo install cargo-semver-checks --locked --version 0.50.0
 
       - name: Check public API vs tag v0.4.0
         run: |
@@ -124,4 +126,3 @@ jobs:
             --package nir-rs \
             --baseline-rev v0.4.0 \
             --default-features
-
