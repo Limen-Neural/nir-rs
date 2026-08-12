@@ -7,13 +7,21 @@
 
 #![cfg(feature = "hdf5")]
 
-use nir_rs::io::WriteOptions;
 use nir_rs::io::wire::check_link_name;
+use nir_rs::io::{DEFAULT_NIR_VERSION, WriteOptions};
 use nir_rs::nodes::{Input, Linear, Output};
 use nir_rs::types::Tensor;
 use nir_rs::{NirGraph, NirNode};
 use proptest::prelude::*;
 use tempfile::TempDir;
+
+/// Writers fill absent `NirGraph::version` with [`DEFAULT_NIR_VERSION`].
+fn with_default_version(mut graph: NirGraph) -> NirGraph {
+    if graph.version.is_none() {
+        graph.version = Some(DEFAULT_NIR_VERSION.into());
+    }
+    graph
+}
 
 fn input(shape: Vec<usize>) -> NirNode {
     NirNode::Input(Input {
@@ -85,7 +93,7 @@ proptest! {
         let path = dir.path().join("lin.nir");
         nir_rs::io::write(&path, &g).unwrap();
         let decoded = nir_rs::io::read(&path).unwrap();
-        assert_eq!(decoded, g);
+        assert_eq!(decoded, with_default_version(g));
     }
 
     /// Illegal link names fail **before** the destination path is replaced.
