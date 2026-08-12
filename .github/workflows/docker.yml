@@ -74,10 +74,11 @@ jobs:
       github.repository == 'Limen-Neural/nir-rs' &&
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main' || startsWith(github.ref, 'refs/tags/v'))
-    # Shared group for main + tag so :latest cannot race across refs.
+    # Shared group serializes main + tag publishes so :latest cannot race.
+    # cancel-in-progress: false — never abort an in-flight version-tag publish.
     concurrency:
       group: docker-publish-${{ github.repository }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
@@ -122,7 +123,7 @@ jobs:
           HUB="${DOCKER_USER}/nir-rs"
           GHCR="ghcr.io/${OWNER}/nir-rs"
 
-          if [ "${REF}" = "refs/heads/main" ]; then
+          if [ "${REF}" = "refs/heads/main" ] || [ "${REF}" = "refs/heads/Main" ]; then
             TAGS="${HUB}:${SHA},${HUB}:latest,${GHCR}:${SHA},${GHCR}:latest"
           elif [[ "${REF}" == refs/tags/v* ]]; then
             TAG_NAME="${REF#refs/tags/}"
