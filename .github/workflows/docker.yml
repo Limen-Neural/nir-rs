@@ -9,16 +9,12 @@ name: Docker
 
 on:
   push:
-    branches: [main]
+    # REVIEW.md: workflows that change CI must keep Main + main targets.
+    branches: [main, Main]
     tags: ["v*"]
   pull_request:
-    branches: [main]
+    branches: [main, Main]
     types: [opened, synchronize, reopened]
-
-# Cancel superseded publish runs so :latest cannot race backward.
-concurrency:
-  group: docker-${{ github.repository }}-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -28,6 +24,9 @@ jobs:
     name: docker verify
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    concurrency:
+      group: docker-verify-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     permissions:
       contents: read
     steps:
@@ -74,7 +73,11 @@ jobs:
     if: >
       github.repository == 'Limen-Neural/nir-rs' &&
       github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main' || startsWith(github.ref, 'refs/tags/v'))
+    # Shared group for main + tag so :latest cannot race across refs.
+    concurrency:
+      group: docker-publish-${{ github.repository }}
+      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
@@ -141,3 +144,23 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.image.outputs.tags }}
+
+      # First package creation is private by default; public pulls need public visibility.
+      - name: Ensure GHCR package is public
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          OWNER=$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          # Org package API (works for org-owned containers).
+          if gh api --method PUT             -H "Accept: application/vnd.github+json"             "/orgs/${OWNER}/packages/container/nir-rs/visibility"             -f visibility=public; then
+            echo "GHCR package set public (org API)"
+            exit 0
+          fi
+          # User-owned fallback.
+          if gh api --method PUT             -H "Accept: application/vnd.github+json"             "/user/packages/container/nir-rs/visibility"             -f visibility=public; then
+            echo "GHCR package set public (user API)"
+            exit 0
+          fi
+          echo "::warning::Could not set GHCR visibility to public automatically; set ghcr.io/${OWNER}/nir-rs public in package settings."

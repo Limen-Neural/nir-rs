@@ -83,6 +83,10 @@ docker run --rm ghcr.io/limen-neural/nir-rs:latest rustc --version
 docker run --rm ghcr.io/limen-neural/nir-rs:latest load_inspect_lif
 ```
 
+First GHCR publish creates a **private** package by default. The publish job
+tries to set visibility to **public**; if that fails, an org admin must set
+`ghcr.io/limen-neural/nir-rs` public under GitHub Packages.
+
 Local build:
 
 ```bash
