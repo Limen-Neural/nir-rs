@@ -13,7 +13,7 @@ interpreter is needed to build, test, or use this crate.
 | Source commit | `7883c3c85f1be27ed113ccc9e8d6ab47ab541df4` |
 | License of `.nir` files | BSD 3-Clause (see below) |
 | Modified? | **No** — byte-identical copies of upstream paper artifacts |
-| Producing NIR package version | Embedded `/version` string is typically `0.1.1` (see tests) |
+| Producing NIR package version | Embedded `/version` is `0.1.1` for most paper files; `lif_rockpool.nir` is `0.2.0` |
 
 Machine-readable catalog: [`MANIFEST.toml`](MANIFEST.toml).
 

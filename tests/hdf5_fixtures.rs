@@ -128,7 +128,8 @@ fn read_version_matches_graph_version() {
 fn lif_rockpool_structure_and_values() {
     let g = read("lif_rockpool.nir");
 
-    assert_eq!(g.version.as_deref(), Some("0.1.1"));
+    // Rockpool paper artifact embeds NIR version 0.2.0 (others are 0.1.1).
+    assert_eq!(g.version.as_deref(), Some("0.2.0"));
     assert_eq!(
         type_names(&g),
         [
@@ -486,6 +487,10 @@ fn every_interop_fixture_loads() {
     for name in ALL_FIXTURES {
         let g = read(name);
         assert!(!g.nodes.is_empty(), "{name} should have nodes");
-        assert_eq!(g.version.as_deref(), Some("0.1.1"), "{name} root version");
+        let version = g.version.as_deref().expect("{name} should carry /version");
+        assert!(
+            version == "0.1.1" || version == "0.2.0",
+            "{name}: unexpected NIR version {version}"
+        );
     }
 }
