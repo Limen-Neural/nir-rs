@@ -7,8 +7,8 @@ and what each release line claims.
 
 | nir-rs line | Git tag / crates.io | Upstream NIR (fixtures) | Notes |
 |-------------|---------------------|-------------------------|--------|
-| **0.4.x** | `v0.4.0` (git; crates.io pending #26) | Vendored from neuromorphs/NIR @ `7883c3c` (see `tests/fixtures/README.md`) | Graph model + HDF5 I/O + serde DX |
-| Unreleased post-0.4.0 | `main` | Full paper corpus @ `7883c3c` (8 `.nir` files) | Multi-OS CI + package/semver gates; fixture expansion (#29) |
+| **0.4.x** | `v0.4.1` / crates.io **0.4.1** | Vendored from neuromorphs/NIR @ `7883c3c` (see `tests/fixtures/README.md`) | Graph model + HDF5 I/O + serde DX + release hardening |
+| `v0.4.0` | git tag only (pre-crates.io) | Same fixture commit | First git-tagged consumer pin |
 
 **Only fixture-backed claims are made.** A newer upstream NIR release is **not**
 automatically supported until fixtures (and tests) are updated.

@@ -3,6 +3,8 @@
 **Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR)**
 
 [![CI](https://github.com/Limen-Neural/nir-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions)
+[![crates.io](https://img.shields.io/crates/v/nir-rs.svg)](https://crates.io/crates/nir-rs)
+[![docs.rs](https://docs.rs/nir-rs/badge.svg)](https://docs.rs/nir-rs)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 > Pure-Rust NIR graph model (typed nodes, edges, validation), plus opt-in HDF5 `.nir` read/write that interoperates with the Python reference implementation. The graph model has no system dependencies; the `hdf5` feature is the one part that links native libhdf5.
@@ -46,7 +48,7 @@ This crate does **not** own:
 | **v0.1** | Dual license, module skeleton, CI, agent docs | Done |
 | **v0.2** | Typed graph, wire-accurate nodes, structured errors | Done |
 | **v0.3** | HDF5 read/write via `hdf5-metno`, fixtures, round-trip | Done |
-| **v0.4** | Serde/debug DX, examples | **This release** |
+| **v0.4** | Serde/debug DX, examples, release hardening | **0.4.1 on crates.io** |
 | **v0.5** | Wire consumers (silicon-bridge, axon-encoder, engram-parser) | Planned |
 
 Tracking: [GitHub milestones](https://github.com/Limen-Neural/nir-rs/milestones) · [LIM-822](https://linear.app/rpd-34/issue/LIM-822)
@@ -79,11 +81,9 @@ on that older compiler; the supported quality bar is **1.97.1**.
 
 ## Quick start
 
-Not published to crates.io yet. Prefer a **git tag** pin (or path) over a floating branch:
-
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.0" }
+nir-rs = "0.4.1"
 ```
 
 To also get HDF5 `.nir` I/O, enable the `hdf5` feature (see [File I/O](#file-io)
@@ -91,7 +91,13 @@ for the system dependency it brings):
 
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.0", features = ["hdf5"] }
+nir-rs = { version = "0.4.1", features = ["hdf5"] }
+```
+
+Development tip: pin a git tag when you need unreleased `main` fixes:
+
+```toml
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.1" }
 ```
 
 ```rust
@@ -186,7 +192,7 @@ graph, all wire node variants, metadata, and tensors. It is independent of the
 
 ```toml
 [dependencies]
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.0", features = ["serde"] }
+nir-rs = { version = "0.4.1", features = ["serde"] }
 serde_json = "1"
 ```
 
