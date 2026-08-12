@@ -51,6 +51,15 @@ This crate does **not** own:
 
 Tracking: [GitHub milestones](https://github.com/Limen-Neural/nir-rs/milestones) · [LIM-822](https://linear.app/rpd-34/issue/LIM-822)
 
+## Changelog & compatibility
+
+| Doc | Purpose |
+|-----|---------|
+| [CHANGELOG.md](CHANGELOG.md) | Keep a Changelog notes + 0.x versioning policy |
+| [COMPATIBILITY.md](COMPATIBILITY.md) | Release ↔ upstream NIR matrix, fidelity semantics, features, MSRV |
+
+Compatibility claims are **fixture-backed** only; see also `tests/fixtures/`.
+
 ## Toolchain & MSRV
 
 **CI and local development pin Rust 1.97.1** (`rust-toolchain.toml`
@@ -211,6 +220,7 @@ Wire compatibility is checked against real `.nir` files written by the Python
 implementation and vendored under `tests/fixtures/` (BSD-3, see the README
 there). Nothing in the default build, tests, or CI needs a Python interpreter
 (Windows HDF5 in CI is installed via conda-forge for the native library only).
+Full matrix and fidelity rules: [COMPATIBILITY.md](COMPATIBILITY.md).
 
 See [REVIEW.md](REVIEW.md) and [AGENTS.md](AGENTS.md).
 
