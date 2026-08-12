@@ -2,8 +2,9 @@
 # Third-party Actions pinned to immutable commit SHAs.
 # Local Buildx only (no Docker Build Cloud).
 #
-# PR: verify build + run tests in builder stage (contents: read only).
-# main / tag: publish to Hub + GHCR (packages: write only on publish job).
+# PR: verify build only (contents: read; no packages: write).
+# Upstream main: SHA + latest only (never overwrite :X.Y.Z).
+# Upstream v* tag matching Cargo.toml: SHA + X.Y.Z + latest.
 name: Docker
 
 on:
@@ -60,13 +61,14 @@ jobs:
       - name: Smoke runtime image
         run: |
           set -euo pipefail
-          docker run --rm "${{ steps.image.outputs.runtime_tag }}" rustc --version
-          docker run --rm "${{ steps.image.outputs.runtime_tag }}" \
-            sh -c 'test -x /usr/local/bin/load_inspect_lif'
-          docker run --rm "${{ steps.image.outputs.runtime_tag }}" \
-            sh -c 'pkg-config --exists hdf5'
+          TAG="${{ steps.image.outputs.runtime_tag }}"
+          docker run --rm "${TAG}" rustc --version
+          docker run --rm "${TAG}" sh -c 'test -x /usr/local/bin/load_inspect_lif'
+          docker run --rm "${TAG}" sh -c 'pkg-config --exists hdf5'
+          # Default path uses fixtures under CARGO_MANIFEST_DIR=/src
+          docker run --rm "${TAG}" load_inspect_lif
 
-      # Builder stage already runs `cargo test --all-features` during the image build.
+      # Builder stage already runs cargo test --all-features during the image build.
       - name: Build builder stage (exercises tests inside Dockerfile)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -79,7 +81,10 @@ jobs:
   docker-publish:
     name: docker publish
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    if: >
+      github.repository == 'Limen-Neural/nir-rs' &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: read
       packages: write
@@ -107,18 +112,39 @@ jobs:
 
       - name: Set image tags
         id: image
+        env:
+          DOCKER_USER: ${{ vars.DOCKER_USER }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          SHA="${{ github.sha }}"
           VER=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
           if [ -z "${VER}" ] || ! printf '%s' "${VER}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::Failed to extract semver X.Y.Z from Cargo.toml (got: ${VER:-empty})"
             exit 1
           fi
-          HUB="${{ vars.DOCKER_USER }}/nir-rs"
-          GHCR="ghcr.io/limen-neural/nir-rs"
-          TAGS="${HUB}:${SHA},${HUB}:${VER},${HUB}:latest"
-          TAGS="${TAGS},${GHCR}:${SHA},${GHCR}:${VER},${GHCR}:latest"
+
+          # Lowercase owner for GHCR (org names are case-insensitive but tags must be lower).
+          OWNER=$(printf '%s' "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
+          HUB="${DOCKER_USER}/nir-rs"
+          GHCR="ghcr.io/${OWNER}/nir-rs"
+
+          if [ "${REF}" = "refs/heads/main" ]; then
+            # Never overwrite :X.Y.Z from unreleased main; only SHA + latest.
+            TAGS="${HUB}:${SHA},${HUB}:latest,${GHCR}:${SHA},${GHCR}:latest"
+          elif [[ "${REF}" == refs/tags/v* ]]; then
+            TAG_NAME="${REF#refs/tags/}"
+            if [ "${TAG_NAME}" != "v${VER}" ]; then
+              echo "::error::Git tag ${TAG_NAME} does not match Cargo.toml version v${VER}"
+              exit 1
+            fi
+            TAGS="${HUB}:${SHA},${HUB}:${VER},${HUB}:latest,${GHCR}:${SHA},${GHCR}:${VER},${GHCR}:latest"
+          else
+            echo "::error::Unexpected ref ${REF}"
+            exit 1
+          fi
+
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
           echo "version=${VER}" >> "$GITHUB_OUTPUT"
 

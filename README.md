@@ -78,7 +78,8 @@ docker pull ghcr.io/limen-neural/nir-rs:latest
 docker pull limenneural/nir-rs:0.4.1   # replace if DOCKER_USER differs
 
 docker run --rm ghcr.io/limen-neural/nir-rs:0.4.1 rustc --version
-docker run --rm ghcr.io/limen-neural/nir-rs:0.4.1 load_inspect_lif --help || true
+# Default input: tests/fixtures/lif_norse.nir (writes a temp copy)
+docker run --rm ghcr.io/limen-neural/nir-rs:0.4.1 load_inspect_lif
 ```
 
 Local build:

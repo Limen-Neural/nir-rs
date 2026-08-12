@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1
 # nir-rs — published image for GHCR + Docker Hub.
 #
-# Builder stage: compile/test with system libhdf5 (matches CI quality bar).
-# Runtime stage: toolchain + libhdf5 for agents/consumers (not an SNN simulator).
-# No Python in either stage (AGENTS.md).
+# Builder: cargo test --all-features + release example with system libhdf5.
+# Runtime: Rust pin + libhdf5 + source (no target/) + example binary.
+# WORKDIR stays /src so env!(CARGO_MANIFEST_DIR) from the builder still finds
+# tests/fixtures. Non-root user. No Python (AGENTS.md).
 
 ARG RUST_IMAGE=rust:1.97-bookworm
 
@@ -22,11 +23,10 @@ COPY . .
 
 RUN rustup component add clippy rustfmt \
     && cargo test --all-features \
-    && cargo build --release --example load_inspect_lif --features hdf5
+    && cargo build --release --example load_inspect_lif --features hdf5 \
+    && cp target/release/examples/load_inspect_lif /tmp/load_inspect_lif \
+    && rm -rf target
 
-# ---------------------------------------------------------------------------
-# Published image: Rust pin + libhdf5 + crate source + release example binary
-# ---------------------------------------------------------------------------
 FROM ${RUST_IMAGE}
 
 RUN apt-get update \
@@ -38,16 +38,21 @@ RUN apt-get update \
         ca-certificates \
         curl \
     && rm -rf /var/lib/apt/lists/* \
-    && rustup component add clippy rustfmt
+    && rustup component add clippy rustfmt \
+    && useradd --create-home --uid 10001 --shell /bin/bash nir
 
-WORKDIR /workspace
-COPY --from=builder /src /workspace
-COPY --from=builder /src/target/release/examples/load_inspect_lif /usr/local/bin/load_inspect_lif
+# Match builder path for CARGO_MANIFEST_DIR baked into the example binary.
+WORKDIR /src
+COPY --from=builder --chown=nir:nir /src /src
+COPY --from=builder /tmp/load_inspect_lif /usr/local/bin/load_inspect_lif
+RUN chmod 755 /usr/local/bin/load_inspect_lif
 
-# Pre-warm registry cache for offline-ish agent use; ignore failure if offline.
+USER nir
+ENV CARGO_HOME=/home/nir/.cargo \
+    CARGO_TERM_COLOR=always
+# Pre-warm crate index for agent use; tolerate offline builders.
 RUN cargo fetch || true
 
-ENV CARGO_TERM_COLOR=always
 LABEL org.opencontainers.image.title="nir-rs" \
       org.opencontainers.image.description="Pure-Rust NIR graph + HDF5 I/O toolchain image" \
       org.opencontainers.image.source="https://github.com/Limen-Neural/nir-rs" \
