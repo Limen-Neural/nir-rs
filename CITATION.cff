@@ -1,0 +1,63 @@
+# Citation metadata for GitHub "Cite this repository" and tools that read CFF.
+# Preferred citation is the NIR paper (the IR this crate implements), not this
+# software alone. Authors/order match neuromorphs/NIR and the Nature article.
+cff-version: 1.2.0
+message: >-
+  If you use NIR (including via this Rust crate) in your work, please cite the
+  Nature Communications paper (preferred-citation below).
+title: "nir-rs: Pure-Rust Neuromorphic Intermediate Representation (NIR)"
+type: software
+authors:
+  - family-names: Montoya Cardenas
+    given-names: Raul
+repository-code: "https://github.com/Limen-Neural/nir-rs"
+url: "https://crates.io/crates/nir-rs"
+license: "MIT OR Apache-2.0"
+version: "0.4.2"
+abstract: >-
+  Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR):
+  typed graphs and opt-in HDF5 .nir I/O interoperable with the Python reference.
+preferred-citation:
+  type: article
+  title: >-
+    Neuromorphic intermediate representation: A unified instruction set for
+    interoperable brain-inspired computing
+  authors:
+    - family-names: Pedersen
+      given-names: Jens E.
+    - family-names: Abreu
+      given-names: Steven
+    - family-names: Jobst
+      given-names: Matthias
+    - family-names: Lenz
+      given-names: Gregor
+    - family-names: Fra
+      given-names: Vittorio
+    - family-names: Bauer
+      given-names: Felix Christian
+    - family-names: Muir
+      given-names: Dylan Richard
+    - family-names: Zhou
+      given-names: Peng
+    - family-names: Vogginger
+      given-names: Bernhard
+    - family-names: Heckel
+      given-names: Kade
+    - family-names: Urgese
+      given-names: Gianvito
+    - family-names: Shankar
+      given-names: Sadasivan
+    - family-names: Stewart
+      given-names: Terrence C.
+    - family-names: Sheik
+      given-names: Sadique
+    - family-names: Eshraghian
+      given-names: Jason K.
+  doi: 10.1038/s41467-024-52259-9
+  journal: Nature Communications
+  year: 2024
+  month: 9
+  volume: "15"
+  issue: "1"
+  start: 8122
+  url: "https://www.nature.com/articles/s41467-024-52259-9"

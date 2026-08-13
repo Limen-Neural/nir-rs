@@ -99,6 +99,8 @@
 //!
 //! - [neuromorphs/NIR](https://github.com/neuromorphs/NIR)
 //! - [neuroir.org](https://neuroir.org/)
+//! - Paper: [Pedersen et al., Nat. Commun. 15, 8122 (2024)](https://doi.org/10.1038/s41467-024-52259-9)
+//!   — please cite if you use NIR (see the repository `README` / `CITATION.cff`)
 //!
 //! Wire type names must match the Python IR (`CubaLIF`, `Conv2d`, …), not
 //! informal marketing aliases.
