@@ -2,9 +2,9 @@
 
 //! Failure modes when **reading** malformed `.nir` files.
 //!
-//! Downstream tools need to tell "this file is not NIR" apart
-//! from "this node type is not supported yet", so each case below asserts the
-//! specific [`NirError`] variant, not merely that an error occurred.
+//! Downstream tools need to distinguish non-NIR files from "unsupported node
+//! type" failures, so each case below asserts the specific [`NirError`]
+//! variant, not merely that an error occurred.
 
 #![cfg(feature = "hdf5")]
 

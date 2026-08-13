@@ -87,10 +87,17 @@ Debug Serde (JSON / RON / etc.; not a wire standard):
 nir-rs = { version = "0.4.2", features = ["serde"] }
 ```
 
-From git (unreleased fixes):
+From git — pin a release tag (same tree as the matching crates.io release once
+the tag exists):
 
 ```toml
 nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.2" }
+```
+
+For unreleased work on the default branch:
+
+```toml
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", branch = "main" }
 ```
 
 ## Quick start
