@@ -12,7 +12,9 @@ authors:
     given-names: Raul
 repository-code: "https://github.com/Limen-Neural/nir-rs"
 url: "https://crates.io/crates/nir-rs"
-license: "MIT OR Apache-2.0"
+license:
+  - MIT
+  - Apache-2.0
 version: "0.4.2"
 abstract: >-
   Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR):
