@@ -74,14 +74,14 @@ jobs:
       github.repository == 'Limen-Neural/nir-rs' &&
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main' || startsWith(github.ref, 'refs/tags/v'))
-    # Separate branch vs tag groups so a main push never drops a queued v* publish.
-    # Tags: never cancel (protect immutable :X.Y.Z). Branch: cancel superseded mains.
+    # One group for all :latest writers (main/Main + v* tags). Serializes pushes so
+    # branch and tag jobs cannot race on the mutable :latest tag.
+    # cancel-in-progress: false keeps an in-flight v* publish (immutable :X.Y.Z)
+    # from being aborted by a concurrent main push. Note: GitHub still keeps only
+    # one *pending* job per group — avoid stacking many publishes during a release.
     concurrency:
-      group: >-
-        docker-publish-${{ github.repository }}-${{
-          startsWith(github.ref, 'refs/tags/') && 'tag' || 'branch'
-        }}
-      cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      group: docker-publish-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
