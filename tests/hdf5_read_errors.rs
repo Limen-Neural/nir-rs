@@ -2,7 +2,7 @@
 
 //! Failure modes when **reading** malformed `.nir` files.
 //!
-//! Consumers such as `silicon-bridge` need to tell "this file is not NIR" apart
+//! Downstream tools need to tell "this file is not NIR" apart
 //! from "this node type is not supported yet", so each case below asserts the
 //! specific [`NirError`] variant, not merely that an error occurred.
 

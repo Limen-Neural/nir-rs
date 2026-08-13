@@ -8,6 +8,12 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Documentation
+
+- Rewrite README for public consumers: drop internal sibling-crate roadmap,
+  Linear tracking, and CI-only Hub variable language; keep crates.io/docs.rs
+  install path, GHCR pulls, and scope clear without org-private context.
+
 ## [0.4.1] - 2026-08-12
 
 First **crates.io** release of the 0.4 line (package name `nir-rs`).

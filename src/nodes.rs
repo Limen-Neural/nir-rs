@@ -44,7 +44,7 @@ impl Padding {
 
 /// Closed set of NIR computational nodes.
 ///
-/// Exhaustive matching is intentional for silicon-bridge and other consumers.
+/// Exhaustive matching is intentional so downstream tools can cover every wire type.
 /// This enum is **not** `#[non_exhaustive]` so downstream mappers can cover all
 /// wire types without a wildcard arm (new wire types are a major API change).
 /// With the `serde` feature, the representation is internally tagged by

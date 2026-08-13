@@ -92,8 +92,8 @@
 //! # Non-goals
 //!
 //! - SNN training or simulation
-//! - FPGA / hardware mapping (see `silicon-bridge`)
-//! - Framework-specific converters (live in producer/consumer crates)
+//! - Mapping graphs onto specific neuromorphic hardware
+//! - Framework-specific converters (belong in producer/consumer tools)
 //!
 //! # Upstream
 //!
