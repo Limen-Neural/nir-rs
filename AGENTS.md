@@ -51,10 +51,9 @@ nightly fuzz harnesses: see [TESTING.md](TESTING.md) (`cargo +nightly fuzz run �
 `--all-features` enables `hdf5`, which links libhdf5: install `libhdf5-dev`
 (Ubuntu) or `hdf5` (Homebrew) first.
 
-**Toolchain:** CI and agents pin **Rust 1.97.1** (`rust-toolchain.toml`).
-`package.rust-version` (**1.85.1**) is a cargo floor only — do **not** point the
-OS matrix at an old rustc. Default/`serde` and `--all-features` tests run on
-**Linux, macOS, and Windows** with `toolchain: "1.97.1"`.
+**Toolchain:** **Rust 1.97.1** everywhere — `rust-toolchain.toml`,
+`package.rust-version`, and CI (`toolchain: "1.97.1"`) on **Linux, macOS, and
+Windows**. Keep those three in lockstep when the pin moves.
 
 ### Package / semver CI (release gate)
 

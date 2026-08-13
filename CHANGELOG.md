@@ -13,6 +13,11 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 Docs-only patch so crates.io serves a consumer-facing README (0.4.1 is
 immutable on the registry).
 
+### Changed
+
+- `package.rust-version` raised **1.85.1 → 1.97.1** to match the supported CI /
+  `rust-toolchain.toml` pin (stop advertising an untested older floor).
+
 ### Documentation
 
 - Rewrite README for public consumers: drop internal sibling-crate roadmap,
@@ -20,6 +25,7 @@ immutable on the registry).
   install path, GHCR pulls, and scope clear without org-private context.
 - Align crate rustdoc non-goals and a few comments with the same public wording.
 - Bump advertised install / Docker tags to **0.4.2**.
+- Toolchain docs: single **1.97.1** pin (no separate MSRV floor story).
 
 ## [0.4.1] - 2026-08-12
 

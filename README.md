@@ -212,14 +212,10 @@ serde_json = "1"
 **JSON is debug/test output, not a NIR interchange standard.** Use HDF5 `.nir`
 for Python and hardware tooling. JSON cannot represent NaN/infinities faithfully.
 
-## Toolchain & MSRV
+## Toolchain
 
-| | Version |
-|--|---------|
-| **Supported (CI)** | **Rust 1.97.1** (`rust-toolchain.toml`) on Linux, macOS, Windows |
-| **Declared floor** | `rust-version = "1.85.1"` (Edition 2024 + `hdf5-metno` 0.14 metadata only) |
-
-Day-to-day work should use **1.97.1**, not the cargo floor.
+**Rust 1.97.1** — `rust-toolchain.toml`, `package.rust-version`, and CI
+(Linux / macOS / Windows) all pin the same version.
 
 ## Develop
 
