@@ -70,27 +70,27 @@ Compatibility claims are **fixture-backed** (`tests/fixtures/`).
 
 ```toml
 [dependencies]
-nir-rs = "0.4.1"
+nir-rs = "0.4.2"
 ```
 
 HDF5 `.nir` I/O (needs a system libhdf5, or a static build — see [File I/O](#file-io)):
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.1", features = ["hdf5"] }
+nir-rs = { version = "0.4.2", features = ["hdf5"] }
 ```
 
 Debug Serde (JSON / RON / etc.; not a wire standard):
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.1", features = ["serde"] }
+nir-rs = { version = "0.4.2", features = ["serde"] }
 ```
 
 From git (unreleased fixes):
 
 ```toml
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.1" }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.2" }
 ```
 
 ## Quick start
@@ -175,7 +175,7 @@ Images ship a **Rust 1.97 + libhdf5** environment with the crate sources and the
 `load_inspect_lif` example binary (not an SNN simulator).
 
 ```bash
-docker pull ghcr.io/limen-neural/nir-rs:0.4.1
+docker pull ghcr.io/limen-neural/nir-rs:0.4.2
 docker pull ghcr.io/limen-neural/nir-rs:latest
 
 docker run --rm ghcr.io/limen-neural/nir-rs:latest rustc --version
@@ -198,7 +198,7 @@ model. It is independent of `hdf5`:
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.1", features = ["serde"] }
+nir-rs = { version = "0.4.2", features = ["serde"] }
 serde_json = "1"
 ```
 

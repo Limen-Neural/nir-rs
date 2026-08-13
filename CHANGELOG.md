@@ -8,11 +8,18 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-13
+
+Docs-only patch so crates.io serves a consumer-facing README (0.4.1 is
+immutable on the registry).
+
 ### Documentation
 
 - Rewrite README for public consumers: drop internal sibling-crate roadmap,
   Linear tracking, and CI-only Hub variable language; keep crates.io/docs.rs
   install path, GHCR pulls, and scope clear without org-private context.
+- Align crate rustdoc non-goals and a few comments with the same public wording.
+- Bump advertised install / Docker tags to **0.4.2**.
 
 ## [0.4.1] - 2026-08-12
 
