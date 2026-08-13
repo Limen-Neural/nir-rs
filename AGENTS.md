@@ -118,6 +118,8 @@ Prefer a prebuilt image when the host supports it (Rust 1.97 + `libhdf5-dev`):
 
 | Path | Consumer |
 |------|----------|
+| [`Dockerfile`](Dockerfile) → `ghcr.io/limen-neural/nir-rs` + Docker Hub | Published toolchain image (GHCR + Hub) |
+| [`.github/workflows/docker.yml`](.github/workflows/docker.yml) | PR verify; `main`/tag dual-publish |
 | [`.cursor/environment.json`](.cursor/environment.json) → [`.cursor/Dockerfile`](.cursor/Dockerfile) | Cursor cloud agents |
 | [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) | VS Code / Cursor Desktop |
 | [`scripts/agent-bootstrap.sh`](scripts/agent-bootstrap.sh) | cubic / Claude / other bare sandboxes |

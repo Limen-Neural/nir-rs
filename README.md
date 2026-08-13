@@ -3,6 +3,7 @@
 **Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR)**
 
 [![CI](https://github.com/Limen-Neural/nir-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions)
+[![Docker](https://github.com/Limen-Neural/nir-rs/actions/workflows/docker.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions/workflows/docker.yml)
 [![crates.io](https://img.shields.io/crates/v/nir-rs.svg)](https://crates.io/crates/nir-rs)
 [![docs.rs](https://docs.rs/nir-rs/badge.svg)](https://docs.rs/nir-rs)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
@@ -61,6 +62,36 @@ Tracking: [GitHub milestones](https://github.com/Limen-Neural/nir-rs/milestones)
 | [COMPATIBILITY.md](COMPATIBILITY.md) | Release ↔ upstream NIR matrix, fidelity semantics, features, MSRV |
 
 Compatibility claims are **fixture-backed** only; see also `tests/fixtures/`.
+
+## Docker (GHCR + Docker Hub)
+
+Published images ship a **Rust 1.97 + libhdf5** toolchain with the crate tree and
+the `load_inspect_lif` example binary (not an SNN simulator). CI verifies on
+PRs and pushes on `main` / version tags — see [`.github/workflows/docker.yml`](.github/workflows/docker.yml).
+
+```bash
+# Preferred: GitHub Container Registry (stable org path)
+docker pull ghcr.io/limen-neural/nir-rs:latest
+# Version tag appears after a matching git tag push (e.g. v0.4.1 → :0.4.1)
+docker pull ghcr.io/limen-neural/nir-rs:0.4.1
+
+# Docker Hub: published as <vars.DOCKER_USER>/nir-rs (same tags as GHCR).
+# Use the org/user from GitHub Actions repo variables, not a shell placeholder.
+
+docker run --rm ghcr.io/limen-neural/nir-rs:latest rustc --version
+# Default input: tests/fixtures/lif_norse.nir (writes a temp copy)
+docker run --rm ghcr.io/limen-neural/nir-rs:latest load_inspect_lif
+```
+
+First GHCR publish creates a **private** package by default. The publish job
+tries to set visibility to **public**; if that fails, an org admin must set
+`ghcr.io/limen-neural/nir-rs` public under GitHub Packages.
+
+Local build:
+
+```bash
+docker build -t nir-rs:local .
+```
 
 ## Toolchain & MSRV
 

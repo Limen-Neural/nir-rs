@@ -1,0 +1,171 @@
+# Docker build + dual push (Docker Hub + GitHub Container Registry).
+# Third-party Actions pinned to immutable commit SHAs.
+# Local Buildx only (no Docker Build Cloud).
+#
+# PR: verify build only (contents: read; no registry secrets / packages: write).
+# Upstream main: SHA + latest only (never overwrite :X.Y.Z).
+# Upstream v* tag matching Cargo.toml: SHA + X.Y.Z + latest.
+name: Docker
+
+on:
+  push:
+    # REVIEW.md: workflows that change CI must keep Main + main targets.
+    branches: [main, Main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, Main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  docker-verify:
+    name: docker verify
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    concurrency:
+      group: docker-verify-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No Docker Hub / GHCR login on PRs — never expose DOCKER_PAT to PR code.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Set image tags
+        id: image
+        run: |
+          set -euo pipefail
+          SHA="${{ github.sha }}"
+          echo "runtime_tag=nir-rs:pr-${SHA}" >> "$GITHUB_OUTPUT"
+
+      # Full Dockerfile build already runs cargo test in the builder stage.
+      - name: Build runtime image (load locally)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{ steps.image.outputs.runtime_tag }}
+
+      - name: Smoke runtime image
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.image.outputs.runtime_tag }}"
+          docker run --rm "${TAG}" rustc --version
+          docker run --rm "${TAG}" sh -c 'test -x /usr/local/bin/load_inspect_lif'
+          docker run --rm "${TAG}" sh -c 'pkg-config --exists hdf5'
+          # Default path uses fixtures under CARGO_MANIFEST_DIR=/src
+          docker run --rm "${TAG}" load_inspect_lif
+          # Runtime user can write target/ for agent cargo builds
+          docker run --rm "${TAG}" sh -c 'touch /src/.write-check && rm /src/.write-check'
+
+  docker-publish:
+    name: docker publish
+    runs-on: ubuntu-latest
+    if: >
+      github.repository == 'Limen-Neural/nir-rs' &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main' || startsWith(github.ref, 'refs/tags/v'))
+    # One group for all :latest writers (main/Main + v* tags). Serializes pushes so
+    # branch and tag jobs cannot race on the mutable :latest tag.
+    # cancel-in-progress: false — never abort an in-flight publish (incl. immutable :X.Y.Z).
+    # queue: max — keep up to 100 pending runs (default is single: a later main push
+    # would replace a pending v* tag and skip the immutable image).
+    concurrency:
+      group: docker-publish-${{ github.repository }}
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ vars.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PAT }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Set image tags
+        id: image
+        env:
+          DOCKER_USER: ${{ vars.DOCKER_USER }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          VER=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "${VER}" ] || ! printf '%s' "${VER}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Failed to extract semver X.Y.Z from Cargo.toml (got: ${VER:-empty})"
+            exit 1
+          fi
+
+          OWNER=$(printf '%s' "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
+          HUB="${DOCKER_USER}/nir-rs"
+          GHCR="ghcr.io/${OWNER}/nir-rs"
+
+          if [ "${REF}" = "refs/heads/main" ] || [ "${REF}" = "refs/heads/Main" ]; then
+            TAGS="${HUB}:${SHA},${HUB}:latest,${GHCR}:${SHA},${GHCR}:latest"
+          elif [[ "${REF}" == refs/tags/v* ]]; then
+            TAG_NAME="${REF#refs/tags/}"
+            if [ "${TAG_NAME}" != "v${VER}" ]; then
+              echo "::error::Git tag ${TAG_NAME} does not match Cargo.toml version v${VER}"
+              exit 1
+            fi
+            TAGS="${HUB}:${SHA},${HUB}:${VER},${HUB}:latest,${GHCR}:${SHA},${GHCR}:${VER},${GHCR}:latest"
+          else
+            echo "::error::Unexpected ref ${REF}"
+            exit 1
+          fi
+
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+
+      # First package creation is private by default; public pulls need public visibility.
+      - name: Ensure GHCR package is public
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          OWNER=$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          # Org package API (works for org-owned containers).
+          if gh api --method PUT             -H "Accept: application/vnd.github+json"             "/orgs/${OWNER}/packages/container/nir-rs/visibility"             -f visibility=public; then
+            echo "GHCR package set public (org API)"
+            exit 0
+          fi
+          # User-owned fallback.
+          if gh api --method PUT             -H "Accept: application/vnd.github+json"             "/user/packages/container/nir-rs/visibility"             -f visibility=public; then
+            echo "GHCR package set public (user API)"
+            exit 0
+          fi
+          echo "::warning::Could not set GHCR visibility to public automatically; set ghcr.io/${OWNER}/nir-rs public in package settings."

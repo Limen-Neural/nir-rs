@@ -22,10 +22,13 @@ First **crates.io** release of the 0.4 line (package name `nir-rs`).
   `MANIFEST.toml`, coverage checklist (#29).
 - Property tests (`proptest`) for tensor/graph/wire invariants and HDF5
   write→read; optional `cargo-fuzz` harnesses under `fuzz/` (#30).
+- Docker image + dual publish to **GHCR** (`ghcr.io/limen-neural/nir-rs`) and
+  **Docker Hub** (`$DOCKER_USER/nir-rs`); PR verify / main+tag push (#26).
 
 ### Documentation
 
 - README crates.io / docs.rs badges and dependency snippets (#26).
+- README Docker (GHCR + Hub) install/run notes (#26).
 - [TESTING.md](TESTING.md) for property tests and local fuzz invocation.
 
 ## [0.4.0] - 2026-08-06

@@ -1,0 +1,25 @@
+# Keep Docker context small and free of secrets / build junk.
+.git
+.github
+target
+**/target
+fuzz/target
+fuzz/corpus
+fuzz/artifacts
+.cursor
+.devcontainer
+*.md
+!README.md
+!CHANGELOG.md
+!COMPATIBILITY.md
+!TESTING.md
+!LICENSE-*
+AGENTS.md
+CLAUDE.md
+REVIEW.md
+cubic.yaml
+qodana.yaml
+scripts
+.env
+.env.*
+**/.DS_Store
