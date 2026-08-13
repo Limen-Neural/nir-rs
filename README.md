@@ -28,7 +28,8 @@ and hardware without being rewritten.
 - Spec / reference: [github.com/neuromorphs/NIR](https://github.com/neuromorphs/NIR)
 - Primitives docs: [neuroir.org](https://neuroir.org/docs/)
 - Paper: [Nature Communications (2024)](https://www.nature.com/articles/s41467-024-52259-9)
-  (DOI [10.1038/s41467-024-52259-9](https://doi.org/10.1038/s41467-024-52259-9))
+  (DOI [10.1038/s41467-024-52259-9](https://doi.org/10.1038/s41467-024-52259-9)) —
+  [cite](#citing-nir)
 
 **Wire compatibility:** HDF5 node `type` strings must match the Python IR
 (`CubaLIF`, `Conv2d`, `SumPool2d`, …), not informal aliases
@@ -234,6 +235,46 @@ required for default builds, tests, or CI.
 
 API and fidelity details: [COMPATIBILITY.md](COMPATIBILITY.md),
 [docs.rs/nir-rs](https://docs.rs/nir-rs).
+
+## Citing NIR
+
+If you use NIR in your work (including via this crate), please cite the
+[Nature Communications paper](https://www.nature.com/articles/s41467-024-52259-9):
+
+```bibtex
+@article{NIR2024,
+    title={Neuromorphic intermediate representation: A unified instruction set for interoperable brain-inspired computing},
+    author={Pedersen, Jens E. and Abreu, Steven and Jobst, Matthias and Lenz, Gregor and Fra, Vittorio and Bauer, Felix Christian and Muir, Dylan Richard and Zhou, Peng and Vogginger, Bernhard and Heckel, Kade and Urgese, Gianvito and Shankar, Sadasivan and Stewart, Terrence C. and Sheik, Sadique and Eshraghian, Jason K.},
+    rights={2024 The Author(s)},
+    DOI={10.1038/s41467-024-52259-9},
+    number={1},
+    journal={Nature Communications},
+    volume={15},
+    year={2024},
+    month=sep,
+    pages={8122},
+}
+```
+
+Machine-readable form: [CITATION.cff](CITATION.cff) (GitHub “Cite this repository”).
+
+## Acknowledgements
+
+NIR was originally conceived at the **Telluride Neuromorphic Workshop 2023** by
+the authors below (alphabetical order), as listed by upstream
+[neuromorphs/NIR](https://github.com/neuromorphs/NIR):
+
+- Steven Abreu
+- Felix Bauer
+- Jason Eshraghian
+- Matthias Jobst
+- Gregor Lenz
+- Jens Egholm Pedersen
+- Sadique Sheik
+- Peng Zhou
+
+This crate is an independent pure-Rust implementation of that IR; it is not the
+official Python reference package.
 
 ## License
 

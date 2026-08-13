@@ -8,6 +8,11 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Documentation
+
+- Cite the NIR Nature Communications paper (BibTeX + `CITATION.cff`) and credit
+  Telluride 2023 acknowledgements from upstream neuromorphs/NIR.
+
 ## [0.4.2] - 2026-08-13
 
 Docs-only patch so crates.io serves a consumer-facing README (0.4.1 is
