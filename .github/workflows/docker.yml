@@ -76,12 +76,13 @@ jobs:
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main' || startsWith(github.ref, 'refs/tags/v'))
     # One group for all :latest writers (main/Main + v* tags). Serializes pushes so
     # branch and tag jobs cannot race on the mutable :latest tag.
-    # cancel-in-progress: false keeps an in-flight v* publish (immutable :X.Y.Z)
-    # from being aborted by a concurrent main push. Note: GitHub still keeps only
-    # one *pending* job per group — avoid stacking many publishes during a release.
+    # cancel-in-progress: false — never abort an in-flight publish (incl. immutable :X.Y.Z).
+    # queue: max — keep up to 100 pending runs (default is single: a later main push
+    # would replace a pending v* tag and skip the immutable image).
     concurrency:
       group: docker-publish-${{ github.repository }}
       cancel-in-progress: false
+      queue: max
     permissions:
       contents: read
       packages: write
