@@ -4,7 +4,7 @@
 //!
 //! These run in normal CI (`cargo test`) with a fixed case budget. Structured
 //! fuzz harnesses live under `fuzz/` and are optional / nightly-only — see
-//! [`TESTING.md`](../TESTING.md).
+//! [`TESTING.md`](https://github.com/Limen-Neural/nir-rs/blob/main/TESTING.md).
 
 use nir_rs::io::wire::{check_hdf5_string, check_link_name};
 use nir_rs::nodes::{Input, Output};

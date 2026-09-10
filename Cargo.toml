@@ -3,8 +3,8 @@ name = "nir-rs"
 version = "0.4.2"
 edition = "2024"
 # Supported toolchain — keep in lockstep with rust-toolchain.toml and CI
-# (`toolchain: "1.97.1"`). Raise when the pin moves.
-rust-version = "1.97.1"
+# (`toolchain: "1.98.1"`). Raise when the pin moves.
+rust-version = "1.98.1"
 license = "MIT OR Apache-2.0"
 authors = ["Raul Montoya Cardenas <montoyaraul34@gmail.com>"]
 description = "Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR) — the standard interchange format for spiking neural networks."
@@ -14,16 +14,25 @@ documentation = "https://docs.rs/nir-rs"
 readme = "README.md"
 keywords = ["nir", "neuromorphic", "snn", "spiking", "interoperability"]
 categories = ["science", "algorithms", "encoding"]
+# crates.io surface: keep licenses, README, CHANGELOG, CITATION, COMPATIBILITY,
+# sources, examples, and vendored fixtures. Drop agent/CI/dev-only paths.
+# Hidden git-tracked files still pack unless listed here (e.g. .gitignore).
+# `cargo package` does not read `.dockerignore`.
 exclude = [
     "/.cursor/",
     "/.devcontainer/",
+    "/.dockerignore",
     "/.github/",
+    "/.gitignore",
     "/AGENTS.md",
     "/CLAUDE.md",
+    "/Dockerfile",
     "/REVIEW.md",
+    "/TESTING.md",
     "/cubic.yaml",
     "/fuzz/",
     "/qodana.yaml",
+    "/rust-toolchain.toml",
     "/scripts/",
 ]
 

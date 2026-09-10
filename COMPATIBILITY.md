@@ -56,7 +56,7 @@ Default builds and default-feature CI need **no** Python and **no** libhdf5.
 
 | Pin | Version | Role |
 |-----|---------|------|
-| Dev / CI / `package.rust-version` | **1.97.1** | Same pin in `rust-toolchain.toml`, GitHub Actions, and crates.io metadata |
+| Dev / CI / `package.rust-version` | **1.98.1** | Same pin in `rust-toolchain.toml`, GitHub Actions, and crates.io metadata |
 
 We do not matrix CI on the cargo floor. Raise the floor when dependencies or
 language features require it; document the bump in the changelog.

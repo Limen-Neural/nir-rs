@@ -179,8 +179,10 @@ PID-qualified file in the system temp directory.
 
 ## Docker
 
-Images ship a **Rust 1.97 + libhdf5** environment with the crate sources and the
-`load_inspect_lif` example binary (not an SNN simulator).
+`:latest` (and images built from this pin) ship a **Rust 1.98.1 + libhdf5**
+environment with the crate sources and the `load_inspect_lif` example binary
+(not an SNN simulator). The immutable `:0.4.2` tag was built from the 0.4.2
+release (`rust:1.97-bookworm`) and is not overwritten on later `main` pushes.
 
 ```bash
 docker pull ghcr.io/limen-neural/nir-rs:0.4.2
@@ -215,7 +217,7 @@ for Python and hardware tooling. JSON cannot represent NaN/infinities faithfully
 
 ## Toolchain
 
-**Rust 1.97.1** — `rust-toolchain.toml`, `package.rust-version`, and CI
+**Rust 1.98.1** — `rust-toolchain.toml`, `package.rust-version`, and CI
 (Linux / macOS / Windows) all pin the same version.
 
 ## Develop

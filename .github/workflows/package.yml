@@ -32,12 +32,12 @@ jobs:
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
           # Keep in sync with rust-toolchain.toml / ci.yml.
-          toolchain: "1.97.1"
+          toolchain: "1.98.1"
 
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          key: package-1.97.1
+          key: package-1.98.1
 
       - name: cargo package --list
         run: cargo package --list --allow-dirty
@@ -106,16 +106,16 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.98.1"
 
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          key: semver-1.97.1
+          key: semver-1.98.1
 
       # crate is not on crates.io yet (README / issue #26). Use the last release
       # tag as the public API baseline until a registry version exists.
-      # Pin cargo-semver-checks so rustdoc JSON format stays compatible with 1.97.1
+      # Pin cargo-semver-checks so rustdoc JSON format stays compatible with 1.98.1
       # (older 0.40.x fails on rustdoc v57). Bump with the CI toolchain when needed.
       - name: Install cargo-semver-checks
         run: cargo install cargo-semver-checks --locked --version 0.50.0
