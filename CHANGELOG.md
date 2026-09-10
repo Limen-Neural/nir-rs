@@ -64,7 +64,7 @@ First **crates.io** release of the 0.4 line (package name `nir-rs`).
 
 - README crates.io / docs.rs badges and dependency snippets (#26).
 - README Docker (GHCR + Hub) install/run notes (#26).
-- [TESTING.md](TESTING.md) for property tests and local fuzz invocation.
+- [TESTING.md](https://github.com/Limen-Neural/nir-rs/blob/main/TESTING.md) for property tests and local fuzz invocation.
 
 ## [0.4.0] - 2026-08-06
 
