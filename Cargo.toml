@@ -16,7 +16,8 @@ keywords = ["nir", "neuromorphic", "snn", "spiking", "interoperability"]
 categories = ["science", "algorithms", "encoding"]
 # crates.io surface: keep licenses, README, CHANGELOG, CITATION, COMPATIBILITY,
 # sources, examples, and vendored fixtures. Drop agent/CI/dev-only paths.
-# Hidden git-tracked files still pack unless listed (see .dockerignore/.gitignore).
+# Hidden git-tracked files still pack unless listed here (e.g. .gitignore).
+# `cargo package` does not read `.dockerignore`.
 exclude = [
     "/.cursor/",
     "/.devcontainer/",
