@@ -1,6 +1,6 @@
 [package]
 name = "nir-rs"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 # Supported toolchain — keep in lockstep with rust-toolchain.toml and CI
 # (`toolchain: "1.98.1"`). Raise when the pin moves.

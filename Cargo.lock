@@ -245,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "nir-rs"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "hdf5-metno",
  "hdf5-metno-sys",
