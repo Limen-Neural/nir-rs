@@ -51,8 +51,8 @@ nightly fuzz harnesses: see [TESTING.md](TESTING.md) (`cargo +nightly fuzz run �
 `--all-features` enables `hdf5`, which links libhdf5: install `libhdf5-dev`
 (Ubuntu) or `hdf5` (Homebrew) first.
 
-**Toolchain:** **Rust 1.97.1** everywhere — `rust-toolchain.toml`,
-`package.rust-version`, and CI (`toolchain: "1.97.1"`) on **Linux, macOS, and
+**Toolchain:** **Rust 1.98.1** everywhere — `rust-toolchain.toml`,
+`package.rust-version`, and CI (`toolchain: "1.98.1"`) on **Linux, macOS, and
 Windows**. Keep those three in lockstep when the pin moves.
 
 ### Package / semver CI (release gate)
@@ -109,11 +109,11 @@ cargo test --features hdf5,hdf5/static,hdf5/zlib
 ```
 
 Configured channel/components: [`rust-toolchain.toml`](rust-toolchain.toml)
-(`1.97.1` + `rustfmt` + `clippy`).
+(`1.98.1` + `rustfmt` + `clippy`).
 
 ### Dev container / cloud agent images
 
-Prefer a prebuilt image when the host supports it (Rust 1.97 + `libhdf5-dev`):
+Prefer a prebuilt image when the host supports it (Rust 1.98 + `libhdf5-dev`):
 
 | Path | Consumer |
 |------|----------|

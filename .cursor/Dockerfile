@@ -2,7 +2,7 @@
 # Do not COPY the project — Cursor checks out the correct commit itself.
 # Keeps cargo/rustc/clippy/rustfmt + libhdf5 so PR/cloud agents can run the
 # full quality bar without a separate bootstrap step.
-FROM rust:1.97-bookworm
+FROM rust:1.98-bookworm
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

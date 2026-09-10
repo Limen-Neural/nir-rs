@@ -29,8 +29,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
-          # Keep in sync with rust-toolchain.toml channel = "1.97.1".
-          toolchain: "1.97.1"
+          # Keep in sync with rust-toolchain.toml channel = "1.98.1".
+          toolchain: "1.98.1"
           components: rustfmt
 
       - name: Check formatting
@@ -48,7 +48,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.98.1"
           components: clippy
 
       - name: Cache cargo dependencies
@@ -80,7 +80,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.98.1"
 
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -98,7 +98,7 @@ jobs:
       - name: Verify documentation
         run: cargo doc --no-deps --all-features
 
-  # Pure graph model: no native deps. Linux / macOS / Windows on **Rust 1.97.1**.
+  # Pure graph model: no native deps. Linux / macOS / Windows on **Rust 1.98.1**.
   test-default:
     name: Test default (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -115,12 +115,12 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.98.1"
 
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          key: default-${{ matrix.os }}-1.97.1
+          key: default-${{ matrix.os }}-1.98.1
 
       # Proves the default graph-only build needs no libhdf5 (crates.io default).
       - name: Run tests (default features)
@@ -129,7 +129,7 @@ jobs:
       - name: Run tests (serde feature)
         run: cargo test --features serde
 
-  # HDF5 + serde: system libhdf5 on each OS. Same OS matrix, Rust 1.97.1.
+  # HDF5 + serde: system libhdf5 on each OS. Same OS matrix, Rust 1.98.1.
   test-hdf5:
     name: Test hdf5 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -146,12 +146,12 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.98.1"
 
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          key: hdf5-${{ matrix.os }}-1.97.1
+          key: hdf5-${{ matrix.os }}-1.98.1
 
       - name: Install libhdf5 (Ubuntu)
         if: runner.os == 'Linux'

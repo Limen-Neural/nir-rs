@@ -179,7 +179,7 @@ PID-qualified file in the system temp directory.
 
 ## Docker
 
-Images ship a **Rust 1.97 + libhdf5** environment with the crate sources and the
+Images ship a **Rust 1.98 + libhdf5** environment with the crate sources and the
 `load_inspect_lif` example binary (not an SNN simulator).
 
 ```bash
@@ -215,7 +215,7 @@ for Python and hardware tooling. JSON cannot represent NaN/infinities faithfully
 
 ## Toolchain
 
-**Rust 1.97.1** — `rust-toolchain.toml`, `package.rust-version`, and CI
+**Rust 1.98.1** — `rust-toolchain.toml`, `package.rust-version`, and CI
 (Linux / macOS / Windows) all pin the same version.
 
 ## Develop

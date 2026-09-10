@@ -7,7 +7,7 @@
 # tests/fixtures. Non-root user owns /src so cargo can recreate target/.
 # No Python (AGENTS.md).
 
-ARG RUST_IMAGE=rust:1.97-bookworm
+ARG RUST_IMAGE=rust:1.98-bookworm
 
 FROM ${RUST_IMAGE} AS builder
 

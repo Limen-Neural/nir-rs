@@ -1,8 +1,8 @@
 # Pinned toolchain for local dev, CI, Cursor cloud agents, and PR bots.
-# Keep in sync with .github/workflows/ci.yml (`toolchain: 1.97.1`) and
-# .cursor/Dockerfile (rust:1.97-bookworm ≈ this pin).
+# Keep in sync with .github/workflows/ci.yml (`toolchain: 1.98.1`) and
+# .cursor/Dockerfile (rust:1.98-bookworm ≈ this pin).
 # Components ensure fmt/clippy exist for the quality bar.
 [toolchain]
-channel = "1.97.1"
+channel = "1.98.1"
 components = ["rustfmt", "clippy"]
 profile = "minimal"
