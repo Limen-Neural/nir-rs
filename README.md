@@ -71,28 +71,28 @@ Compatibility claims are **fixture-backed** (`tests/fixtures/`).
 
 ```toml
 [dependencies]
-nir-rs = "0.4.2"
+nir-rs = "0.4.3"
 ```
 
 HDF5 `.nir` I/O (needs a system libhdf5, or a static build — see [File I/O](#file-io)):
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.2", features = ["hdf5"] }
+nir-rs = { version = "0.4.3", features = ["hdf5"] }
 ```
 
 Debug Serde (JSON / RON / etc.; not a wire standard):
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.2", features = ["serde"] }
+nir-rs = { version = "0.4.3", features = ["serde"] }
 ```
 
 From git — pin a release tag (same tree as the matching crates.io release once
 the tag exists):
 
 ```toml
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.2" }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.3" }
 ```
 
 For unreleased work on the default branch:
@@ -181,11 +181,11 @@ PID-qualified file in the system temp directory.
 
 `:latest` (and images built from this pin) ship a **Rust 1.98.1 + libhdf5**
 environment with the crate sources and the `load_inspect_lif` example binary
-(not an SNN simulator). The immutable `:0.4.2` tag was built from the 0.4.2
-release (`rust:1.97-bookworm`) and is not overwritten on later `main` pushes.
+(not an SNN simulator). The immutable `:0.4.3` tag was built from the 0.4.3
+release (`rust:1.98.1-bookworm`) and is not overwritten on later `main` pushes.
 
 ```bash
-docker pull ghcr.io/limen-neural/nir-rs:0.4.2
+docker pull ghcr.io/limen-neural/nir-rs:0.4.3
 docker pull ghcr.io/limen-neural/nir-rs:latest
 
 docker run --rm ghcr.io/limen-neural/nir-rs:latest rustc --version
@@ -208,7 +208,7 @@ model. It is independent of `hdf5`:
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.2", features = ["serde"] }
+nir-rs = { version = "0.4.3", features = ["serde"] }
 serde_json = "1"
 ```
 

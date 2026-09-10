@@ -8,6 +8,11 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-09-10
+
+Patch release packaging for the already-merged Rust **1.98.1** pin and crates.io
+`exclude` cleanup (#41, #42). No public API or wire changes.
+
 ### Changed
 
 - Toolchain pin raised **1.97.1 → 1.98.1** in lockstep (`rust-toolchain.toml`,
@@ -23,6 +28,7 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 - Cite the NIR Nature Communications paper (BibTeX + `CITATION.cff`) and credit
   Telluride 2023 acknowledgements from upstream neuromorphs/NIR.
 - Align toolchain docs with the **1.98.1** pin.
+- Bump advertised install / Docker tags to **0.4.3**.
 
 ## [0.4.2] - 2026-08-13
 

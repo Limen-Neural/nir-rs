@@ -15,7 +15,7 @@ url: "https://crates.io/crates/nir-rs"
 license:
   - MIT
   - Apache-2.0
-version: "0.4.2"
+version: "0.4.3"
 abstract: >-
   Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR):
   typed graphs and opt-in HDF5 .nir I/O interoperable with the Python reference.
