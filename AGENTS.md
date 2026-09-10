@@ -113,7 +113,7 @@ Configured channel/components: [`rust-toolchain.toml`](rust-toolchain.toml)
 
 ### Dev container / cloud agent images
 
-Prefer a prebuilt image when the host supports it (Rust 1.98 + `libhdf5-dev`):
+Prefer a prebuilt image when the host supports it (Rust 1.98.1 + `libhdf5-dev`):
 
 | Path | Consumer |
 |------|----------|

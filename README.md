@@ -179,7 +179,7 @@ PID-qualified file in the system temp directory.
 
 ## Docker
 
-Images ship a **Rust 1.98 + libhdf5** environment with the crate sources and the
+Images ship a **Rust 1.98.1 + libhdf5** environment with the crate sources and the
 `load_inspect_lif` example binary (not an SNN simulator).
 
 ```bash
