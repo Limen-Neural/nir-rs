@@ -8,6 +8,12 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Removed
+
+- Qodana GitHub Action (`.github/workflows/qodana_code_quality.yml`) and
+  `qodana.yaml`. Qodana Cloud membership has expired; `ci.yml`, `docker.yml`,
+  and `package.yml` are unchanged.
+
 ## [0.4.3] - 2026-09-10
 
 Patch release packaging for the already-merged Rust **1.98.1** pin and crates.io

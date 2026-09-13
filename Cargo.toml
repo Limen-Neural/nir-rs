@@ -31,7 +31,6 @@ exclude = [
     "/TESTING.md",
     "/cubic.yaml",
     "/fuzz/",
-    "/qodana.yaml",
     "/rust-toolchain.toml",
     "/scripts/",
 ]
