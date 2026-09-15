@@ -8,6 +8,13 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Added
+
+- Hugging Face SNN → NIR load/inspect corpus: two checksummed fixtures converted
+  from pinned NeuroCUDA Hub checkpoints with upstream `nir` 1.0.8, plus
+  `tests/hdf5_huggingface.rs` (#44 / LIM-1086). Synfire registry pulls stay on
+  #43.
+
 ### Changed
 
 - Package `exclude` list: add `.deepsource.toml` so the crates.io artifact

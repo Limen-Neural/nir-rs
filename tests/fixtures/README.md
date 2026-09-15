@@ -42,13 +42,13 @@ What this **interoperability** corpus exercises vs. what is only covered by
 | Linear | yes | Rockpool, two_lif, noBias braille |
 | Scale | synthetic | No licensed paper `.nir` yet |
 | Conv1d | synthetic | — |
-| Conv2d | yes | `cnn_sinabs.nir` |
-| I / LI / IF / LIF | IF+LIF yes; I/LI synthetic | — |
+| Conv2d | yes | `cnn_sinabs.nir` + HF CNN |
+| I / LI / IF / LIF | IF+LIF yes; I/LI synthetic | HF MLP/CNN add more IF |
 | CubaLI / CubaLIF | CubaLIF yes; CubaLI synthetic | braille family |
 | Delay / Threshold | synthetic | — |
 | Flatten | yes | CNN |
 | SumPool2d | yes | CNN |
-| AvgPool2d | synthetic | — |
+| AvgPool2d | HF-derived | `huggingface/neurocuda_cnn_nmnist.nir` (#44) |
 | Nested `NIRGraph` | yes | both braille subgraph files |
 | Explicit padding (pairs) | yes | CNN Conv2d |
 | Symbolic padding string | synthetic | — |
@@ -74,6 +74,12 @@ f1aab3ce74024e7feac508a03b04c58d483ee3a01e293dba4b53d0b519b8650e  braille_noDela
 8038ab6b095554950ec966da0f9cb72d5a97593afd6bb4b37a7887c4bfd81b9a  braille_noDelay_noBias_subtract_subgraph.nir
 e2fa55bda7aab5a772485e1b690358bcb825b303eca7dc426e3973937fcb5bcb  cnn_sinabs.nir
 ```
+
+Hugging Face–derived conversions (not paper artifacts; MIT Hub weights, written
+by Python `nir` 1.0.8) live in [`huggingface/`](huggingface/) and are tested by
+`tests/hdf5_huggingface.rs`. They are kept separate from this paper corpus so
+converter vs parser failures stay distinguishable, and so Synfire work (#43)
+does not grow a Hub download surface in CI.
 
 These files are **inputs to tests only**. They are not part of the published
 library API, and nothing in `src/` depends on them.
