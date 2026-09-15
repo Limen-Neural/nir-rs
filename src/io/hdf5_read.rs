@@ -432,52 +432,89 @@ fn read_node(
     // Metadata lives in an unbounded sibling group; decoding it first would
     // let a rejected subgraph spend the allocation budget (or allocator)
     // while the caller only opted into count limits.
-    if ty == "NIRGraph" {
-        let nested_path = format!("{parent_path}/{KEY_NODES}/{name}");
-        let mut sub = read_graph_body(group, &nested_path, visited, budget)?;
-        sub.metadata = read_metadata(group, budget)?;
-        let node = NirNode::Graph(Box::new(sub));
-        debug_assert!(
-            wire::is_wire_type(node.type_name()),
-            "decoded a node whose type is not in WIRE_TYPES"
-        );
-        return Ok(node);
-    }
+    let node = if ty == "NIRGraph" {
+        read_graph_node(group, name, parent_path, visited, budget)?
+    } else {
+        read_leaf_node(group, name, &ty, budget)?
+    };
+    debug_assert!(
+        wire::is_wire_type(node.type_name()),
+        "decoded a node whose type is not in WIRE_TYPES"
+    );
+    Ok(node)
+}
 
+fn read_graph_node(
+    group: &Group,
+    name: &str,
+    parent_path: &str,
+    visited: &mut Vec<LocationToken>,
+    budget: &ReadBudget,
+) -> Result<NirNode> {
+    let nested_path = format!("{parent_path}/{KEY_NODES}/{name}");
+    let mut sub = read_graph_body(group, &nested_path, visited, budget)?;
+    sub.metadata = read_metadata(group, budget)?;
+    Ok(NirNode::Graph(Box::new(sub)))
+}
+
+fn read_leaf_node(group: &Group, name: &str, ty: &str, budget: &ReadBudget) -> Result<NirNode> {
     let metadata = read_metadata(group, budget)?;
     let r = NodeReader {
         group,
         name,
         budget,
     };
+    match ty {
+        "Input" | "Output" | "Affine" | "Linear" | "Scale" => read_map_leaf(&r, ty, metadata),
+        "Conv1d" | "Conv2d" => read_conv_leaf(&r, ty, metadata),
+        "CubaLI" | "CubaLIF" | "I" | "IF" | "LI" | "LIF" => read_neuron_leaf(&r, ty, metadata),
+        "SumPool2d" | "AvgPool2d" | "Delay" | "Flatten" | "Threshold" => {
+            read_window_leaf(&r, ty, metadata)
+        }
+        other => Err(NirError::UnknownNodeType(other.to_owned())),
+    }
+}
 
-    let node = match ty.as_str() {
-        "Input" => NirNode::Input(read_input(&r, metadata)?),
-        "Output" => NirNode::Output(read_output(&r, metadata)?),
-        "Affine" => NirNode::Affine(read_affine(&r, metadata)?),
-        "Linear" => NirNode::Linear(read_linear(&r, metadata)?),
-        "Scale" => NirNode::Scale(read_scale(&r, metadata)?),
-        "Conv1d" => NirNode::Conv1d(read_conv1d(&r, metadata)?),
-        "Conv2d" => NirNode::Conv2d(read_conv2d(&r, metadata)?),
-        "CubaLI" => NirNode::CubaLi(read_cuba_li(&r, metadata)?),
-        "CubaLIF" => NirNode::CubaLif(read_cuba_lif(&r, metadata)?),
-        "Delay" => NirNode::Delay(read_delay(&r, metadata)?),
-        "Flatten" => NirNode::Flatten(read_flatten(&r, metadata)?),
-        "I" => NirNode::I(read_i(&r, metadata)?),
-        "IF" => NirNode::If(read_if(&r, metadata)?),
-        "LI" => NirNode::Li(read_li(&r, metadata)?),
-        "LIF" => NirNode::Lif(read_lif(&r, metadata)?),
-        "SumPool2d" => NirNode::SumPool2d(read_sum_pool2d(&r, metadata)?),
-        "AvgPool2d" => NirNode::AvgPool2d(read_avg_pool2d(&r, metadata)?),
-        "Threshold" => NirNode::Threshold(read_threshold(&r, metadata)?),
-        other => return Err(NirError::UnknownNodeType(other.to_owned())),
-    };
+fn read_map_leaf(r: &NodeReader, ty: &str, metadata: MetadataMap) -> Result<NirNode> {
+    match ty {
+        "Input" => Ok(NirNode::Input(read_input(r, metadata)?)),
+        "Output" => Ok(NirNode::Output(read_output(r, metadata)?)),
+        "Affine" => Ok(NirNode::Affine(read_affine(r, metadata)?)),
+        "Linear" => Ok(NirNode::Linear(read_linear(r, metadata)?)),
+        "Scale" => Ok(NirNode::Scale(read_scale(r, metadata)?)),
+        other => Err(NirError::UnknownNodeType(other.to_owned())),
+    }
+}
 
-    debug_assert!(
-        wire::is_wire_type(node.type_name()),
-        "decoded a node whose type is not in WIRE_TYPES"
-    );
-    Ok(node)
+fn read_conv_leaf(r: &NodeReader, ty: &str, metadata: MetadataMap) -> Result<NirNode> {
+    match ty {
+        "Conv1d" => Ok(NirNode::Conv1d(read_conv1d(r, metadata)?)),
+        "Conv2d" => Ok(NirNode::Conv2d(read_conv2d(r, metadata)?)),
+        other => Err(NirError::UnknownNodeType(other.to_owned())),
+    }
+}
+
+fn read_neuron_leaf(r: &NodeReader, ty: &str, metadata: MetadataMap) -> Result<NirNode> {
+    match ty {
+        "CubaLI" => Ok(NirNode::CubaLi(read_cuba_li(r, metadata)?)),
+        "CubaLIF" => Ok(NirNode::CubaLif(read_cuba_lif(r, metadata)?)),
+        "I" => Ok(NirNode::I(read_i(r, metadata)?)),
+        "IF" => Ok(NirNode::If(read_if(r, metadata)?)),
+        "LI" => Ok(NirNode::Li(read_li(r, metadata)?)),
+        "LIF" => Ok(NirNode::Lif(read_lif(r, metadata)?)),
+        other => Err(NirError::UnknownNodeType(other.to_owned())),
+    }
+}
+
+fn read_window_leaf(r: &NodeReader, ty: &str, metadata: MetadataMap) -> Result<NirNode> {
+    match ty {
+        "SumPool2d" => Ok(NirNode::SumPool2d(read_sum_pool2d(r, metadata)?)),
+        "AvgPool2d" => Ok(NirNode::AvgPool2d(read_avg_pool2d(r, metadata)?)),
+        "Delay" => Ok(NirNode::Delay(read_delay(r, metadata)?)),
+        "Flatten" => Ok(NirNode::Flatten(read_flatten(r, metadata)?)),
+        "Threshold" => Ok(NirNode::Threshold(read_threshold(r, metadata)?)),
+        other => Err(NirError::UnknownNodeType(other.to_owned())),
+    }
 }
 
 // ---------------------------------------------------------------------------

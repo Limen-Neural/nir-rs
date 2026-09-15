@@ -8,13 +8,14 @@ mod common;
 use common::{input, write_then};
 use nir_rs::io::ReadOptions;
 use nir_rs::nodes::Output;
+use nir_rs::types::MetadataMap;
 use nir_rs::{NirError, NirGraph, NirNode, ReadLimitResource};
 use tempfile::TempDir;
 
 fn output(shape: Vec<usize>) -> NirNode {
     NirNode::Output(Output {
         shape,
-        metadata: Default::default(),
+        metadata: MetadataMap::new(),
     })
 }
 
