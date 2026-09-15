@@ -6,8 +6,10 @@
 //! strings are stored verbatim, matching Python `nir.read`. Callers that need
 //! a fail-closed envelope check set [`VersionPolicy`] on [`super::ReadOptions`].
 
-use crate::error::{NirError, Result};
 use std::fmt;
+
+#[cfg(any(test, feature = "hdf5"))]
+use crate::error::{NirError, Result};
 
 /// How [`super::read_with`] treats the root `/version` dataset.
 ///
@@ -68,7 +70,8 @@ pub enum VersionPolicy {
 impl VersionPolicy {
     /// Accept `/version` strings whose SemVer major is one of `majors`.
     ///
-    /// Duplicates are dropped and the list is sorted so [`Display`] is stable.
+    /// Duplicates are dropped and the list is sorted so [`std::fmt::Display`]
+    /// is stable.
     /// An empty list rejects every well-formed version (fail-closed).
     #[must_use]
     pub fn compatible_major(majors: impl IntoIterator<Item = u64>) -> Self {
@@ -100,6 +103,7 @@ impl fmt::Display for VersionPolicy {
 
 /// Core `MAJOR.MINOR.PATCH` extracted from a SemVer-compatible `/version`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(test, feature = "hdf5"))]
 pub(super) struct ParsedVersion {
     pub major: u64,
     pub minor: u64,
@@ -107,6 +111,7 @@ pub(super) struct ParsedVersion {
 }
 
 /// Parse the NIR `/version` subset used by [`VersionPolicy::CompatibleMajor`].
+#[cfg(any(test, feature = "hdf5"))]
 pub(super) fn parse_nir_version(raw: &str) -> Option<ParsedVersion> {
     let (core_and_pre, build) = match raw.split_once('+') {
         Some((left, right)) => (left, Some(right)),
@@ -140,6 +145,7 @@ pub(super) fn parse_nir_version(raw: &str) -> Option<ParsedVersion> {
     })
 }
 
+#[cfg(any(test, feature = "hdf5"))]
 fn parse_component(s: &str) -> Option<u64> {
     if s.is_empty() {
         return None;
@@ -153,6 +159,7 @@ fn parse_component(s: &str) -> Option<u64> {
     s.parse().ok()
 }
 
+#[cfg(any(test, feature = "hdf5"))]
 fn is_valid_suffix(s: &str) -> bool {
     if s.is_empty() {
         return false;
@@ -170,6 +177,7 @@ fn is_valid_suffix(s: &str) -> bool {
 /// Shared by the full graph reader and [`super::read_version_with`] so the two
 /// cannot disagree about which strings a policy accepts. Dataset-shape errors
 /// (missing vs group vs string) are resolved before this is called.
+#[cfg(any(test, feature = "hdf5"))]
 pub(super) fn enforce_version_policy(observed: Option<&str>, policy: &VersionPolicy) -> Result<()> {
     match policy {
         VersionPolicy::Permissive => Ok(()),
@@ -192,6 +200,7 @@ pub(super) fn enforce_version_policy(observed: Option<&str>, policy: &VersionPol
     }
 }
 
+#[cfg(any(test, feature = "hdf5"))]
 fn incompatible(observed: Option<String>, policy: &VersionPolicy) -> NirError {
     NirError::IncompatibleVersion {
         observed,

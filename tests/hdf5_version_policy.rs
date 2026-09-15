@@ -129,7 +129,7 @@ fn compatible_major_accepts_the_default_writer_version() {
 }
 
 #[test]
-fn compatible_major_accepts_prerelease_and_build_suffixes() {
+fn compatible_major_accepts_prerelease_and_build_version_suffixes() {
     let dir = TempDir::new().unwrap();
     let opts = importer();
     for value in ["1.0.0-rc.1", "1.0.0+build.5", "0.2.0-alpha.1+exp"] {
@@ -143,7 +143,7 @@ fn compatible_major_accepts_prerelease_and_build_suffixes() {
 }
 
 #[test]
-fn compatible_major_rejects_missing_malformed_and_other_majors() {
+fn compatible_major_rejects_missing_malformed_and_other_version_majors() {
     let dir = TempDir::new().unwrap();
     let opts = importer();
     let policy = "compatible-major majors=[0, 1]";
