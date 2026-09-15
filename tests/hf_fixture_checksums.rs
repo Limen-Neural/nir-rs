@@ -24,11 +24,18 @@ fn fixtures_from_manifest(text: &str) -> Vec<(&str, &str)> {
     let mut file = None;
     for line in text.lines() {
         if let Some(name) = quoted_value(line, "file") {
+            assert!(
+                file.is_none(),
+                "file {name} started before sha256 for the previous entry"
+            );
             file = Some(name);
         } else if let Some(hash) = quoted_value(line, "sha256") {
             let name = file.take().expect("sha256 without a preceding file key");
             out.push((name, hash));
         }
+    }
+    if let Some(name) = file {
+        panic!("file {name} is missing a sha256 key");
     }
     out
 }
