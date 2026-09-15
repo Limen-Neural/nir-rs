@@ -73,12 +73,23 @@ jobs:
             echo "::error::package has no tests/fixtures/*.nir fixtures"
             missing=1
           fi
-          if [ "$missing" -ne 0 ]; then
+          # Hidden git-tracked CI configs pack unless listed in package.exclude.
+          forbidden=(
+            .deepsource.toml
+          )
+          leaked=0
+          for f in "${forbidden[@]}"; do
+            if printf '%s\n' "$list" | grep -Fxq "$f"; then
+              echo "::error::package includes excluded path: $f"
+              leaked=1
+            fi
+          done
+          if [ "$missing" -ne 0 ] || [ "$leaked" -ne 0 ]; then
             echo "---- package --list ----"
             printf '%s\n' "$list"
             exit 1
           fi
-          echo "Required package paths present."
+          echo "Required package paths present; excluded CI configs omitted."
 
       - name: Test packaged crate (default features)
         run: |

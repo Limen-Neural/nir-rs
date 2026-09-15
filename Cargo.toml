@@ -20,6 +20,7 @@ categories = ["science", "algorithms", "encoding"]
 # `cargo package` does not read `.dockerignore`.
 exclude = [
     "/.cursor/",
+    "/.deepsource.toml",
     "/.devcontainer/",
     "/.dockerignore",
     "/.github/",

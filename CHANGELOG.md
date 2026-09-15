@@ -8,6 +8,11 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Changed
+
+- Package `exclude` list: add `.deepsource.toml` so the crates.io artifact
+  does not ship the DeepSource analyzer pin (#47).
+
 ### Removed
 
 - Qodana GitHub Action (`.github/workflows/qodana_code_quality.yml`) and
