@@ -8,8 +8,19 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Added
+
+- Public `NirGraph::MAX_NESTING_DEPTH` bound for in-memory structural validation
+  of nested `NirNode::Graph` subgraphs (LIM-1238).
+
 ### Changed
 
+- `NirGraph::validate_structure` walks nested subgraphs on a heap-allocated
+  work list instead of recursing, so process-stack usage no longer grows with
+  nesting depth. Graphs nested beyond `NirGraph::MAX_NESTING_DEPTH` return
+  `NirError::InvalidGraph` with nested path context rather than aborting.
+  Missing-endpoint, duplicate-edge, cycle, and first-error ordering behavior
+  is unchanged (LIM-1238).
 - Package `exclude` list: add `.deepsource.toml` so the crates.io artifact
   does not ship the DeepSource analyzer pin (#47).
 

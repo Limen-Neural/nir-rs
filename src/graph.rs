@@ -5,7 +5,9 @@
 //! A graph is a named set of computational nodes plus a list of directed
 //! identity edges, matching neuromorphs/NIR (`nodes`, `edges`, `metadata`,
 //! optional `version`). Cycles are allowed; structure validation only checks
-//! edge endpoints and duplicate directed edges.
+//! edge endpoints, duplicate directed edges, and nested [`NirNode::Graph`]
+//! subgraphs. Validation walks those subgraphs on a heap-allocated work
+//! list so process-stack usage does not grow with nesting depth.
 
 use crate::error::{NirError, Result};
 use crate::nodes::NirNode;
@@ -83,21 +85,81 @@ impl NirGraph {
         self.nodes.is_empty()
     }
 
+    /// Maximum nesting depth of [`NirNode::Graph`] subgraphs that
+    /// [`Self::validate_structure`] will walk.
+    ///
+    /// The root graph has depth `0`. Each nested [`NirNode::Graph`] increments
+    /// the depth. A subgraph whose depth would exceed this limit is rejected
+    /// with [`NirError::InvalidGraph`] instead of growing the process stack.
+    ///
+    /// This bound is independent of the HDF5 reader/writer nested-graph
+    /// budget: it exists so adversarial in-memory graphs (including those
+    /// deserialized via the `serde` feature) fail with a structured error.
+    pub const MAX_NESTING_DEPTH: usize = 1024;
+
     /// Validate structural integrity.
     ///
     /// Checks:
     /// - every edge endpoint names an existing node
     /// - no duplicate directed edges `(src, dst)`
-    /// - nested [`NirNode::Graph`] subgraphs also validate
+    /// - nested [`NirNode::Graph`] subgraphs also validate, in node insertion
+    ///   order, depth-first
+    ///
+    /// Nested subgraphs are walked with an explicit heap-allocated work list, so
+    /// process-stack usage does not grow with nesting depth. A chain deeper than
+    /// [`Self::MAX_NESTING_DEPTH`] fails with [`NirError::InvalidGraph`].
     ///
     /// Cycles are **allowed**. Type/shape inference is out of scope for v0.2.
+    ///
+    /// First-error ordering matches a recursive walk: missing endpoints, then
+    /// duplicate edges, then nested subgraphs in insertion order. Nested failures
+    /// are re-prefixed so the message names each enclosing subgraph.
     ///
     /// # Errors
     ///
     /// - [`NirError::MissingNode`] if an endpoint is unknown
     /// - [`NirError::DuplicateEdge`] if the same directed edge appears twice
-    /// - [`NirError::InvalidGraph`] if a nested subgraph fails validation
+    /// - [`NirError::InvalidGraph`] if a nested subgraph fails validation, or if
+    ///   nesting exceeds [`Self::MAX_NESTING_DEPTH`]
     pub fn validate_structure(&self) -> Result<()> {
+        // Heap DFS: process-stack usage is O(1) in nesting depth. Frames are
+        // pushed in reverse insertion order so the first nested graph is
+        // popped next, matching the historical recursive walk.
+        let mut work: Vec<(&NirGraph, Vec<&str>)> = vec![(self, Vec::new())];
+
+        while let Some((graph, path)) = work.pop() {
+            graph
+                .validate_local_structure()
+                .map_err(|err| wrap_nested_error(&path, err))?;
+
+            let mut nested = Vec::new();
+            for (name, node) in &graph.nodes {
+                let NirNode::Graph(sub) = node else {
+                    continue;
+                };
+                if path.len() >= Self::MAX_NESTING_DEPTH {
+                    let mut child_path = path.clone();
+                    child_path.push(name.as_str());
+                    return Err(wrap_nested_error(
+                        &child_path,
+                        NirError::InvalidGraph(format!(
+                            "graph nesting depth exceeds {}",
+                            Self::MAX_NESTING_DEPTH
+                        )),
+                    ));
+                }
+                let mut child_path = path.clone();
+                child_path.push(name.as_str());
+                nested.push((sub.as_ref(), child_path));
+            }
+            work.extend(nested.into_iter().rev());
+        }
+
+        Ok(())
+    }
+
+    /// Endpoint and duplicate-edge checks for a single graph, ignoring nesting.
+    fn validate_local_structure(&self) -> Result<()> {
         let node_keys: HashSet<&str> = self.nodes.keys().map(String::as_str).collect();
 
         for (src, dst) in &self.edges {
@@ -117,31 +179,38 @@ impl NirGraph {
             }
         }
 
-        // Nested graphs: re-prefix structure errors so callers see which subgraph failed.
-        // Today this method only returns MissingNode / DuplicateEdge / InvalidGraph;
-        // the `other` arm preserves any future validation variants as InvalidGraph.
-        for (name, node) in &self.nodes {
-            if let NirNode::Graph(sub) = node {
-                sub.validate_structure().map_err(|e| match e {
-                    NirError::MissingNode(n) => {
-                        NirError::InvalidGraph(format!("in subgraph {name:?}: missing node: {n}"))
-                    }
-                    NirError::DuplicateEdge(a, b) => NirError::InvalidGraph(format!(
-                        "in subgraph {name:?}: duplicate edge: ({a}, {b})"
-                    )),
-                    NirError::DuplicateNode(n) => {
-                        NirError::InvalidGraph(format!("in subgraph {name:?}: duplicate node: {n}"))
-                    }
-                    NirError::InvalidGraph(msg) => {
-                        NirError::InvalidGraph(format!("in subgraph {name:?}: {msg}"))
-                    }
-                    other => NirError::InvalidGraph(format!("in subgraph {name:?}: {other}")),
-                })?;
-            }
-        }
-
         Ok(())
     }
+}
+
+/// Prefix a structure-validation error with `in subgraph {name:?}: …`.
+///
+/// Nested [`NirError::InvalidGraph`] payloads are unwrapped so path prefixes
+/// compose the way the historical recursive walk did. Other variants keep their
+/// Display text so future validation errors still surface with path context.
+fn prefix_subgraph_error(name: &str, err: NirError) -> NirError {
+    match err {
+        NirError::MissingNode(n) => {
+            NirError::InvalidGraph(format!("in subgraph {name:?}: missing node: {n}"))
+        }
+        NirError::DuplicateEdge(a, b) => {
+            NirError::InvalidGraph(format!("in subgraph {name:?}: duplicate edge: ({a}, {b})"))
+        }
+        NirError::DuplicateNode(n) => {
+            NirError::InvalidGraph(format!("in subgraph {name:?}: duplicate node: {n}"))
+        }
+        NirError::InvalidGraph(msg) => {
+            NirError::InvalidGraph(format!("in subgraph {name:?}: {msg}"))
+        }
+        other => NirError::InvalidGraph(format!("in subgraph {name:?}: {other}")),
+    }
+}
+
+/// Apply [`prefix_subgraph_error`] from the innermost subgraph out to the root.
+fn wrap_nested_error(path: &[&str], err: NirError) -> NirError {
+    path.iter()
+        .rev()
+        .fold(err, |acc, name| prefix_subgraph_error(name, acc))
 }
 
 #[cfg(test)]
@@ -306,13 +375,230 @@ mod tests {
             .insert_node("sub", NirNode::Graph(Box::new(inner)))
             .unwrap();
         let err = outer.validate_structure().unwrap_err();
+        assert_eq!(
+            err,
+            NirError::InvalidGraph("in subgraph \"sub\": missing node: missing".into())
+        );
+    }
+
+    #[test]
+    fn nested_duplicate_edge_keeps_path_context() {
+        let mut inner = NirGraph::new();
+        inner.insert_node("a", input(vec![1])).unwrap();
+        inner.insert_node("b", output(vec![1])).unwrap();
+        inner.add_edge("a", "b");
+        inner.add_edge("a", "b");
+
+        let mut outer = NirGraph::new();
+        outer
+            .insert_node("sub", NirNode::Graph(Box::new(inner)))
+            .unwrap();
+        let err = outer.validate_structure().unwrap_err();
+        assert_eq!(
+            err,
+            NirError::InvalidGraph("in subgraph \"sub\": duplicate edge: (a, b)".into())
+        );
+    }
+
+    #[test]
+    fn nested_path_context_is_outermost_first() {
+        let mut inner = NirGraph::new();
+        inner.insert_node("i", input(vec![1])).unwrap();
+        inner.add_edge("i", "ghost");
+
+        let mut mid = NirGraph::new();
+        mid.insert_node("inner", NirNode::Graph(Box::new(inner)))
+            .unwrap();
+
+        let mut outer = NirGraph::new();
+        outer
+            .insert_node("mid", NirNode::Graph(Box::new(mid)))
+            .unwrap();
+        let err = outer.validate_structure().unwrap_err();
+        assert_eq!(
+            err,
+            NirError::InvalidGraph(
+                "in subgraph \"mid\": in subgraph \"inner\": missing node: ghost".into()
+            )
+        );
+    }
+
+    #[test]
+    fn outer_endpoint_error_precedes_nested_failure() {
+        let mut inner = NirGraph::new();
+        inner.insert_node("i", input(vec![1])).unwrap();
+        inner.add_edge("i", "missing_inner");
+
+        let mut outer = NirGraph::new();
+        outer
+            .insert_node("sub", NirNode::Graph(Box::new(inner)))
+            .unwrap();
+        outer.add_edge("ghost", "sub");
+        let err = outer.validate_structure().unwrap_err();
+        assert_eq!(err, NirError::MissingNode("ghost".into()));
+    }
+
+    #[test]
+    fn first_nested_sibling_error_is_reported() {
+        let mut first = NirGraph::new();
+        first.insert_node("i", input(vec![1])).unwrap();
+        first.add_edge("i", "missing_a");
+
+        let mut second = NirGraph::new();
+        second.insert_node("i", input(vec![1])).unwrap();
+        second.add_edge("i", "missing_b");
+
+        let mut outer = NirGraph::new();
+        outer
+            .insert_node("sub_a", NirNode::Graph(Box::new(first)))
+            .unwrap();
+        outer
+            .insert_node("sub_b", NirNode::Graph(Box::new(second)))
+            .unwrap();
+        let err = outer.validate_structure().unwrap_err();
+        assert_eq!(
+            err,
+            NirError::InvalidGraph("in subgraph \"sub_a\": missing node: missing_a".into())
+        );
+    }
+
+    #[test]
+    fn nested_cycles_are_allowed() {
+        let mut inner = NirGraph::new();
+        inner.insert_node("a", input(vec![1])).unwrap();
+        inner.insert_node("b", output(vec![1])).unwrap();
+        inner.add_edge("a", "b");
+        inner.add_edge("b", "a");
+
+        let mut outer = NirGraph::new();
+        outer
+            .insert_node("loop", NirNode::Graph(Box::new(inner)))
+            .unwrap();
+        assert!(outer.validate_structure().is_ok());
+    }
+
+    /// Wrap `leaf` in `depth` enclosing [`NirNode::Graph`] nodes named `n0`…`n{depth-1}`.
+    fn wrap_depth(depth: usize, leaf: NirGraph) -> NirGraph {
+        let mut g = leaf;
+        for i in (0..depth).rev() {
+            let mut outer = NirGraph::new();
+            outer
+                .insert_node(format!("n{i}"), NirNode::Graph(Box::new(g)))
+                .unwrap();
+            g = outer;
+        }
+        g
+    }
+
+    fn leaf_graph() -> NirGraph {
+        let mut g = NirGraph::new();
+        g.insert_node("leaf", input(vec![1])).unwrap();
+        g
+    }
+
+    #[test]
+    fn nesting_at_max_depth_validates() {
+        let g = wrap_depth(NirGraph::MAX_NESTING_DEPTH, leaf_graph());
+        assert!(g.validate_structure().is_ok());
+    }
+
+    #[test]
+    fn nesting_beyond_max_depth_is_invalid_graph() {
+        let g = wrap_depth(NirGraph::MAX_NESTING_DEPTH + 1, leaf_graph());
+        let err = g.validate_structure().unwrap_err();
         match err {
             NirError::InvalidGraph(msg) => {
-                assert!(msg.contains("sub"));
-                assert!(msg.contains("missing"));
+                assert!(msg.contains("graph nesting depth exceeds"), "{msg}");
+                assert!(
+                    msg.contains(&NirGraph::MAX_NESTING_DEPTH.to_string()),
+                    "{msg}"
+                );
+                assert!(
+                    msg.contains(&format!("n{}", NirGraph::MAX_NESTING_DEPTH)),
+                    "{msg}"
+                );
+                assert!(msg.contains("n0"), "{msg}");
             }
             other => panic!("expected InvalidGraph, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn wide_nesting_is_not_a_depth_limit() {
+        let mut outer = NirGraph::new();
+        for i in 0..64 {
+            outer
+                .insert_node(format!("sub{i}"), NirNode::Graph(Box::new(leaf_graph())))
+                .unwrap();
+        }
+        assert!(outer.validate_structure().is_ok());
+    }
+
+    /// Historical recursive walk used as an oracle for shallow graphs.
+    fn validate_structure_recursive(graph: &NirGraph) -> Result<()> {
+        graph.validate_local_structure()?;
+        for (name, node) in &graph.nodes {
+            if let NirNode::Graph(sub) = node {
+                validate_structure_recursive(sub).map_err(|e| prefix_subgraph_error(name, e))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn assert_matches_recursive(graph: &NirGraph) {
+        assert_eq!(
+            graph.validate_structure(),
+            validate_structure_recursive(graph)
+        );
+    }
+
+    #[test]
+    fn shallow_graphs_match_recursive_oracle() {
+        assert_matches_recursive(&NirGraph::new());
+        assert_matches_recursive(&leaf_graph());
+
+        let mut missing = NirGraph::new();
+        missing.insert_node("a", input(vec![1])).unwrap();
+        missing.add_edge("a", "ghost");
+        assert_matches_recursive(&missing);
+
+        let mut dup = NirGraph::new();
+        dup.insert_node("a", input(vec![1])).unwrap();
+        dup.insert_node("b", output(vec![1])).unwrap();
+        dup.add_edge("a", "b");
+        dup.add_edge("a", "b");
+        assert_matches_recursive(&dup);
+
+        let mut cyc = NirGraph::new();
+        cyc.insert_node("a", input(vec![1])).unwrap();
+        cyc.insert_node("b", output(vec![1])).unwrap();
+        cyc.add_edge("a", "b");
+        cyc.add_edge("b", "a");
+        assert_matches_recursive(&cyc);
+
+        for depth in 0..=4 {
+            let mut inner = NirGraph::new();
+            inner.insert_node("i", input(vec![1])).unwrap();
+            inner.add_edge("i", "ghost");
+            assert_matches_recursive(&wrap_depth(depth, inner));
+            assert_matches_recursive(&wrap_depth(depth, leaf_graph()));
+        }
+
+        let mut first = NirGraph::new();
+        first.insert_node("i", input(vec![1])).unwrap();
+        first.add_edge("i", "missing_a");
+        let mut second = NirGraph::new();
+        second.insert_node("i", input(vec![1])).unwrap();
+        second.add_edge("i", "missing_b");
+        let mut outer = NirGraph::new();
+        outer
+            .insert_node("sub_a", NirNode::Graph(Box::new(first)))
+            .unwrap();
+        outer
+            .insert_node("sub_b", NirNode::Graph(Box::new(second)))
+            .unwrap();
+        outer.add_edge("nope", "sub_a");
+        assert_matches_recursive(&outer);
     }
 
     #[test]

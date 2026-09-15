@@ -195,6 +195,114 @@ proptest! {
     }
 }
 
+/// Historical recursive walk: local endpoints/duplicates, then nested
+/// subgraphs in insertion order. Used as an oracle for shallow graphs so the
+/// heap work-list validator cannot drift on first-error ordering.
+fn validate_structure_recursive(graph: &NirGraph) -> Result<(), NirError> {
+    let node_keys: std::collections::HashSet<&str> =
+        graph.nodes.keys().map(String::as_str).collect();
+
+    for (src, dst) in &graph.edges {
+        if !node_keys.contains(src.as_str()) {
+            return Err(NirError::MissingNode(src.clone()));
+        }
+        if !node_keys.contains(dst.as_str()) {
+            return Err(NirError::MissingNode(dst.clone()));
+        }
+    }
+
+    let mut seen_edges: std::collections::HashSet<(&str, &str)> = std::collections::HashSet::new();
+    for (src, dst) in &graph.edges {
+        let key = (src.as_str(), dst.as_str());
+        if !seen_edges.insert(key) {
+            return Err(NirError::DuplicateEdge(src.clone(), dst.clone()));
+        }
+    }
+
+    for (name, node) in &graph.nodes {
+        if let NirNode::Graph(sub) = node {
+            validate_structure_recursive(sub).map_err(|e| match e {
+                NirError::MissingNode(n) => {
+                    NirError::InvalidGraph(format!("in subgraph {name:?}: missing node: {n}"))
+                }
+                NirError::DuplicateEdge(a, b) => NirError::InvalidGraph(format!(
+                    "in subgraph {name:?}: duplicate edge: ({a}, {b})"
+                )),
+                NirError::DuplicateNode(n) => {
+                    NirError::InvalidGraph(format!("in subgraph {name:?}: duplicate node: {n}"))
+                }
+                NirError::InvalidGraph(msg) => {
+                    NirError::InvalidGraph(format!("in subgraph {name:?}: {msg}"))
+                }
+                other => NirError::InvalidGraph(format!("in subgraph {name:?}: {other}")),
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn arb_flat_graph() -> impl Strategy<Value = NirGraph> {
+    (
+        1usize..5,
+        prop::collection::vec((0usize..8, 0usize..8), 0..8),
+    )
+        .prop_map(|(n_nodes, edge_pairs)| {
+            let mut g = NirGraph::new();
+            for i in 0..n_nodes {
+                g.insert_node(format!("n{i}"), input(vec![1])).unwrap();
+            }
+            for (a, b) in edge_pairs {
+                // Mix valid endpoints with occasional ghosts so both Ok and
+                // MissingNode/DuplicateEdge stay in the comparison set.
+                let src = if a % 5 == 0 {
+                    format!("ghost{a}")
+                } else {
+                    format!("n{}", a % n_nodes)
+                };
+                let dst = if b % 7 == 0 {
+                    format!("ghost{b}")
+                } else {
+                    format!("n{}", b % n_nodes)
+                };
+                g.add_edge(src, dst);
+            }
+            g
+        })
+}
+
+fn arb_nested_graph() -> impl Strategy<Value = NirGraph> {
+    arb_flat_graph().prop_recursive(3, 24, 3, |inner| {
+        (
+            prop::collection::vec(inner, 1..3),
+            arb_flat_graph(),
+            any::<bool>(),
+        )
+            .prop_map(|(subs, mut host, attach_host_edges)| {
+                for (i, sub) in subs.into_iter().enumerate() {
+                    host.insert_node(format!("sub{i}"), NirNode::Graph(Box::new(sub)))
+                        .unwrap();
+                }
+                if attach_host_edges && !host.nodes.is_empty() {
+                    let names: Vec<String> = host.nodes.keys().cloned().collect();
+                    host.add_edge(names[0].clone(), names[names.len() - 1].clone());
+                }
+                host
+            })
+    })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    /// Generated shallow (and modestly nested) graphs must agree with the
+    /// historical recursive algorithm on pass/fail and error payloads.
+    #[test]
+    fn shallow_graphs_match_recursive_validate_structure(g in arb_nested_graph()) {
+        assert_eq!(g.validate_structure(), validate_structure_recursive(&g));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Wire name / string preflight (pure, no libhdf5)
 // ---------------------------------------------------------------------------
