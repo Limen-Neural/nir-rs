@@ -227,6 +227,8 @@ fixture license in the parent directory.
 
 ## Neuromod follow-up
 
-Post-load smoke (map NIR IF / Affine / Conv2d into neuromod primitives) is
-tracked separately — see the PR / Linear issue linked from GitHub #44 /
-LIM-1086. Implementation stays out of this crate.
+Post-load smoke (map NIR IF / Affine / Conv2d / AvgPool2d into neuromod
+primitives) is tracked separately. Implementation stays out of this crate:
+
+- Linear: [LIM-1242](https://linear.app/rpd-34/issue/LIM-1242/test-hugging-face-derived-nir-graphs-neuromod-post-load-smoke)
+- GitHub: [Limen-Neural/neuromod#125](https://github.com/Limen-Neural/neuromod/issues/125)
