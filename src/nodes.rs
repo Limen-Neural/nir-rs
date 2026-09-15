@@ -155,10 +155,7 @@ impl NirNode {
     /// [`crate::NirError::InvalidNodeParameters`] when a convolution or pooling
     /// field violates a local invariant. Nested subgraphs are visited.
     pub fn validate_parameters(&self) -> crate::error::Result<()> {
-        match self {
-            Self::Graph(sub) => crate::validation::validate_graph(sub),
-            other => crate::validation::validate_node(other, crate::validation::ANONYMOUS_NODE),
-        }
+        crate::validation::validate_node(self, crate::validation::ANONYMOUS_NODE)
     }
 }
 

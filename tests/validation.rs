@@ -8,7 +8,7 @@
 use nir_rs::nodes::{
     Affine, AvgPool2d, Conv1d, Conv2d, Input, NirNode, Output, Padding, SumPool2d,
 };
-use nir_rs::types::Tensor;
+use nir_rs::types::{MetadataMap, Tensor};
 use nir_rs::{NirError, NirGraph, ParameterError};
 
 fn conv1d_ok() -> Conv1d {
@@ -20,7 +20,7 @@ fn conv1d_ok() -> Conv1d {
         groups: 1,
         bias: Tensor::from_f32(vec![2], vec![0., 0.]).unwrap(),
         input_shape: Some(8),
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     }
 }
 
@@ -33,7 +33,7 @@ fn conv2d_ok() -> Conv2d {
         groups: 1,
         bias: Tensor::from_f32(vec![4], vec![0.; 4]).unwrap(),
         input_shape: Some(vec![8, 8]),
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     }
 }
 
@@ -51,7 +51,7 @@ fn sum_pool_ok() -> SumPool2d {
         kernel_size,
         stride,
         padding,
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     }
 }
 
@@ -61,7 +61,7 @@ fn avg_pool_ok() -> AvgPool2d {
         kernel_size,
         stride,
         padding,
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     }
 }
 
@@ -197,7 +197,7 @@ fn cases() -> Vec<(&'static str, NirNode, Expect)> {
                     kernel_size: Tensor::scalar_i64(3),
                     stride: Tensor::scalar_i64(2),
                     padding: Tensor::scalar_i64(0),
-                    metadata: Default::default(),
+                    metadata: MetadataMap::default(),
                 })
             },
             Expect::Ok,
@@ -207,7 +207,7 @@ fn cases() -> Vec<(&'static str, NirNode, Expect)> {
             NirNode::Affine(Affine {
                 weight: Tensor::from_f32(vec![2, 2], vec![0.; 4]).unwrap(),
                 bias: Tensor::from_f32(vec![2], vec![0., 0.]).unwrap(),
-                metadata: Default::default(),
+                metadata: MetadataMap::default(),
             }),
             Expect::Ok,
         ),
@@ -215,7 +215,7 @@ fn cases() -> Vec<(&'static str, NirNode, Expect)> {
             "input_skipped",
             NirNode::Input(Input {
                 shape: vec![1],
-                metadata: Default::default(),
+                metadata: MetadataMap::default(),
             }),
             Expect::Ok,
         ),
@@ -525,6 +525,26 @@ fn validation_error_is_node_qualified() {
 }
 
 #[test]
+fn validation_standalone_graph_prefixes_nested_errors() {
+    let mut conv = conv1d_ok();
+    conv.groups = 0;
+    let mut inner = NirGraph::new();
+    inner.insert_node("conv", NirNode::Conv1d(conv)).unwrap();
+    let err = NirNode::Graph(Box::new(inner))
+        .validate_parameters()
+        .unwrap_err();
+    match err {
+        NirError::InvalidNodeParameters {
+            node, node_type, ..
+        } => {
+            assert_eq!(node, "<node>/conv");
+            assert_eq!(node_type, "Conv1d");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[test]
 fn validation_nested_graph_uses_slash_path() {
     let mut conv = conv2d_ok();
     conv.padding = Padding::pair(-1, 0);
@@ -540,7 +560,7 @@ fn validation_nested_graph_uses_slash_path() {
             "out",
             NirNode::Output(Output {
                 shape: vec![1],
-                metadata: Default::default(),
+                metadata: MetadataMap::default(),
             }),
         )
         .unwrap();
@@ -567,7 +587,7 @@ fn structure_validation_ignores_bad_conv_parameters() {
         "in",
         NirNode::Input(Input {
             shape: vec![1],
-            metadata: Default::default(),
+            metadata: MetadataMap::default(),
         }),
     )
     .unwrap();

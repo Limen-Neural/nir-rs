@@ -356,7 +356,7 @@ fn dtype_label(dtype: DType) -> &'static str {
 mod tests {
     use super::*;
     use crate::nodes::{Input, Lif};
-    use crate::types::Tensor;
+    use crate::types::{MetadataMap, Tensor};
 
     fn conv1d_ok() -> Conv1d {
         Conv1d {
@@ -367,7 +367,7 @@ mod tests {
             groups: 1,
             bias: Tensor::from_f32(vec![2], vec![0., 0.]).unwrap(),
             input_shape: None,
-            metadata: Default::default(),
+            metadata: MetadataMap::default(),
         }
     }
 
@@ -391,7 +391,7 @@ mod tests {
     fn non_conv_nodes_are_skipped() {
         let node = NirNode::Input(Input {
             shape: vec![4],
-            metadata: Default::default(),
+            metadata: MetadataMap::default(),
         });
         node.validate_parameters().unwrap();
 
@@ -401,7 +401,7 @@ mod tests {
             v_leak: Tensor::scalar_f64(0.0),
             v_threshold: Tensor::scalar_f64(1.0),
             v_reset: None,
-            metadata: Default::default(),
+            metadata: MetadataMap::default(),
         });
         lif.validate_parameters().unwrap();
     }
