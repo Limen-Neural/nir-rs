@@ -265,6 +265,7 @@ fn is_representability_or_structure_error(e: &NirError) -> bool {
             | NirError::MissingNode(_)
             | NirError::DuplicateEdge(..)
             | NirError::UnsupportedVersion(_)
+            | NirError::IncompatibleVersion { .. }
             | NirError::MissingField(_)
     )
 }

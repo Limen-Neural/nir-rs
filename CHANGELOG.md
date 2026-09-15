@@ -8,6 +8,13 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in `io::VersionPolicy` on `ReadOptions` for HDF5 reads (LIM-1240):
+  default remains permissive; `RequirePresent` and `CompatibleMajor`
+  (caller-supplied majors) validate `/version` before the graph body is
+  decoded. Failures are `NirError::IncompatibleVersion`.
+
 ### Changed
 
 - Package `exclude` list: add `.deepsource.toml` so the crates.io artifact

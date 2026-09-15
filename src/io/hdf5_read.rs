@@ -143,6 +143,10 @@ pub(super) fn read(path: &Path, opts: &ReadOptions) -> Result<NirGraph> {
     // external link is what leaves the container, so the check has to happen
     // on the link, not on the group it resolves to.
     validate_group_links(&file, "/")?;
+    // Envelope first: an incompatible `/version` must not allocate node
+    // tensors. Shared with [`read_version`] so the two cannot disagree.
+    let version = load_version(&file, &budget)?;
+    super::version::enforce_version_policy(version.as_deref(), &opts.version_policy)?;
     let root = file.group(KEY_NODE).map_err(|_| {
         NirError::MissingField(format!(
             "/{KEY_NODE} (not a NIR graph file: {})",
@@ -174,10 +178,7 @@ pub(super) fn read(path: &Path, opts: &ReadOptions) -> Result<NirGraph> {
 
     let mut graph = read_graph_body(&root, &format!("/{KEY_NODE}"), &mut Vec::new(), &budget)?;
     graph.metadata = read_metadata(&root, &budget)?;
-    graph.version = match version_dataset(&file)? {
-        Some(ds) => Some(read_string_scalar(&ds, KEY_VERSION, &budget)?),
-        None => None,
-    };
+    graph.version = version;
     Ok(graph)
 }
 
@@ -199,14 +200,22 @@ fn version_dataset(file: &File) -> Result<Option<Dataset>> {
     })
 }
 
+/// Decode `/version` when present. Absence is [`None`], not an error.
+fn load_version(file: &File, budget: &ReadBudget) -> Result<Option<String>> {
+    match version_dataset(file)? {
+        Some(ds) => Ok(Some(read_string_scalar(&ds, KEY_VERSION, budget)?)),
+        None => Ok(None),
+    }
+}
+
 /// Read only `/version`.
 pub(super) fn read_version(path: &Path, opts: &ReadOptions) -> Result<String> {
     let budget = ReadBudget::new(opts);
     let file = open(path)?;
     validate_group_links(&file, "/")?;
-    let ds =
-        version_dataset(&file)?.ok_or_else(|| NirError::MissingField(format!("/{KEY_VERSION}")))?;
-    read_string_scalar(&ds, KEY_VERSION, &budget)
+    let version = load_version(&file, &budget)?;
+    super::version::enforce_version_policy(version.as_deref(), &opts.version_policy)?;
+    version.ok_or_else(|| NirError::MissingField(format!("/{KEY_VERSION}")))
 }
 
 fn open(path: &Path) -> Result<File> {
