@@ -8,6 +8,13 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in `NirNode::validate_parameters` / `NirGraph::validate_parameters` for
+  local convolution and pooling invariants, with typed `ParameterError` /
+  `NirError::InvalidNodeParameters`. HDF5 reads stay permissive; the default
+  writer does not run these checks (LIM-1239).
+
 ### Changed
 
 - Package `exclude` list: add `.deepsource.toml` so the crates.io artifact

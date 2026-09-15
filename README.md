@@ -129,6 +129,17 @@ fn main() -> nir_rs::Result<()> {
 }
 ```
 
+`validate_structure` checks edge endpoints and duplicate directed edges.
+Convolution and pooling parameter invariants (weight rank, groups, stride,
+padding, bias, pooling windows) are a separate opt-in:
+
+```rust
+g.validate_parameters()?;
+```
+
+HDF5 reads run neither check. The default writer runs structure validation
+only.
+
 ## File I/O
 
 `.nir` is the official NIR interchange format: an HDF5 container whose layout is

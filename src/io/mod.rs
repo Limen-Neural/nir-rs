@@ -182,6 +182,10 @@ pub struct WriteOptions {
     /// Run [`NirGraph::validate_structure`] and lossless-representation checks
     /// before writing. Defaults to `true`.
     ///
+    /// This does **not** run [`NirGraph::validate_parameters`]. Convolution and
+    /// pooling parameter invariants stay opt-in so wild fixtures can still be
+    /// rewritten without an extra compatibility decision.
+    ///
     /// Set this to `false` to rewrite a graph whose edges do not all resolve,
     /// or that contains values the wire format cannot preserve (nested graph
     /// versions, rank-0 metadata tensors). Such files exist in the wild —
@@ -355,7 +359,9 @@ pub fn read_version_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<S
 /// [`NirGraph::validate_structure`](crate::NirGraph::validate_structure) first:
 /// a graph with dangling edges would produce a file that upstream refuses to
 /// load, so it is rejected here instead. Opt out with
-/// [`WriteOptions::with_validation`].
+/// [`WriteOptions::with_validation`]. Convolution and pooling parameter
+/// invariants ([`NirGraph::validate_parameters`](crate::NirGraph::validate_parameters))
+/// are not part of this preflight; call them explicitly for that stricter gate.
 ///
 /// # Errors
 ///

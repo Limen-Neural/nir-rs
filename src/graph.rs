@@ -5,7 +5,9 @@
 //! A graph is a named set of computational nodes plus a list of directed
 //! identity edges, matching neuromorphs/NIR (`nodes`, `edges`, `metadata`,
 //! optional `version`). Cycles are allowed; structure validation only checks
-//! edge endpoints and duplicate directed edges.
+//! edge endpoints and duplicate directed edges. Convolution and pooling
+//! parameter invariants are a separate opt-in check
+//! ([`NirGraph::validate_parameters`]).
 
 use crate::error::{NirError, Result};
 use crate::nodes::NirNode;
@@ -91,6 +93,8 @@ impl NirGraph {
     /// - nested [`NirNode::Graph`] subgraphs also validate
     ///
     /// Cycles are **allowed**. Type/shape inference is out of scope for v0.2.
+    /// Convolution and pooling parameter invariants are checked separately by
+    /// [`validate_parameters`](Self::validate_parameters).
     ///
     /// # Errors
     ///
@@ -141,6 +145,28 @@ impl NirGraph {
         }
 
         Ok(())
+    }
+
+    /// Validate local convolution and pooling parameter invariants.
+    ///
+    /// Complements [`validate_structure`](Self::validate_structure): structure
+    /// checks only edge endpoints and duplicate directed edges, while this
+    /// walks each node for weight rank, grouped-convolution divisibility,
+    /// stride/dilation/padding extents, bias length, and pooling windows.
+    ///
+    /// HDF5 [`crate::io::read`] does **not** call this method. The default
+    /// writer also does not — invoke it explicitly after assembling or
+    /// importing a graph.
+    ///
+    /// Nested [`crate::NirNode::Graph`] subgraphs are visited. Failures name
+    /// the node with a `/`-separated path (`"encoder/conv"`).
+    ///
+    /// # Errors
+    ///
+    /// [`NirError::InvalidNodeParameters`] for the first node whose
+    /// convolution or pooling fields violate a local invariant.
+    pub fn validate_parameters(&self) -> Result<()> {
+        crate::validation::validate_graph(self)
     }
 }
 

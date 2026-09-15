@@ -41,6 +41,7 @@ These are intentional, documented behaviors — not bugs:
 | Dtype widening | Some metadata may widen (e.g. integer/scalar forms) within documented IO rules; equality checks use graph semantics, not raw HDF5 types. |
 | Optional fields | e.g. LIF `v_reset`, Cuba `w_in` — absent on the wire means default / `None` in Rust; presence is preserved. |
 | Wire type strings | Must match neuromorphs/NIR exactly (`CubaLIF`, `Conv2d`, `SumPool2d`, …). Marketing aliases are rejected. |
+| Parameter validation | Opt-in via `NirGraph::validate_parameters`. Reads stay permissive; default writes do not run convolution/pooling checks. |
 
 ## Features
 
