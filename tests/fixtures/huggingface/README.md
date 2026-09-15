@@ -50,7 +50,7 @@ Not used: NeuroCUDA `to_nir()` dict exporter, Synfire CLI, or any Python step in
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+pip install 'torch==2.14.0+cpu' --index-url https://download.pytorch.org/whl/cpu
 pip install 'huggingface_hub==1.31.0' 'nir==1.0.8' 'numpy==2.4.6'
 ```
 

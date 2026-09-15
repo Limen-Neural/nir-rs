@@ -113,6 +113,15 @@ fn mlp_mnist_structure_and_values() {
     let v_reset = if1.v_reset.as_ref().expect("v_reset present on this wire");
     assert_eq!(v_reset.shape(), [256]);
     assert_eq!(f32s(v_reset.data())[0], 0.0);
+    // Decoded zeros can also be synthesized when the dataset is absent.
+    let file = hdf5::File::open(format!("{DIR}/{MLP}")).unwrap();
+    assert!(
+        file.group("node/nodes/if1")
+            .unwrap()
+            .dataset("v_reset")
+            .is_ok(),
+        "serialized if1/v_reset dataset is missing"
+    );
 
     let NirNode::If(if2) = g.get("if2").unwrap() else {
         panic!("expected IF");
