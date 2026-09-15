@@ -5,7 +5,9 @@ checkpoints**, written with the official Python [`nir`](https://pypi.org/project
 package. They prove `nir-rs` can load graphs that did **not** originate in the
 neuromorphs/NIR paper corpus.
 
-CI never talks to Hugging Face. These files are vendored and checksummed.
+CI never talks to Hugging Face. These files are vendored;
+`tests/hf_fixture_checksums.rs` checks their SHA-256 against
+[`MANIFEST.toml`](MANIFEST.toml).
 Synfire registry pulls stay on GitHub [#43](https://github.com/Limen-Neural/nir-rs/issues/43)
 / LIM-1085 and are not mixed into this directory.
 
@@ -75,7 +77,11 @@ def if_node(thresh, shape):
         v_th = np.broadcast_to(
             arr.reshape((arr.shape[0],) + (1,) * (len(shape) - 1)), shape
         ).copy()
-    return nir.IF(r=np.ones(shape, dtype=np.float32), v_threshold=v_th)
+    return nir.IF(
+        r=np.ones(shape, dtype=np.float32),
+        v_threshold=v_th,
+        v_reset=np.zeros(shape, dtype=np.float32),
+    )
 
 # --- MLP MNIST ---------------------------------------------------------------
 mlp_rev = "5a2422453d0a1672f5d1dec2ea73d54196a07d85"
@@ -204,6 +210,7 @@ fc0b1a1e0c4caeb9d1f7be8700de0212a76ec5f441cae13038887411fd9a1ef0  neurocuda_mlp_
 Load in `nir-rs` (no Python):
 
 ```bash
+cargo test --test hf_fixture_checksums
 cargo test --features hdf5 --test hdf5_huggingface
 ```
 

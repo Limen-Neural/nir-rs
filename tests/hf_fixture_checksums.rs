@@ -2,27 +2,36 @@
 
 //! Byte-integrity checks for Hugging Face–derived `.nir` fixtures.
 //!
-//! SHA-256 values match `tests/fixtures/huggingface/MANIFEST.toml`. These
-//! tests do not need libhdf5, so default-feature CI still catches a swapped
-//! or truncated file.
+//! Digests are read from `tests/fixtures/huggingface/MANIFEST.toml` so that
+//! file is the source of truth. These tests do not need libhdf5, so
+//! default-feature CI still catches a swapped or truncated file.
 
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
 
 const DIR: &str = "tests/fixtures/huggingface";
+const MANIFEST: &str = "tests/fixtures/huggingface/MANIFEST.toml";
 
-/// `(file name, lowercase hex SHA-256)` from [`DIR`]/MANIFEST.toml.
-const EXPECTED: &[(&str, &str)] = &[
-    (
-        "neurocuda_mlp_mnist.nir",
-        "fc0b1a1e0c4caeb9d1f7be8700de0212a76ec5f441cae13038887411fd9a1ef0",
-    ),
-    (
-        "neurocuda_cnn_nmnist.nir",
-        "972b45984094606b83b5b19173a653524550a5aa416f8a46398baa4250c34f2f",
-    ),
-];
+fn quoted_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let prefix = format!("{key} = \"");
+    line.trim().strip_prefix(&prefix)?.strip_suffix('"')
+}
+
+/// Parse `file` / `sha256` pairs from the catalog. Not a full TOML parser.
+fn fixtures_from_manifest(text: &str) -> Vec<(&str, &str)> {
+    let mut out = Vec::new();
+    let mut file = None;
+    for line in text.lines() {
+        if let Some(name) = quoted_value(line, "file") {
+            file = Some(name);
+        } else if let Some(hash) = quoted_value(line, "sha256") {
+            let name = file.take().expect("sha256 without a preceding file key");
+            out.push((name, hash));
+        }
+    }
+    out
+}
 
 fn sha256_hex(path: &Path) -> String {
     let bytes = fs::read(path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
@@ -34,11 +43,18 @@ fn sha256_hex(path: &Path) -> String {
 
 #[test]
 fn huggingface_fixtures_match_manifest_sha256() {
-    for (name, expected) in EXPECTED {
+    let text = fs::read_to_string(MANIFEST).unwrap();
+    let expected = fixtures_from_manifest(&text);
+    assert!(
+        expected.len() >= 2,
+        "MANIFEST.toml should list at least two fixtures, found {}",
+        expected.len()
+    );
+    for (name, digest) in expected {
         let path = Path::new(DIR).join(name);
         let actual = sha256_hex(&path);
         assert_eq!(
-            actual, *expected,
+            actual, digest,
             "{name} SHA-256 does not match MANIFEST.toml"
         );
     }

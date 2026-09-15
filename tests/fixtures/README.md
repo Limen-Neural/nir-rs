@@ -62,7 +62,7 @@ What this **interoperability** corpus exercises vs. what is only covered by
 Do **not** claim support for node families that appear only in the synthetic
 column until a licensed real-world fixture is added.
 
-## SHA-256 of the vendored copies
+## SHA-256 of the paper corpus
 
 ```
 0dd9143ef624892d4a6461f474d93653a337b3490a62e23ec9ec5d18fde9b7b6  lif_norse.nir
@@ -76,7 +76,9 @@ e2fa55bda7aab5a772485e1b690358bcb825b303eca7dc426e3973937fcb5bcb  cnn_sinabs.nir
 ```
 
 Hugging Face–derived conversions (not paper artifacts; MIT Hub weights, written
-by Python `nir` 1.0.8) live in [`huggingface/`](huggingface/) and are tested by
+by Python `nir` 1.0.8) live in [`huggingface/`](huggingface/). SHA-256 values
+are in [`huggingface/MANIFEST.toml`](huggingface/MANIFEST.toml) and are checked
+by `tests/hf_fixture_checksums.rs`; load/inspect tests are
 `tests/hdf5_huggingface.rs`. They are kept separate from this paper corpus so
 converter vs parser failures stay distinguishable, and so Synfire work (#43)
 does not grow a Hub download surface in CI.
