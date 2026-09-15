@@ -167,7 +167,44 @@ fn read_limit_exact_nested_graphs_succeed_and_one_more_fails() {
         } => {
             assert_eq!(used, 1);
             assert_eq!(requested, 1);
-            assert_eq!(context, "sub");
+            assert_eq!(context, "/node/nodes/sub");
+        }
+        other => panic!("expected ReadCountLimitExceeded, got {other:?}"),
+    }
+}
+
+#[test]
+fn read_limit_nested_graph_is_charged_before_metadata() {
+    // A rejected nested graph must not decode its metadata group first: a
+    // large declared payload with only a count budget would otherwise hit
+    // `max_bytes` before the structured graph-count error.
+    let dir = TempDir::new().unwrap();
+    let path = write_graph(&dir, "nested_meta.nir", &nested_pair());
+    {
+        let file = hdf5::File::open_rw(&path).unwrap();
+        let md = file
+            .group("node/nodes/sub")
+            .unwrap()
+            .create_group("metadata")
+            .unwrap();
+        md.new_dataset::<i64>()
+            .shape([10_000_000])
+            .chunk([1024])
+            .create("blob")
+            .unwrap();
+    }
+
+    let opts = ReadOptions::default()
+        .with_max_bytes(Some(1_000_000))
+        .with_max_nested_graphs(Some(1));
+    let err = assert_count_limit(
+        nir_rs::io::read_with(&path, &opts),
+        ReadLimitResource::NestedGraphs,
+        1,
+    );
+    match err {
+        NirError::ReadCountLimitExceeded { context, .. } => {
+            assert_eq!(context, "/node/nodes/sub");
         }
         other => panic!("expected ReadCountLimitExceeded, got {other:?}"),
     }

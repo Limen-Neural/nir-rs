@@ -370,7 +370,7 @@ fn read_graph_body_inner(
             .group(&name)
             .map_err(|e| NirError::Io(format!("node {name:?} is not a group: {e}")))?;
         validate_group_links(&node_group, &name)?;
-        let node = read_node(&node_group, &name, visited, budget)?;
+        let node = read_node(&node_group, &name, context, visited, budget)?;
         graph.insert_node(name, node)?;
     }
 
@@ -420,6 +420,7 @@ fn read_edges(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<Vec<(S
 fn read_node(
     group: &Group,
     name: &str,
+    parent_path: &str,
     visited: &mut Vec<LocationToken>,
     budget: &ReadBudget,
 ) -> Result<NirNode> {
@@ -427,6 +428,22 @@ fn read_node(
         .dataset(KEY_TYPE)
         .map_err(|_| NirError::MissingField(format!("{name}.{KEY_TYPE}")))?;
     let ty = read_string_scalar(&type_ds, name, budget)?;
+    // Nested graphs must hit the graph-count budget before `read_metadata`.
+    // Metadata lives in an unbounded sibling group; decoding it first would
+    // let a rejected subgraph spend the allocation budget (or allocator)
+    // while the caller only opted into count limits.
+    if ty == "NIRGraph" {
+        let nested_path = format!("{parent_path}/{KEY_NODES}/{name}");
+        let mut sub = read_graph_body(group, &nested_path, visited, budget)?;
+        sub.metadata = read_metadata(group, budget)?;
+        let node = NirNode::Graph(Box::new(sub));
+        debug_assert!(
+            wire::is_wire_type(node.type_name()),
+            "decoded a node whose type is not in WIRE_TYPES"
+        );
+        return Ok(node);
+    }
+
     let metadata = read_metadata(group, budget)?;
     let r = NodeReader {
         group,
@@ -453,11 +470,6 @@ fn read_node(
         "SumPool2d" => NirNode::SumPool2d(read_sum_pool2d(&r, metadata)?),
         "AvgPool2d" => NirNode::AvgPool2d(read_avg_pool2d(&r, metadata)?),
         "Threshold" => NirNode::Threshold(read_threshold(&r, metadata)?),
-        "NIRGraph" => {
-            let mut sub = read_graph_body(group, name, visited, budget)?;
-            sub.metadata = metadata;
-            NirNode::Graph(Box::new(sub))
-        }
         other => return Err(NirError::UnknownNodeType(other.to_owned())),
     };
 
