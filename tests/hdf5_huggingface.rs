@@ -97,6 +97,8 @@ fn mlp_mnist_structure_and_values() {
     };
     assert_eq!(fc1.weight.shape(), [256, 784]);
     assert_eq!(fc1.weight.dtype(), DType::F32);
+    // First-element bits are decoder identity; whole-file SHA-256 is in
+    // `tests/hf_fixture_checksums.rs`.
     assert_eq!(bits(f32s(fc1.weight.data())[0]), 0x3c80_0e7b);
     assert_eq!(fc1.bias.shape(), [256]);
     assert_eq!(bits(f32s(fc1.bias.data())[0]), 0xbc3c_2c5a);
@@ -156,16 +158,23 @@ fn cnn_nmnist_structure_and_values() {
             ("pool3", "AvgPool2d"),
         ]
     );
-    assert_eq!(g.edges.len(), 12);
-    assert!(g.edges.contains(&("input".to_owned(), "conv1".to_owned())));
-    assert!(g.edges.contains(&("conv1".to_owned(), "if1".to_owned())));
-    assert!(g.edges.contains(&("if1".to_owned(), "pool1".to_owned())));
-    assert!(
-        g.edges
-            .contains(&("pool3".to_owned(), "flatten".to_owned()))
+    assert_eq!(
+        g.edges,
+        [
+            ("input".to_owned(), "conv1".to_owned()),
+            ("conv1".to_owned(), "if1".to_owned()),
+            ("if1".to_owned(), "pool1".to_owned()),
+            ("pool1".to_owned(), "conv2".to_owned()),
+            ("conv2".to_owned(), "if2".to_owned()),
+            ("if2".to_owned(), "pool2".to_owned()),
+            ("pool2".to_owned(), "conv3".to_owned()),
+            ("conv3".to_owned(), "if3".to_owned()),
+            ("if3".to_owned(), "pool3".to_owned()),
+            ("pool3".to_owned(), "flatten".to_owned()),
+            ("flatten".to_owned(), "fc".to_owned()),
+            ("fc".to_owned(), "output".to_owned()),
+        ]
     );
-    assert!(g.edges.contains(&("flatten".to_owned(), "fc".to_owned())));
-    assert!(g.edges.contains(&("fc".to_owned(), "output".to_owned())));
     g.validate_structure().unwrap();
 
     let NirNode::Input(input) = g.get("input").unwrap() else {
