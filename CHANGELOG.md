@@ -10,7 +10,7 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ### Changed
 
-- Package `exclude` list: drop `.deepsource.toml` so the crates.io artifact
+- Package `exclude` list: add `.deepsource.toml` so the crates.io artifact
   does not ship the DeepSource analyzer pin (#47).
 
 ### Removed
