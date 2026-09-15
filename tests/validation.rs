@@ -458,7 +458,7 @@ fn cases() -> Vec<(&'static str, NirNode, Expect)> {
 }
 
 #[test]
-fn table_covers_every_acceptance_and_rejection_class() {
+fn validation_table_covers_every_acceptance_and_rejection_class() {
     let table = cases();
     let names: Vec<&str> = table.iter().map(|(name, _, _)| *name).collect();
     assert!(names.iter().any(|n| n.contains("depthwise")));
@@ -499,12 +499,12 @@ fn table_covers_every_acceptance_and_rejection_class() {
 }
 
 #[test]
-fn empty_graph_parameters_ok() {
+fn validation_empty_graph_ok() {
     NirGraph::new().validate_parameters().unwrap();
 }
 
 #[test]
-fn graph_error_is_node_qualified() {
+fn validation_error_is_node_qualified() {
     let mut conv = conv1d_ok();
     conv.groups = 0;
     let mut g = NirGraph::new();
@@ -525,7 +525,7 @@ fn graph_error_is_node_qualified() {
 }
 
 #[test]
-fn nested_graph_uses_slash_path() {
+fn validation_nested_graph_uses_slash_path() {
     let mut conv = conv2d_ok();
     conv.padding = Padding::pair(-1, 0);
     let mut inner = NirGraph::new();
@@ -579,7 +579,7 @@ fn structure_validation_ignores_bad_conv_parameters() {
 }
 
 #[test]
-fn typed_kinds_match_specific_invariants() {
+fn validation_typed_kinds_match_specific_invariants() {
     let mut conv = conv1d_ok();
     conv.weight = Tensor::from_f32(vec![2, 3], vec![0.; 6]).unwrap();
     assert_kind(
@@ -617,7 +617,7 @@ mod hdf5 {
     use tempfile::TempDir;
 
     #[test]
-    fn read_stays_permissive_and_caller_can_validate() {
+    fn read_stays_permissive_for_parameter_validation() {
         let mut conv = conv1d_ok();
         conv.groups = 0;
         let mut g = NirGraph::new();

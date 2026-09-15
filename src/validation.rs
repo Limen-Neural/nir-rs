@@ -132,7 +132,7 @@ fn validate_conv(
     }
 
     let out_channels = weight.shape()[0];
-    if out_channels as u64 % groups as u64 != 0 {
+    if !(out_channels as u64).is_multiple_of(groups as u64) {
         return Err(invalid(
             node,
             node_type,
