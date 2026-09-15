@@ -24,7 +24,8 @@ use a fixed case budget suitable for CI.
 |------|---------|--------|
 | `tests/prop_invariants.rs` | default | Tensor shape/data, graph insert/validate, link-name preflight |
 | `tests/prop_invariants.rs` | `serde` | Finite tensor + simple graph JSON round-trip |
-| `tests/prop_hdf5.rs` | `hdf5` | Write → read graph fidelity, illegal name preflight (no clobber) |
+| `tests/prop_hdf5.rs` | `hdf5` | Write → read graph fidelity, illegal name preflight (no clobber), nested count budgets |
+| `tests/hdf5_read_limits.rs` | `hdf5` | Exact `ReadOptions` node/edge/nesting budgets, nested accumulation, hard-link aliases |
 
 Re-run with more cases locally:
 

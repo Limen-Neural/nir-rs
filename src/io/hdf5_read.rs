@@ -17,7 +17,7 @@
 
 use super::ReadOptions;
 use super::wire::{self, KEY_EDGES, KEY_METADATA, KEY_NODE, KEY_NODES, KEY_TYPE, KEY_VERSION};
-use crate::error::{NirError, Result};
+use crate::error::{NirError, ReadLimitResource, Result};
 use crate::graph::NirGraph;
 use crate::nodes::{
     Affine, AvgPool2d, Conv1d, Conv2d, CubaLi, CubaLif, Delay, Flatten, I, If, Input, Li, Lif,
@@ -41,10 +41,69 @@ use std::path::Path;
 /// refuse to read.
 pub(super) const MAX_NESTED_GRAPHS: usize = 1024;
 
-/// Monotonic decoded-allocation ledger shared by one read operation.
+/// Monotonic decoded-allocation and collection ledger shared by one read.
 struct ReadBudget {
     limit: Option<usize>,
     used: Cell<usize>,
+    nodes: CountLedger,
+    edges: CountLedger,
+    graphs: CountLedger,
+}
+
+/// One optional count budget with checked, monotonic charging.
+struct CountLedger {
+    limit: Option<usize>,
+    used: Cell<usize>,
+}
+
+impl CountLedger {
+    fn new(limit: Option<usize>) -> Self {
+        Self {
+            limit,
+            used: Cell::new(0),
+        }
+    }
+
+    fn charge(
+        &self,
+        resource: ReadLimitResource,
+        context: &str,
+        requested: Option<usize>,
+    ) -> Result<()> {
+        let Some(limit) = self.limit else {
+            return Ok(());
+        };
+        let used = self.used.get();
+        let Some(requested) = requested else {
+            return Err(NirError::ReadCountLimitExceeded {
+                resource,
+                context: context.to_owned(),
+                limit,
+                used,
+                requested: usize::MAX,
+            });
+        };
+        let Some(next) = used.checked_add(requested) else {
+            return Err(NirError::ReadCountLimitExceeded {
+                resource,
+                context: context.to_owned(),
+                limit,
+                used,
+                requested,
+            });
+        };
+        if next > limit {
+            return Err(NirError::ReadCountLimitExceeded {
+                resource,
+                context: context.to_owned(),
+                limit,
+                used,
+                requested,
+            });
+        }
+        self.used.set(next);
+        Ok(())
+    }
 }
 
 impl ReadBudget {
@@ -52,7 +111,25 @@ impl ReadBudget {
         Self {
             limit: opts.max_bytes,
             used: Cell::new(0),
+            nodes: CountLedger::new(opts.max_nodes),
+            edges: CountLedger::new(opts.max_edges),
+            graphs: CountLedger::new(opts.max_nested_graphs),
         }
+    }
+
+    fn charge_nodes(&self, context: &str, requested: Option<usize>) -> Result<()> {
+        self.nodes
+            .charge(ReadLimitResource::Nodes, context, requested)
+    }
+
+    fn charge_edges(&self, context: &str, requested: Option<usize>) -> Result<()> {
+        self.edges
+            .charge(ReadLimitResource::Edges, context, requested)
+    }
+
+    fn charge_graph(&self, context: &str) -> Result<()> {
+        self.graphs
+            .charge(ReadLimitResource::NestedGraphs, context, Some(1))
     }
 
     /// Charge before allocation. Overflow is reported through the same
@@ -233,25 +310,30 @@ fn read_graph_body(
     visited: &mut Vec<LocationToken>,
     budget: &ReadBudget,
 ) -> Result<NirGraph> {
-    // A deep but *acyclic* chain gives every level a unique token, so the
-    // repeat check below cannot stop it; unbounded recursion would abort the
-    // process.
-    if visited.len() >= MAX_NESTED_GRAPHS {
-        return Err(NirError::InvalidGraph(format!(
-            "{context}: more than {MAX_NESTED_GRAPHS} nested NIRGraph groups"
-        )));
-    }
     let token = group.loc_info()?.token;
     if visited.contains(&token) {
         return Err(NirError::InvalidGraph(format!(
             "{context}: nested NIRGraph group is already being decoded (hard-link cycle or alias)"
         )));
     }
+    // Optional caller budget first so a tight `max_nested_graphs` reports a
+    // structured count error. The hard cap below stays `InvalidGraph` when no
+    // budget is set, matching the historical default-read failure mode.
+    budget.charge_graph(context)?;
+    // A deep but *acyclic* chain gives every level a unique token, so the
+    // alias check above cannot stop it; unbounded recursion would abort the
+    // process.
+    if visited.len() >= MAX_NESTED_GRAPHS {
+        return Err(NirError::InvalidGraph(format!(
+            "{context}: more than {MAX_NESTED_GRAPHS} nested NIRGraph groups"
+        )));
+    }
     // Kept for the whole read, not popped on exit. Popping would allow a
     // "diamond" of hard-links to the same subgraph, and two aliases per level
     // re-expand the shared subtree, so a few dozen groups can decode into
     // exponentially many graphs and exhaust memory. Every graph object is
-    // therefore decoded at most once per file.
+    // therefore decoded at most once per file, and cannot multiply work
+    // past the global collection budget.
     visited.push(token);
     read_graph_body_inner(group, context, visited, budget)
 }
@@ -269,12 +351,20 @@ fn read_graph_body_inner(
     let nodes = group
         .group(KEY_NODES)
         .map_err(|_| NirError::MissingField(format!("{context}/{KEY_NODES}")))?;
-    validate_group_links(&nodes, &format!("{context}/{KEY_NODES}"))?;
+    let nodes_ctx = format!("{context}/{KEY_NODES}");
+    // Charge from HDF5 group metadata before walking or collecting names, so a
+    // hostile file cannot spend the walk (or a `Vec<String>` of link names)
+    // while staying under `max_bytes`.
+    budget.charge_nodes(&nodes_ctx, group_nlinks(&nodes, &nodes_ctx)?)?;
+    validate_group_links(&nodes, &nodes_ctx)?;
 
     // HDF5 iterates links in name order; sorting makes that explicit and
     // keeps repeated reads of the same file identical.
     let mut names = nodes.member_names()?;
     names.sort();
+    if let Ok(n) = usize::try_from(nodes.len()) {
+        graph.nodes.reserve(n);
+    }
     for name in names {
         let node_group = nodes
             .group(&name)
@@ -287,13 +377,13 @@ fn read_graph_body_inner(
     let edges = group
         .dataset(KEY_EDGES)
         .map_err(|_| NirError::MissingField(format!("{context}/{KEY_EDGES}")))?;
-    graph.edges = read_edges(&edges, budget)?;
+    graph.edges = read_edges(&edges, &format!("{context}/{KEY_EDGES}"), budget)?;
 
     Ok(graph)
 }
 
-fn read_edges(ds: &Dataset, budget: &ReadBudget) -> Result<Vec<(String, String)>> {
-    validate_dataset_security(ds, KEY_EDGES)?;
+fn read_edges(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<Vec<(String, String)>> {
+    validate_dataset_security(ds, context)?;
     // h5py encodes an empty edge list as a zero-length dataset whose element
     // type is float, not string; treat any empty dataset as "no edges".
     if ds.size() == 0 {
@@ -302,18 +392,21 @@ fn read_edges(ds: &Dataset, budget: &ReadBudget) -> Result<Vec<(String, String)>
     let shape = ds.shape();
     if shape.len() != 2 || shape[1] != 2 {
         return Err(NirError::InvalidGraph(format!(
-            "{KEY_EDGES} must have shape (E, 2), found {shape:?}"
+            "{context} must have shape (E, 2), found {shape:?}"
         )));
     }
+    // Charge the edge count from the dataspace before decoding strings or
+    // allocating the pair vector.
+    let edge_count = shape[0];
+    budget.charge_edges(context, Some(edge_count))?;
     // Already validated above; skip the second property-list walk.
-    let flat = read_strings_unchecked(ds, KEY_EDGES, budget)?;
+    let flat = read_strings_unchecked(ds, context, budget)?;
     // `collect` into `Vec<(String, String)>` allocates a second header buffer
     // while `flat` is still live; charge it before building the pairs so a
     // hostile high-cardinality short-string edges dataset cannot slip under
     // the budget at the boundary.
-    let edge_count = shape[0];
     budget.charge(
-        KEY_EDGES,
+        context,
         edge_count.checked_mul(std::mem::size_of::<(String, String)>()),
     )?;
     let mut strings = flat.into_iter();
@@ -875,6 +968,23 @@ fn single_int(values: Vec<i64>, context: &str) -> Result<i64> {
 // Security validation (reject external links and VDS)
 // ---------------------------------------------------------------------------
 
+/// Number of links in `group`, from `H5Gget_info`, without collecting names.
+///
+/// `None` means the count does not fit in `usize`; callers treat that as over
+/// any finite count budget.
+fn group_nlinks(group: &Group, context: &str) -> Result<Option<usize>> {
+    let mut info = hdf5_sys::h5g::H5G_info_t::default();
+    let status = hdf5::sync::sync(|| {
+        // SAFETY: `group` keeps a live HDF5 identifier for this call; `&mut info`
+        // is a valid output pointer; no ownership is transferred; the hdf5-metno
+        // global lock is held by `sync`.
+        unsafe { hdf5_sys::h5g::H5Gget_info(group.id(), &mut info) }
+    });
+    hdf5::h5check(status)
+        .map_err(|e| NirError::Io(format!("{context}: cannot count group members: {e}")))?;
+    Ok(usize::try_from(info.nlinks).ok())
+}
+
 /// Validate that a group does not contain external or soft links before traversing it.
 ///
 /// Checks each member link to ensure it's a hard link only. Soft links can
@@ -1296,4 +1406,108 @@ fn too_wide(context: &str, width: usize) -> NirError {
     NirError::Io(format!(
         "{context}: fixed-length string of {width} bytes exceeds the supported maximum of 4096"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn count_samples() -> impl Strategy<Value = usize> {
+        prop_oneof![
+            Just(0usize),
+            Just(1usize),
+            Just(usize::MAX),
+            Just(usize::MAX - 1),
+            0usize..4096,
+        ]
+    }
+
+    #[test]
+    fn read_limit_count_overflow_is_a_structured_error() {
+        let budget = ReadBudget::new(&ReadOptions::default().with_max_nodes(Some(usize::MAX)));
+        budget.nodes.used.set(usize::MAX);
+        let err = budget.charge_nodes("/node/nodes", Some(1)).unwrap_err();
+        match err {
+            NirError::ReadCountLimitExceeded {
+                resource: ReadLimitResource::Nodes,
+                context,
+                limit,
+                used,
+                requested,
+            } => {
+                assert_eq!(context, "/node/nodes");
+                assert_eq!(limit, usize::MAX);
+                assert_eq!(used, usize::MAX);
+                assert_eq!(requested, 1);
+            }
+            other => panic!("expected ReadCountLimitExceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn read_limit_count_overflowing_request_is_rejected() {
+        let budget = ReadBudget::new(&ReadOptions::default().with_max_edges(Some(1)));
+        let err = budget.charge_edges("/node/edges", None).unwrap_err();
+        match err {
+            NirError::ReadCountLimitExceeded {
+                resource: ReadLimitResource::Edges,
+                requested,
+                ..
+            } => assert_eq!(requested, usize::MAX),
+            other => panic!("expected ReadCountLimitExceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn read_limit_exact_count_succeeds_and_next_fails() {
+        let budget = ReadBudget::new(&ReadOptions::default().with_max_nested_graphs(Some(2)));
+        budget.charge_graph("/node").unwrap();
+        budget.charge_graph("sub").unwrap();
+        let err = budget.charge_graph("too_deep").unwrap_err();
+        match err {
+            NirError::ReadCountLimitExceeded {
+                resource: ReadLimitResource::NestedGraphs,
+                context,
+                limit,
+                used,
+                requested,
+            } => {
+                assert_eq!(context, "too_deep");
+                assert_eq!(limit, 2);
+                assert_eq!(used, 2);
+                assert_eq!(requested, 1);
+            }
+            other => panic!("expected ReadCountLimitExceeded, got {other:?}"),
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn read_limit_count_charge_matches_checked_add(
+            used in count_samples(),
+            requested in count_samples(),
+            limit in count_samples(),
+        ) {
+            let budget = ReadBudget::new(&ReadOptions::default().with_max_nodes(Some(limit)));
+            budget.nodes.used.set(used);
+            let result = budget.charge_nodes("ctx", Some(requested));
+            match used.checked_add(requested) {
+                None => {
+                    prop_assert!(result.is_err());
+                    prop_assert_eq!(budget.nodes.used.get(), used);
+                }
+                Some(next) if next > limit => {
+                    prop_assert!(result.is_err());
+                    prop_assert_eq!(budget.nodes.used.get(), used);
+                }
+                Some(next) => {
+                    prop_assert!(result.is_ok());
+                    prop_assert_eq!(budget.nodes.used.get(), next);
+                }
+            }
+        }
+    }
 }

@@ -105,7 +105,13 @@ pub const DEFAULT_NIR_VERSION: &str = "1.0.8";
 /// Default gzip level, matching h5py's `compression="gzip"` default.
 const DEFAULT_COMPRESSION: u8 = 4;
 
-/// Allocation policy for decoding an untrusted `.nir` file with [`read_with`].
+/// Allocation and collection policy for decoding an untrusted `.nir` file
+/// with [`read_with`].
+///
+/// Defaults are **permissive**: every field is `None`, so [`read`] stays
+/// unbounded aside from the existing hard cap of 1024 `NIRGraph` groups
+/// (root plus nested). That cap is a stack/alias safety bound, not a
+/// substitute for a caller-chosen collection budget.
 ///
 /// `max_bytes` is a **decoded-allocation budget**, not an on-disk file-size
 /// limit and not a bound on the returned graph's exact resident size. Charging
@@ -125,15 +131,46 @@ const DEFAULT_COMPRESSION: u8 = 4;
 /// - scalar metadata: its decoded width;
 /// - missing `v_reset` and `w_in`: the synthesized tensor payload.
 ///
+/// `max_nodes`, `max_edges`, and `max_nested_graphs` are **global count
+/// budgets** for the whole file: nested subgraphs add to the same totals
+/// rather than resetting per group. Counts are charged from HDF5 metadata
+/// (`H5Gget_info` link counts, `edges` shape, one charge per `NIRGraph`
+/// group) **before** the corresponding `Vec` / map is materialized. Hard-link
+/// aliases are rejected before they can charge a second time.
+///
 /// All arithmetic is checked; overflow is treated as over budget. Node and
 /// link names, collection bookkeeping, allocator overhead, and libhdf5's own
-/// caches are not charged.
+/// caches are not charged against `max_bytes`.
+///
+/// # Untrusted inputs
+///
+/// Conservative starting points when the file is not from a trusted
+/// producer — tighten further for your threat model:
+///
+/// ```
+/// use nir_rs::io::ReadOptions;
+///
+/// let opts = ReadOptions::default()
+///     .with_max_bytes(Some(64 * 1024 * 1024))
+///     .with_max_nodes(Some(10_000))
+///     .with_max_edges(Some(50_000))
+///     .with_max_nested_graphs(Some(64));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub struct ReadOptions {
     /// Maximum total bytes charged by decoded allocations, or `None` for no
     /// allocation budget.
     pub max_bytes: Option<usize>,
+    /// Maximum total nodes across root and nested graphs, or `None` for no
+    /// node-count budget.
+    pub max_nodes: Option<usize>,
+    /// Maximum total edges across root and nested graphs, or `None` for no
+    /// edge-count budget.
+    pub max_edges: Option<usize>,
+    /// Maximum total `NIRGraph` groups decoded from the file (root included),
+    /// or `None` to use only the hard cap of 1024 groups.
+    pub max_nested_graphs: Option<usize>,
 }
 
 impl ReadOptions {
@@ -141,6 +178,28 @@ impl ReadOptions {
     #[must_use]
     pub fn with_max_bytes(mut self, max_bytes: Option<usize>) -> Self {
         self.max_bytes = max_bytes;
+        self
+    }
+
+    /// Set the global node-count budget; `None` makes it unbounded.
+    #[must_use]
+    pub fn with_max_nodes(mut self, max_nodes: Option<usize>) -> Self {
+        self.max_nodes = max_nodes;
+        self
+    }
+
+    /// Set the global edge-count budget; `None` makes it unbounded.
+    #[must_use]
+    pub fn with_max_edges(mut self, max_edges: Option<usize>) -> Self {
+        self.max_edges = max_edges;
+        self
+    }
+
+    /// Set the global nested-graph budget; `None` keeps only the hard cap of
+    /// 1024 groups.
+    #[must_use]
+    pub fn with_max_nested_graphs(mut self, max_nested_graphs: Option<usize>) -> Self {
+        self.max_nested_graphs = max_nested_graphs;
         self
     }
 }
@@ -276,7 +335,7 @@ pub fn read(path: impl AsRef<Path>) -> Result<NirGraph> {
     read_with(path, &ReadOptions::default())
 }
 
-/// Read a NIR graph with an explicit decoded-allocation budget.
+/// Read a NIR graph with an explicit decoded-allocation and collection budget.
 ///
 /// See [`ReadOptions`] for the exact charging rules. Use this entry point for
 /// untrusted files. Plain [`read`] is intentionally unbounded for trusted
@@ -285,7 +344,9 @@ pub fn read(path: impl AsRef<Path>) -> Result<NirGraph> {
 /// # Errors
 ///
 /// As [`read`], plus [`NirError::ReadLimitExceeded`] when the next decoded
-/// allocation would cross `opts.max_bytes`.
+/// allocation would cross `opts.max_bytes`, and
+/// [`NirError::ReadCountLimitExceeded`] when a node, edge, or nested-graph
+/// count would cross the corresponding limit.
 pub fn read_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<NirGraph> {
     backend::read(path.as_ref(), opts)
 }
@@ -444,7 +505,18 @@ mod tests {
     fn read_options_default_is_unbounded() {
         let opts = ReadOptions::default();
         assert_eq!(opts.max_bytes, None);
-        assert_eq!(opts.with_max_bytes(Some(4096)).max_bytes, Some(4096));
+        assert_eq!(opts.max_nodes, None);
+        assert_eq!(opts.max_edges, None);
+        assert_eq!(opts.max_nested_graphs, None);
+        let configured = opts
+            .with_max_bytes(Some(4096))
+            .with_max_nodes(Some(8))
+            .with_max_edges(Some(16))
+            .with_max_nested_graphs(Some(4));
+        assert_eq!(configured.max_bytes, Some(4096));
+        assert_eq!(configured.max_nodes, Some(8));
+        assert_eq!(configured.max_edges, Some(16));
+        assert_eq!(configured.max_nested_graphs, Some(4));
     }
 
     #[cfg(not(feature = "hdf5"))]
@@ -465,7 +537,11 @@ mod tests {
 
         #[test]
         fn bounded_read_is_unimplemented() {
-            let opts = ReadOptions::default().with_max_bytes(Some(1024));
+            let opts = ReadOptions::default()
+                .with_max_bytes(Some(1024))
+                .with_max_nodes(Some(8))
+                .with_max_edges(Some(16))
+                .with_max_nested_graphs(Some(4));
             assert!(matches!(
                 read_with("model.nir", &opts).unwrap_err(),
                 NirError::Unimplemented(_)

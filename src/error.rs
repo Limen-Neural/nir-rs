@@ -5,10 +5,37 @@
 //! Covers graph construction/validation, tensor shape checks, and HDF5 `.nir`
 //! I/O.
 
+use std::fmt;
 use thiserror::Error;
 
 /// Result type used across the crate.
 pub type Result<T> = std::result::Result<T, NirError>;
+
+/// Structural collection bounded by a [`crate::io::ReadOptions`] count limit.
+///
+/// Distinct from the decoded-allocation budget (`max_bytes` /
+/// [`NirError::ReadLimitExceeded`]): these count nodes, edges, or nested
+/// graph groups rather than decoded payload bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ReadLimitResource {
+    /// Total nodes across the root graph and every nested `NIRGraph`.
+    Nodes,
+    /// Total edges across the root graph and every nested `NIRGraph`.
+    Edges,
+    /// Total `NIRGraph` groups decoded from the file, including the root.
+    NestedGraphs,
+}
+
+impl fmt::Display for ReadLimitResource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Nodes => "nodes",
+            Self::Edges => "edges",
+            Self::NestedGraphs => "nested graphs",
+        })
+    }
+}
 
 /// Public error type for NIR operations.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -64,6 +91,23 @@ pub enum NirError {
         /// Bytes already charged by earlier allocations.
         used: usize,
         /// Bytes requested by the allocation that was rejected.
+        requested: usize,
+    },
+
+    /// A bounded read would exceed a node, edge, or nested-graph count budget.
+    #[error(
+        "read limit exceeded for {resource} at {context}: limit {limit}, used {used}, requested {requested}"
+    )]
+    ReadCountLimitExceeded {
+        /// Which collection budget was exhausted.
+        resource: ReadLimitResource,
+        /// Graph path where the charge was attempted.
+        context: String,
+        /// Configured count limit.
+        limit: usize,
+        /// Counts already charged by earlier collections.
+        used: usize,
+        /// Counts requested by the collection that was rejected.
         requested: usize,
     },
 
@@ -159,6 +203,23 @@ mod tests {
             err.to_string(),
             "read allocation limit exceeded at lif.tau: limit 1024 bytes, used 768 bytes, requested 512 bytes"
         );
+    }
+
+    #[test]
+    fn read_count_limit_display_identifies_resource_and_path() {
+        let err = NirError::ReadCountLimitExceeded {
+            resource: ReadLimitResource::Nodes,
+            context: "/node/nodes".into(),
+            limit: 3,
+            used: 2,
+            requested: 2,
+        };
+        assert_eq!(
+            err.to_string(),
+            "read limit exceeded for nodes at /node/nodes: limit 3, used 2, requested 2"
+        );
+        assert_eq!(ReadLimitResource::Edges.to_string(), "edges");
+        assert_eq!(ReadLimitResource::NestedGraphs.to_string(), "nested graphs");
     }
 
     #[test]

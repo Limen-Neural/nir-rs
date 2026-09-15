@@ -8,6 +8,13 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Added
+
+- `ReadOptions` node / edge / nested-graph count budgets (`max_nodes`,
+  `max_edges`, `max_nested_graphs`) charged globally before collections are
+  materialized, with `NirError::ReadCountLimitExceeded` identifying the
+  exhausted resource and graph path (LIM-1237). Defaults stay unbounded.
+
 ### Changed
 
 - Package `exclude` list: add `.deepsource.toml` so the crates.io artifact

@@ -113,7 +113,7 @@ pub mod io;
 pub mod nodes;
 pub mod types;
 
-pub use error::{NirError, Result};
+pub use error::{NirError, ReadLimitResource, Result};
 pub use graph::NirGraph;
 pub use nodes::NirNode;
 pub use types::{DType, MetadataMap, MetadataValue, Tensor, TensorData};
