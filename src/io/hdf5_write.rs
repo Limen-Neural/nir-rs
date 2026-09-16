@@ -36,9 +36,9 @@ pub(super) fn write(path: &Path, graph: &NirGraph, opts: &WriteOptions) -> Resul
     // Validate before touching the filesystem for precise caller-facing
     // errors. Name legality is not optional — HDF5 cannot represent the
     // rejected names at all.
-    // Depth first: `validate_structure` recurses through nested subgraphs
-    // without a bound, so an over-deep graph would overflow the stack before
-    // the guard inside `check_names` could reject it.
+    // `validate_structure` walks nested subgraphs on a heap work list with a
+    // documented depth bound, so it cannot overflow the process stack. Names
+    // are still checked first because HDF5 cannot store the rejected strings.
     check_names(graph)?;
     if opts.validate {
         graph.validate_structure()?;

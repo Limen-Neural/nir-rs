@@ -48,9 +48,27 @@ fuzz_target!(|data: &[u8]| {
         g.add_edge("n0", "ghost");
     }
 
+    // Optionally wrap the graph so nested path rewriting and the depth walk
+    // are in the harness. Depth stays tiny: this is panic-freedom, not a
+    // nesting-limit test.
+    let nest = if data.len() > 4 {
+        (data[2] as usize) % 9
+    } else {
+        0
+    };
+    for i in 0..nest {
+        let mut outer = NirGraph::new();
+        outer
+            .insert_node(format!("wrap{i}"), NirNode::Graph(Box::new(g)))
+            .unwrap();
+        g = outer;
+    }
+
     match g.validate_structure() {
         Ok(()) => {}
-        Err(NirError::MissingNode(_)) | Err(NirError::DuplicateEdge(_, _)) => {}
+        Err(NirError::MissingNode(_))
+        | Err(NirError::DuplicateEdge(_, _))
+        | Err(NirError::InvalidGraph(_)) => {}
         Err(other) => panic!("unexpected validation error: {other:?}"),
     }
 });
