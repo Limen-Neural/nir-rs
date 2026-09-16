@@ -118,7 +118,7 @@ pub(super) fn parse_nir_version(raw: &str) -> Option<ParsedVersion> {
         None => (raw, None),
     };
     if let Some(build) = build
-        && !is_valid_suffix(build)
+        && !is_valid_build_metadata(build)
     {
         return None;
     }
@@ -127,7 +127,7 @@ pub(super) fn parse_nir_version(raw: &str) -> Option<ParsedVersion> {
         None => (core_and_pre, None),
     };
     if let Some(pre) = pre
-        && !is_valid_suffix(pre)
+        && !is_valid_prerelease(pre)
     {
         return None;
     }
@@ -160,7 +160,7 @@ fn parse_component(s: &str) -> Option<u64> {
 }
 
 #[cfg(any(test, feature = "hdf5"))]
-fn is_valid_suffix(s: &str) -> bool {
+fn is_valid_build_metadata(s: &str) -> bool {
     if s.is_empty() {
         return false;
     }
@@ -169,6 +169,29 @@ fn is_valid_suffix(s: &str) -> bool {
             && ident
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    })
+}
+
+#[cfg(any(test, feature = "hdf5"))]
+fn is_valid_prerelease(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    s.split('.').all(|ident| {
+        if ident.is_empty() {
+            return false;
+        }
+        if !ident
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        {
+            return false;
+        }
+        // Numeric identifiers MUST NOT include leading zeroes
+        if ident.bytes().all(|b| b.is_ascii_digit()) && ident.len() > 1 && ident.starts_with('0') {
+            return false;
+        }
+        true
     })
 }
 
@@ -269,6 +292,8 @@ mod tests {
             "01.0.0",
             "1.0.0.0",
             "1.0.0-",
+            "1.0.0-01",
+            "1.0.0-rc.01",
             "1.0.0+",
             "1.0.0-+build",
             "1.0.0-rc.",

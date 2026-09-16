@@ -30,6 +30,18 @@ automatically supported until fixtures (and tests) are updated.
 Provenance, SHAs, MANIFEST, and real-vs-synthetic coverage checklist:
 [`tests/fixtures/README.md`](tests/fixtures/README.md).
 
+### Hugging Face–derived fixtures (0.4.x)
+
+Separate from the paper corpus and from Synfire (#43). Converted with
+upstream `nir==1.0.8` `nir.write` from pinned Hub checkpoints; CI loads the
+vendored files only (no network). See
+[`tests/fixtures/huggingface/README.md`](tests/fixtures/huggingface/README.md).
+
+| Fixture | Hub source (pinned revision) | Exercises |
+|---------|------------------------------|-----------|
+| `huggingface/neurocuda_mlp_mnist.nir` | `Krishnav1234/neurocuda-mlp-mnist-snn` `@5a24224` | Affine + IF MLP; NIR `/version` **1.0.8** |
+| `huggingface/neurocuda_cnn_nmnist.nir` | `Krishnav1234/neurocuda-cnn-nmnist-snn` `@1ee6ba2` | Conv2d, IF, **AvgPool2d**, Flatten, Affine |
+
 ## Fidelity semantics
 
 These are intentional, documented behaviors — not bugs:
@@ -77,3 +89,4 @@ language features require it; document the bump in the changelog.
 - #28 / #33 — package + semver CI  
 - #29 — expand fixture corpus  
 - #31 — this document and changelog policy  
+- #44 / LIM-1086 — Hugging Face SNN → NIR → nir-rs load (this corpus)  

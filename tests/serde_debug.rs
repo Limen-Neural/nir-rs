@@ -5,7 +5,7 @@
 #![cfg(feature = "serde")]
 
 use nir_rs::nodes::{Input, Lif, Output};
-use nir_rs::{MetadataValue, NirGraph, NirNode, Tensor};
+use nir_rs::{MetadataValue, NirError, NirGraph, NirNode, Tensor};
 
 fn input(shape: Vec<usize>) -> NirNode {
     NirNode::Input(Input {
@@ -83,6 +83,54 @@ fn representation_uses_wire_tags_and_shape_plus_typed_data() {
         value["nodes"]["subgraph"]["nodes"]["inner_input"]["type"],
         "Input"
     );
+}
+
+#[test]
+fn nested_serde_graph_roundtrip_validates() {
+    // Verifies that nested graphs survive serde JSON round-tripping and validate
+    // structural integrity cleanly. Deep nesting guarantees up to MAX_NESTING_DEPTH
+    // are exercised directly in `src/graph.rs` to remain independent of format-specific
+    // deserializer recursion limits.
+    let mut graph = NirGraph::default();
+    graph.insert_node("leaf", input(vec![1])).unwrap();
+    for i in (0..16).rev() {
+        let mut outer = NirGraph::default();
+        outer
+            .insert_node(format!("n{i}"), NirNode::Graph(Box::new(graph)))
+            .unwrap();
+        graph = outer;
+    }
+
+    let json = serde_json::to_string(&graph).unwrap();
+    let decoded: NirGraph = serde_json::from_str(&json).unwrap();
+    decoded.validate_structure().unwrap();
+}
+
+#[test]
+fn serde_nested_invalid_graph_keeps_path_context() {
+    let mut inner = NirGraph::default();
+    inner.insert_node("i", input(vec![1])).unwrap();
+    inner.add_edge("i", "ghost");
+
+    let mut graph = inner;
+    for i in (0..16).rev() {
+        let mut outer = NirGraph::default();
+        outer
+            .insert_node(format!("n{i}"), NirNode::Graph(Box::new(graph)))
+            .unwrap();
+        graph = outer;
+    }
+
+    let json = serde_json::to_string(&graph).unwrap();
+    let decoded: NirGraph = serde_json::from_str(&json).unwrap();
+    match decoded.validate_structure() {
+        Err(NirError::InvalidGraph(msg)) => {
+            assert!(msg.contains("n0"), "{msg}");
+            assert!(msg.contains("n15"), "{msg}");
+            assert!(msg.contains("ghost"), "{msg}");
+        }
+        other => panic!("expected InvalidGraph, got {other:?}"),
+    }
 }
 
 #[test]

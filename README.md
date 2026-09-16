@@ -146,9 +146,9 @@ fn main() -> nir_rs::Result<()> {
 }
 ```
 
-Default `io::read` is **permissive**, matching Python `nir.read`: a missing or
-arbitrary `/version` is stored verbatim. Production importers can fail closed
-before the graph body is decoded:
+Default `io::read` is **permissive**, matching Python `nir.read`: a missing
+`/version` becomes `None`, and any present string is stored verbatim.
+Production importers can fail closed before the graph body is decoded:
 
 ```rust
 use nir_rs::io::{ReadOptions, VersionPolicy};

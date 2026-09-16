@@ -6,7 +6,7 @@ edition = "2024"
 # (`toolchain: "1.98.1"`). Raise when the pin moves.
 rust-version = "1.98.1"
 license = "MIT OR Apache-2.0"
-authors = ["Raul Montoya Cardenas <montoyaraul34@gmail.com>"]
+authors = ["Raul Cardenas Montoya <montoyaraul34@gmail.com>"]
 description = "Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR) — the standard interchange format for spiking neural networks."
 repository = "https://github.com/Limen-Neural/nir-rs"
 homepage = "https://github.com/Limen-Neural/nir-rs"
@@ -69,6 +69,7 @@ libc = { version = "0.2", optional = true }
 [dev-dependencies]
 proptest = "1.6"
 serde_json = "1"
+sha2 = "0.10"
 tempfile = "3"
 
 [package.metadata.docs.rs]
