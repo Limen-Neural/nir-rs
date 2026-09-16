@@ -5,6 +5,7 @@
 //! Covers graph construction/validation, tensor shape checks, and HDF5 `.nir`
 //! I/O.
 
+use std::fmt;
 use thiserror::Error;
 
 /// Result type used across the crate.
@@ -107,6 +108,32 @@ pub enum ParameterError {
     },
 }
 
+/// Structural collection bounded by a [`crate::io::ReadOptions`] count limit.
+///
+/// Distinct from the decoded-allocation budget (`max_bytes` /
+/// [`NirError::ReadLimitExceeded`]): these count nodes, edges, or nested
+/// graph groups rather than decoded payload bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ReadLimitResource {
+    /// Total nodes across the root graph and every nested `NIRGraph`.
+    Nodes,
+    /// Total edges across the root graph and every nested `NIRGraph`.
+    Edges,
+    /// Total `NIRGraph` groups decoded from the file, including the root.
+    NestedGraphs,
+}
+
+impl fmt::Display for ReadLimitResource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Nodes => "nodes",
+            Self::Edges => "edges",
+            Self::NestedGraphs => "nested graphs",
+        })
+    }
+}
+
 /// Public error type for NIR operations.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
@@ -140,6 +167,21 @@ pub enum NirError {
     /// NIR file / graph version is not supported by this crate.
     #[error("unsupported version: {0}")]
     UnsupportedVersion(String),
+
+    /// An opt-in [`crate::io::VersionPolicy`] rejected this file's `/version`.
+    ///
+    /// Default [`crate::io::read`] is permissive and never produces this
+    /// variant. `observed` is [`None`] when the dataset was missing.
+    #[error(
+        "unsupported version: {} (policy: {policy})",
+        .observed.as_deref().unwrap_or("<absent>")
+    )]
+    IncompatibleVersion {
+        /// Observed `/version` string, or [`None`] when the dataset was absent.
+        observed: Option<String>,
+        /// Canonical [`crate::io::VersionPolicy`] description that rejected it.
+        policy: String,
+    },
 
     /// A required wire field was absent when decoding a node or graph.
     #[error("missing field: {0}")]
@@ -179,6 +221,23 @@ pub enum NirError {
         /// Bytes already charged by earlier allocations.
         used: usize,
         /// Bytes requested by the allocation that was rejected.
+        requested: usize,
+    },
+
+    /// A bounded read would exceed a node, edge, or nested-graph count budget.
+    #[error(
+        "read limit exceeded for {resource} at {context}: limit {limit}, used {used}, requested {requested}"
+    )]
+    ReadCountLimitExceeded {
+        /// Which collection budget was exhausted.
+        resource: ReadLimitResource,
+        /// Graph path where the charge was attempted.
+        context: String,
+        /// Configured count limit.
+        limit: usize,
+        /// Counts already charged by earlier collections.
+        used: usize,
+        /// Counts requested by the collection that was rejected.
         requested: usize,
     },
 
@@ -245,6 +304,26 @@ mod tests {
     fn unsupported_version_display() {
         let err = NirError::UnsupportedVersion("99.0".into());
         assert_eq!(err.to_string(), "unsupported version: 99.0");
+    }
+
+    #[test]
+    fn incompatible_version_display_includes_observed_and_policy() {
+        let present = NirError::IncompatibleVersion {
+            observed: Some("99.0.0".into()),
+            policy: "compatible-major majors=[0, 1]".into(),
+        };
+        assert_eq!(
+            present.to_string(),
+            "unsupported version: 99.0.0 (policy: compatible-major majors=[0, 1])"
+        );
+        let missing = NirError::IncompatibleVersion {
+            observed: None,
+            policy: "require-present".into(),
+        };
+        assert_eq!(
+            missing.to_string(),
+            "unsupported version: <absent> (policy: require-present)"
+        );
     }
 
     #[test]
@@ -355,6 +434,23 @@ mod tests {
             err.to_string(),
             "read allocation limit exceeded at lif.tau: limit 1024 bytes, used 768 bytes, requested 512 bytes"
         );
+    }
+
+    #[test]
+    fn read_count_limit_display_identifies_resource_and_path() {
+        let err = NirError::ReadCountLimitExceeded {
+            resource: ReadLimitResource::Nodes,
+            context: "/node/nodes".into(),
+            limit: 3,
+            used: 2,
+            requested: 2,
+        };
+        assert_eq!(
+            err.to_string(),
+            "read limit exceeded for nodes at /node/nodes: limit 3, used 2, requested 2"
+        );
+        assert_eq!(ReadLimitResource::Edges.to_string(), "edges");
+        assert_eq!(ReadLimitResource::NestedGraphs.to_string(), "nested graphs");
     }
 
     #[test]

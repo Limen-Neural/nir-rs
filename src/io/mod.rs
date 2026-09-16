@@ -29,13 +29,22 @@
 //! # Version string
 //!
 //! Upstream writes the version of the Python `nir` package into `/version` and
-//! never validates it on read. This crate follows suit:
+//! never validates it on read. Default [`read`] follows suit:
 //!
 //! - [`read`] stores `/version` in [`NirGraph::version`], and leaves it `None`
 //!   when the dataset is absent. It is never an error.
 //! - [`read_version`] is the strict accessor and *does* error when absent.
 //! - [`write()`] emits [`NirGraph::version`] when set, else
 //!   [`DEFAULT_NIR_VERSION`].
+//!
+//! Production importers can opt into an envelope check via
+//! [`ReadOptions::version_policy`] without changing that default:
+//! [`VersionPolicy::RequirePresent`] rejects a missing `/version`;
+//! [`VersionPolicy::CompatibleMajor`] parses a SemVer-compatible string and
+//! accepts caller-supplied majors (typically `0` for paper fixtures and `1`
+//! for current writers). Policy failures use
+//! [`NirError::IncompatibleVersion`] and run **before** the graph body is
+//! decoded.
 //!
 //! # Non-goals
 //!
@@ -44,6 +53,9 @@
 //! that upstream `read_data` / `write_data` handle.
 
 pub mod wire;
+
+mod version;
+pub use version::VersionPolicy;
 
 #[cfg(feature = "hdf5")]
 mod hdf5_read;
@@ -105,7 +117,13 @@ pub const DEFAULT_NIR_VERSION: &str = "1.0.8";
 /// Default gzip level, matching h5py's `compression="gzip"` default.
 const DEFAULT_COMPRESSION: u8 = 4;
 
-/// Allocation policy for decoding an untrusted `.nir` file with [`read_with`].
+/// Allocation and collection policy for decoding an untrusted `.nir` file
+/// with [`read_with`].
+///
+/// Defaults are **permissive**: every field is `None`, so [`read`] stays
+/// unbounded aside from the existing hard cap of 1024 `NIRGraph` groups
+/// (root plus nested). That cap is a stack/alias safety bound, not a
+/// substitute for a caller-chosen collection budget.
 ///
 /// `max_bytes` is a **decoded-allocation budget**, not an on-disk file-size
 /// limit and not a bound on the returned graph's exact resident size. Charging
@@ -125,15 +143,51 @@ const DEFAULT_COMPRESSION: u8 = 4;
 /// - scalar metadata: its decoded width;
 /// - missing `v_reset` and `w_in`: the synthesized tensor payload.
 ///
+/// `max_nodes`, `max_edges`, and `max_nested_graphs` are **global count
+/// budgets** for the whole file: nested subgraphs add to the same totals
+/// rather than resetting per group. Counts are charged from HDF5 metadata
+/// (`H5Gget_info` link counts, `edges` shape, one charge per `NIRGraph`
+/// group) **before** the corresponding `Vec` / map is materialized. Hard-link
+/// aliases are rejected before they can charge a second time.
+///
 /// All arithmetic is checked; overflow is treated as over budget. Node and
 /// link names, collection bookkeeping, allocator overhead, and libhdf5's own
-/// caches are not charged.
+/// caches are not charged against `max_bytes`.
+///
+/// # Untrusted inputs
+///
+/// Conservative starting points when the file is not from a trusted
+/// producer — tighten further for your threat model:
+///
+/// ```
+/// use nir_rs::io::ReadOptions;
+///
+/// let opts = ReadOptions::default()
+///     .with_max_bytes(Some(64 * 1024 * 1024))
+///     .with_max_nodes(Some(10_000))
+///     .with_max_edges(Some(50_000))
+///     .with_max_nested_graphs(Some(64));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub struct ReadOptions {
     /// Maximum total bytes charged by decoded allocations, or `None` for no
     /// allocation budget.
     pub max_bytes: Option<usize>,
+    /// Maximum total nodes across root and nested graphs, or `None` for no
+    /// node-count budget.
+    pub max_nodes: Option<usize>,
+    /// Maximum total edges across root and nested graphs, or `None` for no
+    /// edge-count budget.
+    pub max_edges: Option<usize>,
+    /// Maximum total `NIRGraph` groups decoded from the file (root included),
+    /// or `None` to use only the hard cap of 1024 groups.
+    pub max_nested_graphs: Option<usize>,
+    /// How to treat the root `/version` dataset. Defaults to
+    /// [`VersionPolicy::Permissive`], which is the Python `nir.read` behaviour
+    /// and keeps [`read`] byte-for-byte compatible with earlier crate
+    /// versions.
+    pub version_policy: VersionPolicy,
 }
 
 impl ReadOptions {
@@ -141,6 +195,47 @@ impl ReadOptions {
     #[must_use]
     pub fn with_max_bytes(mut self, max_bytes: Option<usize>) -> Self {
         self.max_bytes = max_bytes;
+        self
+    }
+
+    /// Set the global node-count budget; `None` makes it unbounded.
+    #[must_use]
+    pub fn with_max_nodes(mut self, max_nodes: Option<usize>) -> Self {
+        self.max_nodes = max_nodes;
+        self
+    }
+
+    /// Set the global edge-count budget; `None` makes it unbounded.
+    #[must_use]
+    pub fn with_max_edges(mut self, max_edges: Option<usize>) -> Self {
+        self.max_edges = max_edges;
+        self
+    }
+
+    /// Set the global nested-graph budget; `None` keeps only the hard cap of
+    /// 1024 groups.
+    #[must_use]
+    pub fn with_max_nested_graphs(mut self, max_nested_graphs: Option<usize>) -> Self {
+        self.max_nested_graphs = max_nested_graphs;
+        self
+    }
+
+    /// Set the `/version` compatibility policy.
+    ///
+    /// ```
+    /// use nir_rs::io::{ReadOptions, VersionPolicy};
+    ///
+    /// // Permissive tooling (default): accept missing or arbitrary versions.
+    /// let tool = ReadOptions::default();
+    /// assert_eq!(tool.version_policy, VersionPolicy::Permissive);
+    ///
+    /// // Fail-closed importer: paper 0.x fixtures and 1.x writers.
+    /// let importer = ReadOptions::default()
+    ///     .with_version_policy(VersionPolicy::compatible_major([0, 1]));
+    /// ```
+    #[must_use]
+    pub fn with_version_policy(mut self, version_policy: VersionPolicy) -> Self {
+        self.version_policy = version_policy;
         self
     }
 }
@@ -280,7 +375,7 @@ pub fn read(path: impl AsRef<Path>) -> Result<NirGraph> {
     read_with(path, &ReadOptions::default())
 }
 
-/// Read a NIR graph with an explicit decoded-allocation budget.
+/// Read a NIR graph with an explicit decoded-allocation and collection budget.
 ///
 /// See [`ReadOptions`] for the exact charging rules. Use this entry point for
 /// untrusted files. Plain [`read`] is intentionally unbounded for trusted
@@ -289,7 +384,11 @@ pub fn read(path: impl AsRef<Path>) -> Result<NirGraph> {
 /// # Errors
 ///
 /// As [`read`], plus [`NirError::ReadLimitExceeded`] when the next decoded
-/// allocation would cross `opts.max_bytes`.
+/// allocation would cross `opts.max_bytes`,
+/// [`NirError::ReadCountLimitExceeded`] when a node, edge, or nested-graph
+/// count would cross the corresponding limit, and
+/// [`NirError::IncompatibleVersion`] when `opts.version_policy` rejects
+/// `/version`. Version-policy checks run before the graph body is decoded.
 pub fn read_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<NirGraph> {
     backend::read(path.as_ref(), opts)
 }
@@ -309,7 +408,9 @@ pub fn read_version(path: impl AsRef<Path>) -> Result<String> {
 /// # Errors
 ///
 /// As [`read_version`], plus [`NirError::ReadLimitExceeded`] when decoding the
-/// version string would cross `opts.max_bytes`.
+/// version string would cross `opts.max_bytes`, and
+/// [`NirError::IncompatibleVersion`] when `opts.version_policy` rejects the
+/// value. Parsing and policy errors share the graph-reader path.
 pub fn read_version_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<String> {
     backend::read_version(path.as_ref(), opts)
 }
@@ -450,7 +551,28 @@ mod tests {
     fn read_options_default_is_unbounded() {
         let opts = ReadOptions::default();
         assert_eq!(opts.max_bytes, None);
-        assert_eq!(opts.with_max_bytes(Some(4096)).max_bytes, Some(4096));
+        assert_eq!(opts.max_nodes, None);
+        assert_eq!(opts.max_edges, None);
+        assert_eq!(opts.max_nested_graphs, None);
+        assert_eq!(opts.version_policy, VersionPolicy::Permissive);
+        let configured = opts
+            .with_max_bytes(Some(4096))
+            .with_max_nodes(Some(8))
+            .with_max_edges(Some(16))
+            .with_max_nested_graphs(Some(4));
+        assert_eq!(configured.max_bytes, Some(4096));
+        assert_eq!(configured.max_nodes, Some(8));
+        assert_eq!(configured.max_edges, Some(16));
+        assert_eq!(configured.max_nested_graphs, Some(4));
+    }
+
+    #[test]
+    fn read_options_version_policy_builder() {
+        let opts = ReadOptions::default()
+            .with_version_policy(VersionPolicy::RequirePresent)
+            .with_max_bytes(Some(1024));
+        assert_eq!(opts.version_policy, VersionPolicy::RequirePresent);
+        assert_eq!(opts.max_bytes, Some(1024));
     }
 
     #[cfg(not(feature = "hdf5"))]
@@ -471,7 +593,11 @@ mod tests {
 
         #[test]
         fn bounded_read_is_unimplemented() {
-            let opts = ReadOptions::default().with_max_bytes(Some(1024));
+            let opts = ReadOptions::default()
+                .with_max_bytes(Some(1024))
+                .with_max_nodes(Some(8))
+                .with_max_edges(Some(16))
+                .with_max_nested_graphs(Some(4));
             assert!(matches!(
                 read_with("model.nir", &opts).unwrap_err(),
                 NirError::Unimplemented(_)

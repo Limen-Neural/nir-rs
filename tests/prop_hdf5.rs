@@ -8,7 +8,7 @@
 #![cfg(feature = "hdf5")]
 
 use nir_rs::io::wire::check_link_name;
-use nir_rs::io::{DEFAULT_NIR_VERSION, WriteOptions};
+use nir_rs::io::{DEFAULT_NIR_VERSION, ReadOptions, WriteOptions};
 use nir_rs::nodes::{Input, Linear, Output};
 use nir_rs::types::Tensor;
 use nir_rs::{NirGraph, NirNode};
@@ -129,5 +129,68 @@ proptest! {
         );
         let after = std::fs::read(&path).unwrap();
         assert_eq!(before, after, "destination must be unchanged after preflight reject");
+    }
+
+    /// Nested subgraphs charge the same node/edge budgets as the root.
+    #[test]
+    fn read_limit_nested_counts_are_global(
+        inner_nodes in 1usize..4,
+        extra_root in 0usize..3,
+    ) {
+        let mut inner = NirGraph::new();
+        for i in 0..inner_nodes {
+            inner.insert_node(format!("i{i}"), input(vec![1])).unwrap();
+        }
+        for i in 0..inner_nodes.saturating_sub(1) {
+            inner.add_edge(format!("i{i}"), format!("i{}", i + 1));
+        }
+
+        let mut outer = NirGraph::new();
+        outer
+            .insert_node("sub", NirNode::Graph(Box::new(inner)))
+            .unwrap();
+        for i in 0..extra_root {
+            outer.insert_node(format!("r{i}"), output(vec![1])).unwrap();
+            outer.add_edge("sub", format!("r{i}"));
+        }
+
+        let total_nodes = 1 + inner_nodes + extra_root;
+        let total_edges = inner_nodes.saturating_sub(1) + extra_root;
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nested.nir");
+        nir_rs::io::write(&path, &outer).unwrap();
+
+        let ok = ReadOptions::default()
+            .with_max_nodes(Some(total_nodes))
+            .with_max_edges(Some(total_edges))
+            .with_max_nested_graphs(Some(2));
+        nir_rs::io::read_with(&path, &ok).unwrap();
+
+        let is_count_limit = |err: &nir_rs::NirError| {
+            matches!(err, nir_rs::NirError::ReadCountLimitExceeded { .. })
+        };
+
+        if total_nodes > 0 {
+            let err = nir_rs::io::read_with(
+                &path,
+                &ReadOptions::default().with_max_nodes(Some(total_nodes - 1)),
+            )
+            .unwrap_err();
+            prop_assert!(is_count_limit(&err), "nodes: {err:?}");
+        }
+        if total_edges > 0 {
+            let err = nir_rs::io::read_with(
+                &path,
+                &ReadOptions::default().with_max_edges(Some(total_edges - 1)),
+            )
+            .unwrap_err();
+            prop_assert!(is_count_limit(&err), "edges: {err:?}");
+        }
+        let err = nir_rs::io::read_with(
+            &path,
+            &ReadOptions::default().with_max_nested_graphs(Some(1)),
+        )
+        .unwrap_err();
+        prop_assert!(is_count_limit(&err), "graphs: {err:?}");
     }
 }

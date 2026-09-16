@@ -119,7 +119,7 @@ pub mod nodes;
 pub mod types;
 mod validation;
 
-pub use error::{NirError, ParameterError, Result};
+pub use error::{NirError, ParameterError, ReadLimitResource, Result};
 pub use graph::NirGraph;
 pub use nodes::NirNode;
 pub use types::{DType, MetadataMap, MetadataValue, Tensor, TensorData};

@@ -157,6 +157,27 @@ fn main() -> nir_rs::Result<()> {
 }
 ```
 
+Default `io::read` is **permissive**, matching Python `nir.read`: a missing
+`/version` becomes `None`, and any present string is stored verbatim.
+Production importers can fail closed before the graph body is decoded:
+
+```rust
+use nir_rs::io::{ReadOptions, VersionPolicy};
+
+fn main() -> nir_rs::Result<()> {
+    // Inspection tool: accept whatever `/version` the file carries.
+    let graph = nir_rs::io::read("model.nir")?;
+    println!("{:?}", graph.version);
+
+    // Fail-closed importer: paper 0.x fixtures and current 1.x writers.
+    let opts = ReadOptions::default()
+        .with_version_policy(VersionPolicy::compatible_major([0, 1]));
+    let graph = nir_rs::io::read_with("model.nir", &opts)?;
+    let _ = graph;
+    Ok(())
+}
+```
+
 I/O is behind the opt-in **`hdf5`** feature, which links native libhdf5.
 Without that feature the crate has no system dependencies:
 
