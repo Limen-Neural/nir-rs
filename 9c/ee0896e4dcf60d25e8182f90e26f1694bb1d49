@@ -1,0 +1,9 @@
+src/lib.rs
+  2f3d05d6a6ae0d42 122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9cee0896e4dcf60d25e8182f90e26f1694bb1d49",
+  "prompts": {}
+}
