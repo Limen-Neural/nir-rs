@@ -14,7 +14,6 @@ use crate::nodes::NirNode;
 use crate::types::MetadataValue;
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 
 /// Directed NIR computation graph.
 ///
@@ -127,42 +126,43 @@ impl NirGraph {
         // Heap DFS: process-stack usage is O(1) in nesting depth. Frames are
         // pushed in reverse insertion order so the first nested graph is
         // popped next, matching the historical recursive walk.
-        // Path prefixes use parent-linked `Rc<PathFrame>` nodes so wide/deep
-        // frontiers share prefixes in O(1) space rather than cloning full paths.
-        let mut work: Vec<(&NirGraph, Option<Rc<PathFrame<'_>>>)> = vec![(self, None)];
+        // Path ancestry is stored in a flat arena (`Vec<PathFrame>`) with
+        // index-based parent links. Each frame is Copy (no recursive Drop glue
+        // on worker threads with small stacks) and child nodes share prefix
+        // ancestry in O(1) space.
+        let mut frames: Vec<PathFrame<'_>> = Vec::new();
+        let mut work: Vec<(&NirGraph, Option<usize>)> = vec![(self, None)];
 
-        while let Some((graph, path)) = work.pop() {
+        while let Some((graph, frame_idx)) = work.pop() {
             graph
                 .validate_local_structure()
-                .map_err(|err| wrap_frame_error(path.as_deref(), err))?;
+                .map_err(|err| wrap_frame_error(&frames, frame_idx, err))?;
 
-            let parent_depth = path.as_ref().map_or(0, |f| f.depth);
+            let parent_depth = frame_idx.map_or(0, |idx| frames[idx].depth);
 
             let mut nested = Vec::new();
             for (name, node) in &graph.nodes {
                 let NirNode::Graph(sub) = node else {
                     continue;
                 };
+                let child_depth = parent_depth + 1;
+                let child_idx = frames.len();
+                frames.push(PathFrame {
+                    name: name.as_str(),
+                    parent: frame_idx,
+                    depth: child_depth,
+                });
                 if parent_depth >= Self::MAX_NESTING_DEPTH {
-                    let child_frame = PathFrame {
-                        name: name.as_str(),
-                        parent: path.clone(),
-                        depth: parent_depth + 1,
-                    };
                     return Err(wrap_frame_error(
-                        Some(&child_frame),
+                        &frames,
+                        Some(child_idx),
                         NirError::InvalidGraph(format!(
                             "graph nesting depth exceeds {}",
                             Self::MAX_NESTING_DEPTH
                         )),
                     ));
                 }
-                let child_frame = Rc::new(PathFrame {
-                    name: name.as_str(),
-                    parent: path.clone(),
-                    depth: parent_depth + 1,
-                });
-                nested.push((sub.as_ref(), Some(child_frame)));
+                nested.push((sub.as_ref(), Some(child_idx)));
             }
             work.extend(nested.into_iter().rev());
         }
@@ -196,9 +196,13 @@ impl NirGraph {
 }
 
 /// Parent-linked frame tracking subgraph ancestry with O(1) prefix sharing.
+///
+/// Implements `Copy` so tearing down deep path chains performs no recursive drop
+/// calls on the process stack.
+#[derive(Clone, Copy)]
 struct PathFrame<'a> {
     name: &'a str,
-    parent: Option<Rc<PathFrame<'a>>>,
+    parent: Option<usize>,
     depth: usize,
 }
 
@@ -226,10 +230,15 @@ fn prefix_subgraph_error(name: &str, err: NirError) -> NirError {
 }
 
 /// Apply [`prefix_subgraph_error`] from the innermost subgraph out to the root.
-fn wrap_frame_error(mut curr: Option<&PathFrame<'_>>, mut err: NirError) -> NirError {
-    while let Some(frame) = curr {
+fn wrap_frame_error(
+    frames: &[PathFrame<'_>],
+    mut curr: Option<usize>,
+    mut err: NirError,
+) -> NirError {
+    while let Some(idx) = curr {
+        let frame = &frames[idx];
         err = prefix_subgraph_error(frame.name, err);
-        curr = frame.parent.as_deref();
+        curr = frame.parent;
     }
     err
 }
@@ -644,5 +653,22 @@ mod tests {
         g.insert_node("a", output(vec![1])).unwrap();
         let keys: Vec<&str> = g.nodes.keys().map(String::as_str).collect();
         assert_eq!(keys, ["z", "a"]);
+    }
+
+    #[test]
+    fn small_stack_thread_validates_max_depth_without_overflow() {
+        // Runs validate_structure on a thread with a 64 KiB stack to prove
+        // that neither traversal nor PathFrame teardown recurses on the process stack.
+        let g = wrap_depth(NirGraph::MAX_NESTING_DEPTH, leaf_graph());
+        let builder = std::thread::Builder::new().stack_size(64 * 1024);
+        std::thread::scope(|s| {
+            builder
+                .spawn_scoped(s, || {
+                    assert!(g.validate_structure().is_ok());
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+        });
     }
 }
