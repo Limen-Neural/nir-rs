@@ -75,6 +75,9 @@ runtime, nightly). They are a local / optional hardening path for release work.
 ## Fixture interoperability
 
 Known-good Python-written `.nir` files: [`tests/fixtures/`](tests/fixtures/).
-See that directory’s `README.md` and `MANIFEST.toml`. Hostile / malformed HDF5
-layouts are generated at runtime in `tests/hdf5_untrusted.rs` — keep those
-separate from the interoperability corpus.
+See that directory’s `README.md` and `MANIFEST.toml`. Hugging Face–derived
+conversions (vendored, checksummed; no Hub access in CI) live under
+[`tests/fixtures/huggingface/`](tests/fixtures/huggingface/) and are covered by
+`tests/hdf5_huggingface.rs`. Hostile / malformed HDF5 layouts are generated at
+runtime in `tests/hdf5_untrusted.rs` — keep those separate from the
+interoperability corpus.

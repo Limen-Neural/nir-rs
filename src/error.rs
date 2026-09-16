@@ -93,6 +93,18 @@ pub enum ParameterError {
         /// Output-channel count from `weight.shape[0]`.
         expected: usize,
     },
+    /// Bias tensor is not rank-1.
+    #[error("bias rank {found} is not 1")]
+    BiasRank {
+        /// Observed rank (`shape.len()`).
+        found: usize,
+    },
+    /// A weight tensor axis extent is not strictly positive.
+    #[error("weight extents must be strictly positive, found 0 along axis {axis}")]
+    WeightExtentPositive {
+        /// Offending axis index.
+        axis: usize,
+    },
 }
 
 /// Public error type for NIR operations.

@@ -104,6 +104,11 @@
 //!
 //! Wire type names must match the Python IR (`CubaLIF`, `Conv2d`, …), not
 //! informal marketing aliases.
+//!
+//! [`NirGraph::validate_structure`] walks nested [`NirNode::Graph`] subgraphs
+//! on a heap work list bounded by [`NirGraph::MAX_NESTING_DEPTH`], so
+//! adversarial in-memory graphs fail with [`NirError`] rather than overflowing
+//! the process stack.
 
 #![warn(missing_docs)]
 

@@ -21,12 +21,22 @@ pub(crate) const ANONYMOUS_NODE: &str = "<node>";
 
 /// Validate one node. Nested graphs recurse under `name` as a path prefix.
 pub(crate) fn validate_node(node: &NirNode, name: &str) -> Result<()> {
+    validate_node_with_depth(node, name, 0)
+}
+
+fn validate_node_with_depth(node: &NirNode, name: &str, depth: usize) -> Result<()> {
+    if depth > NirGraph::MAX_NESTING_DEPTH {
+        return Err(NirError::InvalidGraph(format!(
+            "graph nesting depth exceeds {}",
+            NirGraph::MAX_NESTING_DEPTH
+        )));
+    }
     match node {
         NirNode::Conv1d(conv) => validate_conv1d(name, conv),
         NirNode::Conv2d(conv) => validate_conv2d(name, conv),
         NirNode::SumPool2d(pool) => validate_sum_pool2d(name, pool),
         NirNode::AvgPool2d(pool) => validate_avg_pool2d(name, pool),
-        NirNode::Graph(sub) => validate_graph_with_prefix(sub, Some(name)),
+        NirNode::Graph(sub) => validate_graph_with_prefix_and_depth(sub, Some(name), depth + 1),
         NirNode::Input(_)
         | NirNode::Output(_)
         | NirNode::Affine(_)
@@ -46,16 +56,26 @@ pub(crate) fn validate_node(node: &NirNode, name: &str) -> Result<()> {
 
 /// Validate every node in `graph`, qualifying nested subgraphs with `/`.
 pub(crate) fn validate_graph(graph: &NirGraph) -> Result<()> {
-    validate_graph_with_prefix(graph, None)
+    validate_graph_with_prefix_and_depth(graph, None, 0)
 }
 
-fn validate_graph_with_prefix(graph: &NirGraph, prefix: Option<&str>) -> Result<()> {
+fn validate_graph_with_prefix_and_depth(
+    graph: &NirGraph,
+    prefix: Option<&str>,
+    depth: usize,
+) -> Result<()> {
+    if depth > NirGraph::MAX_NESTING_DEPTH {
+        return Err(NirError::InvalidGraph(format!(
+            "graph nesting depth exceeds {}",
+            NirGraph::MAX_NESTING_DEPTH
+        )));
+    }
     for (name, node) in &graph.nodes {
         let qualified = match prefix {
             Some(parent) => format!("{parent}/{name}"),
             None => name.clone(),
         };
-        validate_node(node, &qualified)?;
+        validate_node_with_depth(node, &qualified, depth)?;
     }
     Ok(())
 }
@@ -131,6 +151,16 @@ fn validate_conv(
         ));
     }
 
+    for (axis, &extent) in weight.shape().iter().enumerate() {
+        if extent == 0 {
+            return Err(invalid(
+                node,
+                node_type,
+                ParameterError::WeightExtentPositive { axis },
+            ));
+        }
+    }
+
     let out_channels = weight.shape()[0];
     if !(out_channels as u64).is_multiple_of(groups as u64) {
         return Err(invalid(
@@ -160,6 +190,15 @@ fn validate_conv(
         ExtentSign::Positive,
     )?;
     check_padding(node, node_type, padding, spatial_arity)?;
+
+    let bias_rank = bias.ndim();
+    if bias_rank != 1 {
+        return Err(invalid(
+            node,
+            node_type,
+            ParameterError::BiasRank { found: bias_rank },
+        ));
+    }
 
     let bias_len = bias.numel();
     if bias_len != out_channels {
@@ -404,5 +443,51 @@ mod tests {
             metadata: MetadataMap::default(),
         });
         lif.validate_parameters().unwrap();
+    }
+
+    #[test]
+    fn zero_extent_in_weight_is_rejected() {
+        let mut conv = conv1d_ok();
+        conv.weight = Tensor::from_f32(vec![2, 1, 0], vec![]).unwrap();
+        let err = NirNode::Conv1d(conv).validate_parameters().unwrap_err();
+        match err {
+            NirError::InvalidNodeParameters { kind, .. } => {
+                assert_eq!(kind, ParameterError::WeightExtentPositive { axis: 2 });
+            }
+            other => panic!("expected InvalidNodeParameters, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_1d_bias_is_rejected_even_with_matching_numel() {
+        let mut conv = conv1d_ok();
+        // shape [2, 1] has numel 2 which equals out_channels (2), but rank is 2
+        conv.bias = Tensor::from_f32(vec![2, 1], vec![0., 0.]).unwrap();
+        let err = NirNode::Conv1d(conv).validate_parameters().unwrap_err();
+        match err {
+            NirError::InvalidNodeParameters { kind, .. } => {
+                assert_eq!(kind, ParameterError::BiasRank { found: 2 });
+            }
+            other => panic!("expected InvalidNodeParameters, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nesting_beyond_limit_in_validate_parameters_is_rejected() {
+        let mut curr = NirGraph::default();
+        for i in 0..=NirGraph::MAX_NESTING_DEPTH {
+            let mut parent = NirGraph::default();
+            parent
+                .nodes
+                .insert(format!("sub_{i}"), NirNode::Graph(Box::new(curr)));
+            curr = parent;
+        }
+        let err = curr.validate_parameters().unwrap_err();
+        match err {
+            NirError::InvalidGraph(msg) => {
+                assert!(msg.contains("nesting depth"));
+            }
+            other => panic!("expected InvalidGraph, got {other:?}"),
+        }
     }
 }
