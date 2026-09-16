@@ -12,6 +12,10 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 - Public `NirGraph::MAX_NESTING_DEPTH` bound for in-memory structural validation
   of nested `NirNode::Graph` subgraphs (LIM-1238).
+- Hugging Face SNN → NIR load/inspect corpus: two checksummed fixtures converted
+  from pinned NeuroCUDA Hub checkpoints with upstream `nir` 1.0.8, plus
+  `tests/hdf5_huggingface.rs` (#44 / LIM-1086). Synfire registry pulls stay on
+  #43.
 
 ### Changed
 
