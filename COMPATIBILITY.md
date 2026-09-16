@@ -53,6 +53,7 @@ These are intentional, documented behaviors — not bugs:
 | Dtype widening | Some metadata may widen (e.g. integer/scalar forms) within documented IO rules; equality checks use graph semantics, not raw HDF5 types. |
 | Optional fields | e.g. LIF `v_reset`, Cuba `w_in` — absent on the wire means default / `None` in Rust; presence is preserved. |
 | Wire type strings | Must match neuromorphs/NIR exactly (`CubaLIF`, `Conv2d`, `SumPool2d`, …). Marketing aliases are rejected. |
+| `/version` on read | Default `read` is **permissive** (missing or arbitrary strings stored verbatim). Opt in with `ReadOptions::version_policy`: `RequirePresent`, or `CompatibleMajor` with caller-supplied majors (typically `[0, 1]` for paper fixtures and 1.x writers). Prerelease/build suffixes are parsed then ignored for the major check; the original string is stored. Policy failures use `NirError::IncompatibleVersion` and run before the graph body is decoded. |
 
 ## Features
 

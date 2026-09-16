@@ -20,6 +20,10 @@ for the **0.x** series as described under [Versioning](#versioning) below.
   `max_edges`, `max_nested_graphs`) charged globally before collections are
   materialized, with `NirError::ReadCountLimitExceeded` identifying the
   exhausted resource and graph path (LIM-1237). Defaults stay unbounded.
+- Opt-in `io::VersionPolicy` on `ReadOptions` for HDF5 reads (LIM-1240):
+  default remains permissive; `RequirePresent` and `CompatibleMajor`
+  (caller-supplied majors) validate `/version` before the graph body is
+  decoded. Failures are `NirError::IncompatibleVersion`.
 
 ### Changed
 

@@ -29,13 +29,22 @@
 //! # Version string
 //!
 //! Upstream writes the version of the Python `nir` package into `/version` and
-//! never validates it on read. This crate follows suit:
+//! never validates it on read. Default [`read`] follows suit:
 //!
 //! - [`read`] stores `/version` in [`NirGraph::version`], and leaves it `None`
 //!   when the dataset is absent. It is never an error.
 //! - [`read_version`] is the strict accessor and *does* error when absent.
 //! - [`write()`] emits [`NirGraph::version`] when set, else
 //!   [`DEFAULT_NIR_VERSION`].
+//!
+//! Production importers can opt into an envelope check via
+//! [`ReadOptions::version_policy`] without changing that default:
+//! [`VersionPolicy::RequirePresent`] rejects a missing `/version`;
+//! [`VersionPolicy::CompatibleMajor`] parses a SemVer-compatible string and
+//! accepts caller-supplied majors (typically `0` for paper fixtures and `1`
+//! for current writers). Policy failures use
+//! [`NirError::IncompatibleVersion`] and run **before** the graph body is
+//! decoded.
 //!
 //! # Non-goals
 //!
@@ -44,6 +53,9 @@
 //! that upstream `read_data` / `write_data` handle.
 
 pub mod wire;
+
+mod version;
+pub use version::VersionPolicy;
 
 #[cfg(feature = "hdf5")]
 mod hdf5_read;
@@ -171,6 +183,11 @@ pub struct ReadOptions {
     /// Maximum total `NIRGraph` groups decoded from the file (root included),
     /// or `None` to use only the hard cap of 1024 groups.
     pub max_nested_graphs: Option<usize>,
+    /// How to treat the root `/version` dataset. Defaults to
+    /// [`VersionPolicy::Permissive`], which is the Python `nir.read` behaviour
+    /// and keeps [`read`] byte-for-byte compatible with earlier crate
+    /// versions.
+    pub version_policy: VersionPolicy,
 }
 
 impl ReadOptions {
@@ -200,6 +217,25 @@ impl ReadOptions {
     #[must_use]
     pub fn with_max_nested_graphs(mut self, max_nested_graphs: Option<usize>) -> Self {
         self.max_nested_graphs = max_nested_graphs;
+        self
+    }
+
+    /// Set the `/version` compatibility policy.
+    ///
+    /// ```
+    /// use nir_rs::io::{ReadOptions, VersionPolicy};
+    ///
+    /// // Permissive tooling (default): accept missing or arbitrary versions.
+    /// let tool = ReadOptions::default();
+    /// assert_eq!(tool.version_policy, VersionPolicy::Permissive);
+    ///
+    /// // Fail-closed importer: paper 0.x fixtures and 1.x writers.
+    /// let importer = ReadOptions::default()
+    ///     .with_version_policy(VersionPolicy::compatible_major([0, 1]));
+    /// ```
+    #[must_use]
+    pub fn with_version_policy(mut self, version_policy: VersionPolicy) -> Self {
+        self.version_policy = version_policy;
         self
     }
 }
@@ -344,9 +380,11 @@ pub fn read(path: impl AsRef<Path>) -> Result<NirGraph> {
 /// # Errors
 ///
 /// As [`read`], plus [`NirError::ReadLimitExceeded`] when the next decoded
-/// allocation would cross `opts.max_bytes`, and
+/// allocation would cross `opts.max_bytes`,
 /// [`NirError::ReadCountLimitExceeded`] when a node, edge, or nested-graph
-/// count would cross the corresponding limit.
+/// count would cross the corresponding limit, and
+/// [`NirError::IncompatibleVersion`] when `opts.version_policy` rejects
+/// `/version`. Version-policy checks run before the graph body is decoded.
 pub fn read_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<NirGraph> {
     backend::read(path.as_ref(), opts)
 }
@@ -366,7 +404,9 @@ pub fn read_version(path: impl AsRef<Path>) -> Result<String> {
 /// # Errors
 ///
 /// As [`read_version`], plus [`NirError::ReadLimitExceeded`] when decoding the
-/// version string would cross `opts.max_bytes`.
+/// version string would cross `opts.max_bytes`, and
+/// [`NirError::IncompatibleVersion`] when `opts.version_policy` rejects the
+/// value. Parsing and policy errors share the graph-reader path.
 pub fn read_version_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<String> {
     backend::read_version(path.as_ref(), opts)
 }
@@ -508,6 +548,7 @@ mod tests {
         assert_eq!(opts.max_nodes, None);
         assert_eq!(opts.max_edges, None);
         assert_eq!(opts.max_nested_graphs, None);
+        assert_eq!(opts.version_policy, VersionPolicy::Permissive);
         let configured = opts
             .with_max_bytes(Some(4096))
             .with_max_nodes(Some(8))
@@ -517,6 +558,15 @@ mod tests {
         assert_eq!(configured.max_nodes, Some(8));
         assert_eq!(configured.max_edges, Some(16));
         assert_eq!(configured.max_nested_graphs, Some(4));
+    }
+
+    #[test]
+    fn read_options_version_policy_builder() {
+        let opts = ReadOptions::default()
+            .with_version_policy(VersionPolicy::RequirePresent)
+            .with_max_bytes(Some(1024));
+        assert_eq!(opts.version_policy, VersionPolicy::RequirePresent);
+        assert_eq!(opts.max_bytes, Some(1024));
     }
 
     #[cfg(not(feature = "hdf5"))]
