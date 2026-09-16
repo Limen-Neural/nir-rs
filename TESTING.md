@@ -24,7 +24,7 @@ use a fixed case budget suitable for CI.
 |------|---------|--------|
 | `tests/prop_invariants.rs` | default | Tensor shape/data, graph insert/validate, link-name preflight |
 | `tests/prop_invariants.rs` | `serde` | Finite tensor + simple graph JSON round-trip |
-| `tests/prop_hdf5.rs` | `hdf5` | Write → read graph fidelity, illegal name preflight (no clobber) |
+| `tests/prop_hdf5.rs` | `hdf5` | Write → read graph fidelity, illegal name preflight (no clobber), nested count budgets |
 
 Re-run with more cases locally:
 
@@ -32,6 +32,18 @@ Re-run with more cases locally:
 PROPTEST_CASES=1024 cargo test --test prop_invariants
 PROPTEST_CASES=256 cargo test --features hdf5 --test prop_hdf5
 ```
+
+## Read-limit integration tests
+
+Deterministic `#[test]` cases (not proptest). Filter locally with `read_limit`:
+
+```bash
+cargo test --features hdf5 read_limit
+```
+
+| File | Feature | Focus |
+|------|---------|--------|
+| `tests/hdf5_read_limits.rs` | `hdf5` | Exact `ReadOptions` node/edge/nesting budgets, nested accumulation, hard-link aliases |
 
 ## Fuzz harnesses (`cargo-fuzz`)
 
