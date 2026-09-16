@@ -10,6 +10,12 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ### Added
 
+- Public `NirGraph::MAX_NESTING_DEPTH` bound for in-memory structural validation
+  of nested `NirNode::Graph` subgraphs (LIM-1238).
+- Hugging Face SNN → NIR load/inspect corpus: two checksummed fixtures converted
+  from pinned NeuroCUDA Hub checkpoints with upstream `nir` 1.0.8, plus
+  `tests/hdf5_huggingface.rs` (#44 / LIM-1086). Synfire registry pulls stay on
+  #43.
 - `ReadOptions` node / edge / nested-graph count budgets (`max_nodes`,
   `max_edges`, `max_nested_graphs`) charged globally before collections are
   materialized, with `NirError::ReadCountLimitExceeded` identifying the
@@ -17,6 +23,12 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ### Changed
 
+- `NirGraph::validate_structure` walks nested subgraphs on a heap-allocated
+  work list instead of recursing, so process-stack usage no longer grows with
+  nesting depth. Graphs nested beyond `NirGraph::MAX_NESTING_DEPTH` return
+  `NirError::InvalidGraph` with nested path context rather than aborting.
+  Missing-endpoint, duplicate-edge, cycle, and first-error ordering behavior
+  is unchanged (LIM-1238).
 - Package `exclude` list: add `.deepsource.toml` so the crates.io artifact
   does not ship the DeepSource analyzer pin (#47).
 

@@ -1,0 +1,36 @@
+# Machine-readable catalog of Hugging Face–derived interoperability fixtures.
+# Source of truth for provenance; keep in sync with README.md SHA table.
+#
+# These files are produced by converting public HF SNN checkpoints with the
+# official Python `nir.write` (neuromorphs/NIR). They are not Synfire registry
+# artifacts (see GitHub #43 / LIM-1085).
+
+writer_package = "nir"
+writer_version = "1.0.8"
+modified = true
+license = "MIT"
+notes = """
+Converted from Hugging Face PyTorch checkpoints. The `.nir` files are new
+artifacts (not byte-identical Hub downloads). Weights are copied from the
+pinned revisions; graph topology follows NeuroCUDA hub architectures.
+"""
+
+[[fixture]]
+file = "neurocuda_mlp_mnist.nir"
+hf_repo = "Krishnav1234/neurocuda-mlp-mnist-snn"
+hf_revision = "5a2422453d0a1672f5d1dec2ea73d54196a07d85"
+hf_filename = "pytorch_model.bin"
+producer = "neurocuda"
+architecture = "MLP 784→256 IF →256 IF →10 Affine"
+sha256 = "fc0b1a1e0c4caeb9d1f7be8700de0212a76ec5f441cae13038887411fd9a1ef0"
+covers = ["Input", "Affine", "IF", "Output", "f32", "NIR_1_0_8"]
+
+[[fixture]]
+file = "neurocuda_cnn_nmnist.nir"
+hf_repo = "Krishnav1234/neurocuda-cnn-nmnist-snn"
+hf_revision = "1ee6ba2f500a4584ef05a77b44016beea2491879"
+hf_filename = "pytorch_model.bin"
+producer = "neurocuda"
+architecture = "CNN 2×34×34 Conv/IF/AvgPool ×3 → Flatten → Affine"
+sha256 = "972b45984094606b83b5b19173a653524550a5aa416f8a46398baa4250c34f2f"
+covers = ["Input", "Conv2d", "IF", "AvgPool2d", "Flatten", "Affine", "Output", "f32", "NIR_1_0_8"]
