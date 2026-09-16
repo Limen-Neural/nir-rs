@@ -1,0 +1,9 @@
+src/io/mod.rs
+  e8880b4a48ca23a1 239-240,383,385-387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0b079eb25e535d2952fe39a143fd02b6ce6f9943",
+  "prompts": {}
+}
