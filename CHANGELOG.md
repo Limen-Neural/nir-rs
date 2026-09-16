@@ -16,6 +16,10 @@ for the **0.x** series as described under [Versioning](#versioning) below.
   from pinned NeuroCUDA Hub checkpoints with upstream `nir` 1.0.8, plus
   `tests/hdf5_huggingface.rs` (#44 / LIM-1086). Synfire registry pulls stay on
   #43.
+- Opt-in `NirNode::validate_parameters` / `NirGraph::validate_parameters` for
+  local convolution and pooling invariants, with typed `ParameterError` /
+  `NirError::InvalidNodeParameters`. HDF5 reads stay permissive; the default
+  writer does not run these checks (LIM-1239).
 - `ReadOptions` node / edge / nested-graph count budgets (`max_nodes`,
   `max_edges`, `max_nested_graphs`) charged globally before collections are
   materialized, with `NirError::ReadCountLimitExceeded` identifying the

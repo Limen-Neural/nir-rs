@@ -11,6 +11,103 @@ use thiserror::Error;
 /// Result type used across the crate.
 pub type Result<T> = std::result::Result<T, NirError>;
 
+/// Local convolution or pooling parameter invariant that failed.
+///
+/// Each variant is unambiguous from the node's own fields (no whole-graph
+/// shape inference). Returned inside [`NirError::InvalidNodeParameters`].
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum ParameterError {
+    /// Weight tensor rank does not match the convolution kind.
+    #[error("weight rank {found} is not {expected}")]
+    WeightRank {
+        /// Observed rank (`shape.len()`).
+        found: usize,
+        /// Required rank (3 for `Conv1d`, 4 for `Conv2d`).
+        expected: usize,
+    },
+    /// `groups` is not a positive count.
+    #[error("groups must be > 0, found {found}")]
+    Groups {
+        /// Observed `groups` value.
+        found: i64,
+    },
+    /// Output-channel count is not divisible by `groups`.
+    #[error("output channels {channels} are not divisible by groups {groups}")]
+    ChannelGroupDivisibility {
+        /// `weight` output-channel axis (`shape[0]`).
+        channels: usize,
+        /// Observed `groups` value.
+        groups: i64,
+    },
+    /// A stride, dilation, padding, or pooling window has the wrong length.
+    #[error("{field} arity {found} is not {expected}")]
+    ExtentArity {
+        /// Field name (`stride`, `dilation`, `padding`, `kernel_size`, …).
+        field: &'static str,
+        /// Human-readable allowed arity (`1`, `1 or 2`).
+        expected: &'static str,
+        /// Observed number of extents.
+        found: usize,
+    },
+    /// A pooling window tensor is not a scalar or a 1-D vector of extents.
+    #[error("{field} rank {found} is not 0 or 1")]
+    ExtentRank {
+        /// Field name (`kernel_size`, `stride`, `padding`).
+        field: &'static str,
+        /// Observed rank (`shape.len()`).
+        found: usize,
+    },
+    /// A pooling window tensor is not an integer payload.
+    #[error("{field} must contain i64 extents, found {dtype}")]
+    ExtentDType {
+        /// Field name (`kernel_size`, `stride`, `padding`).
+        field: &'static str,
+        /// Observed payload dtype label (`f32`, `f64`, `bool`).
+        dtype: &'static str,
+    },
+    /// A stride, dilation, or kernel extent is not strictly positive.
+    #[error("{field} extents must be strictly positive, found {value} at index {index}")]
+    ExtentPositive {
+        /// Field name (`stride`, `dilation`, `kernel_size`).
+        field: &'static str,
+        /// Index of the offending extent.
+        index: usize,
+        /// Observed value.
+        value: i64,
+    },
+    /// An explicit padding extent is negative.
+    #[error("{field} extents must be non-negative, found {value} at index {index}")]
+    ExtentNonNegative {
+        /// Field name (`padding`).
+        field: &'static str,
+        /// Index of the offending extent.
+        index: usize,
+        /// Observed value.
+        value: i64,
+    },
+    /// Bias element count does not match the convolution's output channels.
+    #[error("bias length {found} is incompatible with {expected} output channels")]
+    BiasLength {
+        /// `bias.numel()`.
+        found: usize,
+        /// Output-channel count from `weight.shape[0]`.
+        expected: usize,
+    },
+    /// Bias tensor is not rank-1.
+    #[error("bias rank {found} is not 1")]
+    BiasRank {
+        /// Observed rank (`shape.len()`).
+        found: usize,
+    },
+    /// A weight tensor axis extent is not strictly positive.
+    #[error("weight extents must be strictly positive, found 0 along axis {axis}")]
+    WeightExtentPositive {
+        /// Offending axis index.
+        axis: usize,
+    },
+}
+
 /// Structural collection bounded by a [`crate::io::ReadOptions`] count limit.
 ///
 /// Distinct from the decoded-allocation budget (`max_bytes` /
@@ -93,6 +190,24 @@ pub enum NirError {
     /// Tensor shape / data length mismatch or other tensor invariant failure.
     #[error("invalid tensor: {0}")]
     InvalidTensor(String),
+
+    /// Local convolution or pooling parameter invariant failed.
+    ///
+    /// Returned by [`crate::NirNode::validate_parameters`] and
+    /// [`crate::NirGraph::validate_parameters`]. HDF5 reads never emit this
+    /// variant; callers opt in after import. The default writer also does not
+    /// run parameter validation.
+    #[error("invalid parameters for {node_type} node {node}: {kind}")]
+    InvalidNodeParameters {
+        /// Graph node name, or a `/`-separated path through nested subgraphs.
+        ///
+        /// Isolated [`crate::NirNode::validate_parameters`] uses `"<node>"`.
+        node: String,
+        /// Wire type string (`Conv1d`, `SumPool2d`, …).
+        node_type: &'static str,
+        /// The invariant that failed.
+        kind: ParameterError,
+    },
 
     /// A bounded read would exceed its decoded-allocation budget.
     #[error(
@@ -224,6 +339,87 @@ mod tests {
             err.to_string(),
             "invalid tensor: shape product 4 != data len 3"
         );
+    }
+
+    #[test]
+    fn invalid_node_parameters_display() {
+        let err = NirError::InvalidNodeParameters {
+            node: "conv".into(),
+            node_type: "Conv1d",
+            kind: ParameterError::WeightRank {
+                found: 2,
+                expected: 3,
+            },
+        };
+        assert_eq!(
+            err.to_string(),
+            "invalid parameters for Conv1d node conv: weight rank 2 is not 3"
+        );
+    }
+
+    #[test]
+    fn parameter_error_displays() {
+        let cases = [
+            (
+                ParameterError::Groups { found: 0 },
+                "groups must be > 0, found 0",
+            ),
+            (
+                ParameterError::ChannelGroupDivisibility {
+                    channels: 3,
+                    groups: 2,
+                },
+                "output channels 3 are not divisible by groups 2",
+            ),
+            (
+                ParameterError::ExtentArity {
+                    field: "stride",
+                    expected: "1",
+                    found: 2,
+                },
+                "stride arity 2 is not 1",
+            ),
+            (
+                ParameterError::ExtentRank {
+                    field: "kernel_size",
+                    found: 2,
+                },
+                "kernel_size rank 2 is not 0 or 1",
+            ),
+            (
+                ParameterError::ExtentDType {
+                    field: "padding",
+                    dtype: "f32",
+                },
+                "padding must contain i64 extents, found f32",
+            ),
+            (
+                ParameterError::ExtentPositive {
+                    field: "dilation",
+                    index: 0,
+                    value: 0,
+                },
+                "dilation extents must be strictly positive, found 0 at index 0",
+            ),
+            (
+                ParameterError::ExtentNonNegative {
+                    field: "padding",
+                    index: 1,
+                    value: -1,
+                },
+                "padding extents must be non-negative, found -1 at index 1",
+            ),
+            (
+                ParameterError::BiasLength {
+                    found: 1,
+                    expected: 2,
+                },
+                "bias length 1 is incompatible with 2 output channels",
+            ),
+        ];
+        for (err, expected) in cases {
+            assert_eq!(err.to_string(), expected);
+        }
     }
 
     #[test]

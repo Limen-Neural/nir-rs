@@ -8,6 +8,8 @@
 //! edge endpoints, duplicate directed edges, and nested [`NirNode::Graph`]
 //! subgraphs. Validation walks those subgraphs on a heap-allocated work
 //! list so process-stack usage does not grow with nesting depth.
+//! Convolution and pooling parameter invariants are a separate opt-in check
+//! ([`NirGraph::validate_parameters`]).
 
 use crate::error::{NirError, Result};
 use crate::nodes::NirNode;
@@ -111,6 +113,8 @@ impl NirGraph {
     /// [`Self::MAX_NESTING_DEPTH`] fails with [`NirError::InvalidGraph`].
     ///
     /// Cycles are **allowed**. Type/shape inference is out of scope for v0.2.
+    /// Convolution and pooling parameter invariants are checked separately by
+    /// [`validate_parameters`](Self::validate_parameters).
     ///
     /// First-error ordering matches a recursive walk: missing endpoints, then
     /// duplicate edges, then nested subgraphs in insertion order. Nested failures
@@ -192,6 +196,28 @@ impl NirGraph {
         }
 
         Ok(())
+    }
+
+    /// Validate local convolution and pooling parameter invariants.
+    ///
+    /// Complements [`validate_structure`](Self::validate_structure): structure
+    /// checks only edge endpoints and duplicate directed edges, while this
+    /// walks each node for weight rank, grouped-convolution divisibility,
+    /// stride/dilation/padding extents, bias length, and pooling windows.
+    ///
+    /// HDF5 [`crate::io::read`] does **not** call this method. The default
+    /// writer also does not — invoke it explicitly after assembling or
+    /// importing a graph.
+    ///
+    /// Nested [`crate::NirNode::Graph`] subgraphs are visited. Failures name
+    /// the node with a `/`-separated path (`"encoder/conv"`).
+    ///
+    /// # Errors
+    ///
+    /// [`NirError::InvalidNodeParameters`] for the first node whose
+    /// convolution or pooling fields violate a local invariant.
+    pub fn validate_parameters(&self) -> Result<()> {
+        crate::validation::validate_graph(self)
     }
 }
 

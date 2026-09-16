@@ -5,8 +5,9 @@
 //! Mirrors upstream `nir/serialization.py` (`read` / `hdf2dict`) and the
 //! `from_dict` of each node dataclass. Reading is deliberately permissive: the
 //! graph is returned as the file describes it, without running
-//! [`NirGraph::validate_structure`] — callers decide whether a structurally
-//! odd file is a problem.
+//! [`NirGraph::validate_structure`] or [`NirGraph::validate_parameters`] —
+//! callers decide whether a structurally odd or locally-invalid file is a
+//! problem.
 //!
 //! The only normalization performed is documented on [`super::read`]: element
 //! types are widened losslessly into [`DType`](crate::DType), and absent

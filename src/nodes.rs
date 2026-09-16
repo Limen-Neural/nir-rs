@@ -138,6 +138,25 @@ impl NirNode {
             Self::Graph(_) => "NIRGraph",
         }
     }
+
+    /// Validate local convolution and pooling parameter invariants.
+    ///
+    /// Nodes other than [`Self::Conv1d`], [`Self::Conv2d`], [`Self::SumPool2d`],
+    /// [`Self::AvgPool2d`], and nested [`Self::Graph`] succeed without further
+    /// checks. This does **not** run shape inference or neuron-parameter
+    /// validation.
+    ///
+    /// Isolated calls report failures against the node name `"<node>"`. Prefer
+    /// [`crate::NirGraph::validate_parameters`] when the node lives in a graph
+    /// so the error names the map key.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::NirError::InvalidNodeParameters`] when a convolution or pooling
+    /// field violates a local invariant. Nested subgraphs are visited.
+    pub fn validate_parameters(&self) -> crate::error::Result<()> {
+        crate::validation::validate_node(self, crate::validation::ANONYMOUS_NODE)
+    }
 }
 
 /// Input port: virtual node feeding data into the graph.
