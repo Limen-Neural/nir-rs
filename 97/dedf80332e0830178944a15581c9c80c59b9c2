@@ -1,0 +1,11 @@
+src/io/version.rs
+  7aeac1b98ced0d9a 121,130,163
+README.md
+  7aeac1b98ced0d9a 149-151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "97dedf80332e0830178944a15581c9c80c59b9c2",
+  "prompts": {}
+}
