@@ -86,11 +86,15 @@ fn representation_uses_wire_tags_and_shape_plus_typed_data() {
 }
 
 #[test]
-fn deep_serde_graph_validates_without_recursion() {
-    let mut graph = NirGraph::new();
+fn nested_serde_graph_roundtrip_validates() {
+    // Verifies that nested graphs survive serde JSON round-tripping and validate
+    // structural integrity cleanly. Deep nesting guarantees up to MAX_NESTING_DEPTH
+    // are exercised directly in `src/graph.rs` to remain independent of format-specific
+    // deserializer recursion limits.
+    let mut graph = NirGraph::default();
     graph.insert_node("leaf", input(vec![1])).unwrap();
     for i in (0..16).rev() {
-        let mut outer = NirGraph::new();
+        let mut outer = NirGraph::default();
         outer
             .insert_node(format!("n{i}"), NirNode::Graph(Box::new(graph)))
             .unwrap();
@@ -103,14 +107,14 @@ fn deep_serde_graph_validates_without_recursion() {
 }
 
 #[test]
-fn serde_deep_invalid_graph_keeps_path_context() {
-    let mut inner = NirGraph::new();
+fn serde_nested_invalid_graph_keeps_path_context() {
+    let mut inner = NirGraph::default();
     inner.insert_node("i", input(vec![1])).unwrap();
     inner.add_edge("i", "ghost");
 
     let mut graph = inner;
     for i in (0..16).rev() {
-        let mut outer = NirGraph::new();
+        let mut outer = NirGraph::default();
         outer
             .insert_node(format!("n{i}"), NirNode::Graph(Box::new(graph)))
             .unwrap();
