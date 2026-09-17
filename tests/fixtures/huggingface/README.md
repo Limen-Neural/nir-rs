@@ -227,10 +227,13 @@ cargo test --features hdf5 --test hdf5_huggingface
 
 ## License of the vendored files
 
-The Hugging Face checkpoints are MIT-licensed. The converted `.nir` files
-contain those trained weights and are therefore also distributed under MIT
-(the NeuroCUDA / Hub license). They do **not** fall under the BSD-3 paper
-fixture license in the parent directory.
+The Hugging Face model cards for both pinned checkpoints declare MIT. The
+converted `.nir` files contain those trained weights and are therefore also
+distributed under MIT. [`LICENSE-NeuroCUDA`](LICENSE-NeuroCUDA) reproduces the
+copyright and permission notice from the NeuroCUDA source repository's
+[`LICENSE`](https://github.com/Krishnav1/neurocuda/blob/master/LICENSE); that
+notice applies to both converted checkpoint fixtures. They do **not** fall
+under the BSD-3 paper-fixture license in the parent directory.
 
 ## Neuromod follow-up
 

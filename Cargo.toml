@@ -1,6 +1,6 @@
 [package]
 name = "nir-rs"
-version = "0.4.3"
+version = "0.4.4"
 edition = "2024"
 # Supported toolchain — keep in lockstep with rust-toolchain.toml and CI
 # (`toolchain: "1.98.1"`). Raise when the pin moves.
@@ -58,9 +58,9 @@ indexmap = "2"
 thiserror = "2"
 # Maintained metno fork via package rename; the abandoned aldanor/hdf5 0.8 crate
 # (last released 2021) must not be used.
-hdf5 = { package = "hdf5-metno", version = "0.14", optional = true }
+hdf5 = { package = "hdf5-metno", version = "0.14.1", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
-hdf5-sys = { package = "hdf5-metno-sys", version = "0.12", optional = true }
+hdf5-sys = { package = "hdf5-metno-sys", version = "0.12.3", optional = true }
 tempfile = { version = "3", optional = true }
 # Used only by the HDF5 writer (Unix staging ownership checks). Optional so
 # graph-only consumers do not pull it under the default feature set.

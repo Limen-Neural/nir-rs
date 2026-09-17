@@ -8,6 +8,8 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-09-16
+
 ### Added
 
 - Public `NirGraph::MAX_NESTING_DEPTH` bound for in-memory structural validation
@@ -39,6 +41,19 @@ for the **0.x** series as described under [Versioning](#versioning) below.
   is unchanged (LIM-1238).
 - Package `exclude` list: add `.deepsource.toml` so the crates.io artifact
   does not ship the DeepSource analyzer pin (#47).
+- HDF5 dependencies now require `hdf5-metno` 0.14.1 and
+  `hdf5-metno-sys` 0.12.3. The static-linking recipe works with its vendored
+  HDF5 2.2.0 build again, and CI verifies it separately from system-library
+  builds.
+- Package CI now requires a clean checkout, tests default, Serde, and static
+  HDF5 configurations from the unpacked crate, and compares the public API to
+  the published crates.io 0.4.3 baseline for default and Serde features.
+
+### Documentation
+
+- Preserve the NeuroCUDA MIT copyright and permission notice alongside the
+  Hugging Face-derived fixtures, with its source and applicability documented.
+- Update package metadata and install examples for the 0.4.4 release candidate.
 
 ### Removed
 

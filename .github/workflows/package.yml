@@ -40,17 +40,15 @@ jobs:
           key: package-1.98.1
 
       - name: cargo package --list
-        run: cargo package --list --allow-dirty
+        run: cargo package --list --locked
 
       - name: cargo package
-        # allow-dirty: checkout may have no local edits, but keep consistent with
-        # agents that package from a worktree with ignored files present.
-        run: cargo package --allow-dirty
+        run: cargo package --locked
 
       - name: Assert required files are in the package
         run: |
           set -euo pipefail
-          list="$(cargo package --list --allow-dirty)"
+          list="$(cargo package --list --locked)"
           required=(
             LICENSE-MIT
             LICENSE-APACHE-2.0
@@ -58,8 +56,12 @@ jobs:
             Cargo.toml
             src/lib.rs
             examples/load_inspect_lif.rs
+            tests/fixtures/MANIFEST.toml
             tests/fixtures/lif_norse.nir
             tests/fixtures/two_lif_neurons.nir
+            tests/fixtures/huggingface/MANIFEST.toml
+            tests/fixtures/huggingface/LICENSE-NeuroCUDA
+            tests/fixtures/huggingface/neurocuda_mlp_mnist.nir
           )
           missing=0
           for f in "${required[@]}"; do
@@ -103,6 +105,17 @@ jobs:
           # Default feature set only (no system libhdf5 required).
           (cd "$pkg_dir" && cargo test --locked)
 
+      - name: Test packaged crate (serde and static HDF5)
+        run: |
+          set -euo pipefail
+          ver="$(awk -F'"' '/^version = / { print $2; exit }' Cargo.toml)"
+          pkg_dir="target/package/nir-rs-${ver}"
+          (
+            cd "$pkg_dir"
+            cargo test --locked --features serde
+            cargo test --locked --features serde,hdf5,hdf5/static,hdf5/zlib
+          )
+
   semver:
     name: cargo-semver-checks
     runs-on: ubuntu-latest
@@ -124,16 +137,22 @@ jobs:
         with:
           key: semver-1.98.1
 
-      # crate is not on crates.io yet (README / issue #26). Use the last release
-      # tag as the public API baseline until a registry version exists.
       # Pin cargo-semver-checks so rustdoc JSON format stays compatible with 1.98.1
       # (older 0.40.x fails on rustdoc v57). Bump with the CI toolchain when needed.
       - name: Install cargo-semver-checks
         run: cargo install cargo-semver-checks --locked --version 0.50.0
 
-      - name: Check public API vs tag v0.4.0
+      - name: Check public API vs crates.io 0.4.3 (default)
         run: |
           cargo semver-checks check-release \
             --package nir-rs \
-            --baseline-rev v0.4.0 \
+            --baseline-version 0.4.3 \
             --default-features
+
+      - name: Check public API vs crates.io 0.4.3 (serde)
+        run: |
+          cargo semver-checks check-release \
+            --package nir-rs \
+            --baseline-version 0.4.3 \
+            --only-explicit-features \
+            --features serde
