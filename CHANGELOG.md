@@ -53,7 +53,8 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 - Preserve the NeuroCUDA MIT copyright and permission notice alongside the
   Hugging Face-derived fixtures, with its source and applicability documented.
-- Update package metadata and install examples for the 0.4.4 release candidate.
+- Update package metadata for the 0.4.4 release candidate while keeping public
+  installation examples on published 0.4.3 until the release is available.
 
 ### Removed
 
