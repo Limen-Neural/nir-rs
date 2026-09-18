@@ -10,8 +10,9 @@ quality bar. Read it before editing code or workflows.
 
 - Use Rust **1.98.1**. Keep [`rust-toolchain.toml`](rust-toolchain.toml),
   `package.rust-version`, CI, and development images in lockstep.
-- Preserve the Rust 2024 edition and the dependency-free default build. The
-  `hdf5` feature remains opt-in and must retain its system and static test paths.
+- Preserve the Rust 2024 edition and a default build free of native/system
+  library dependencies. The `hdf5` feature remains opt-in and must retain its
+  system and static test paths.
 - Run `cargo fmt --check`, `cargo test --locked`, `cargo test --locked --features serde`,
   `cargo clippy --all-targets --all-features -- -D warnings`,
   `cargo test --all-features`, and
