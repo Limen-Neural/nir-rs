@@ -8,6 +8,17 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Changed
+
+- Keep HDF5 interoperability validation in native CI across Linux, macOS, and
+  Windows, including the separate hermetic static-HDF5 job.
+
+### Removed
+
+- Retire the root release image, Docker Hub/GHCR publication workflow, registry
+  credentials, and public image documentation. `nir-rs` is distributed as a
+  Rust crate through crates.io; editor-specific development containers remain.
+
 ## [0.4.4] - 2026-09-16
 
 ### Added
