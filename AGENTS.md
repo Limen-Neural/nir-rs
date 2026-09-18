@@ -62,10 +62,9 @@ Separate workflow: [`.github/workflows/package.yml`](.github/workflows/package.y
 
 - **Package job** validates the crates.io *artifact* boundary, not only the
   checkout (licenses, README, fixtures, default-feature tests from the pack).
-- **Semver job** compares the public API to tag **`v0.4.0`** (git baseline until
-  the crate is on crates.io — see #26). After the first publish, prefer a
-  registry baseline (`baseline-version` / crates.io) and bump the floor when
-  cutting releases.
+- **Semver job** compares the public API to crates.io **`0.4.3`**. Bump the
+  registry baseline when cutting a release so the gate always covers the latest
+  public API.
 
 **Escape hatch (deliberate breaks):** during `0.x`, intentional public API
 breaks require a **minor** bump (e.g. `0.4.0` → `0.5.0`), not a silent patch.

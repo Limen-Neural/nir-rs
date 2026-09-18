@@ -186,7 +186,7 @@ Without that feature the crate has no system dependencies:
 | Debian / Ubuntu | `apt install libhdf5-dev` |
 | Fedora | `dnf install hdf5-devel` |
 | macOS | `brew install hdf5` |
-| Anywhere | depend on `hdf5-metno = { version = "0.14", features = ["static", "zlib"] }` — Cargo feature unification applies it to this crate's copy. A dependency cannot enable `hdf5/static` via this crate's feature list alone; without `zlib` the vendored build has no gzip filter. |
+| Anywhere | Depend on `hdf5-metno = { version = "0.14.1", features = ["static", "zlib"] }`. Cargo feature unification enables the vendored build for this crate too; `nir-rs` requires `hdf5-metno-sys >=0.12.3`, which supports the vendored HDF5 2.2.0. A dependency cannot enable `hdf5/static` through this crate's feature list alone; without `zlib` the vendored build has no gzip filter. |
 
 Without the feature, `io::read` / `io::write` still exist and return
 `NirError::Unimplemented`, so downstream code compiles either way.

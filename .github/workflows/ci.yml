@@ -98,6 +98,36 @@ jobs:
       - name: Verify documentation
         run: cargo doc --no-deps --all-features
 
+  # Hermetic HDF5 build: exercises the documented static recipe without a
+  # system HDF5 installation. hdf5-metno-sys 0.12.3 accepts vendored HDF5 2.2.
+  test-hdf5-static:
+    name: Test static hdf5
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: "1.98.1"
+          components: clippy
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: static-hdf5-1.98.1
+
+      - name: Verify static HDF5 build
+        run: |
+          set -euo pipefail
+          features=serde,hdf5,hdf5/static,hdf5/zlib
+          cargo clippy --all-targets --features "$features" -- -D warnings
+          cargo test --features "$features"
+          RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --features "$features"
+
   # Pure graph model: no native deps. Linux / macOS / Windows on **Rust 1.98.1**.
   test-default:
     name: Test default (${{ matrix.os }})
@@ -164,9 +194,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libhdf5-dev pkg-config
 
-      # macOS + Windows: pin HDF5 1.14.6 via conda-forge.
-      # Homebrew's current hdf5 is 2.2.0; hdf5-metno-sys 0.12.1 only accepts
-      # 1.14.[0-6] and 2.[0-1].0 (Invalid H5_VERSION "2.2.0" otherwise).
+      # macOS + Windows: pin HDF5 1.14.6 via conda-forge for a stable,
+      # reproducible system-library test matrix. hdf5-metno-sys 0.12.3 also
+      # supports HDF5 2.2.0, which the separate static job exercises.
       # Pin full commit of tag v3.2.0 (invalid SHAs fail "Set up job" on every
       # matrix OS because Actions resolves all `uses:` before step `if`s).
       - name: Install Miniconda (macOS / Windows)
