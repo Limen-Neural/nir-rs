@@ -110,14 +110,13 @@ cargo test --features hdf5,hdf5/static,hdf5/zlib
 Configured channel/components: [`rust-toolchain.toml`](rust-toolchain.toml)
 (`1.98.1` + `rustfmt` + `clippy`).
 
-### Dev container / cloud agent images
+### Dev environments / cloud agent images
 
-Prefer a prebuilt image when the host supports it (Rust 1.98.1 + `libhdf5-dev`):
+The editor-specific development containers include Rust 1.98.1 and
+`libhdf5-dev`. The project does not publish a runtime or release image:
 
 | Path | Consumer |
 |------|----------|
-| [`Dockerfile`](Dockerfile) → `ghcr.io/limen-neural/nir-rs` + Docker Hub | Published toolchain image (GHCR + Hub) |
-| [`.github/workflows/docker.yml`](.github/workflows/docker.yml) | PR verify; `main`/tag dual-publish |
 | [`.cursor/environment.json`](.cursor/environment.json) → [`.cursor/Dockerfile`](.cursor/Dockerfile) | Cursor cloud agents |
 | [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) | VS Code / Cursor Desktop |
 | [`scripts/agent-bootstrap.sh`](scripts/agent-bootstrap.sh) | cubic / Claude / other bare sandboxes |

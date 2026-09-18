@@ -3,7 +3,6 @@
 **Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR)**
 
 [![CI](https://github.com/Limen-Neural/nir-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions)
-[![Docker](https://github.com/Limen-Neural/nir-rs/actions/workflows/docker.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions/workflows/docker.yml)
 [![Codecov](https://codecov.io/gh/Limen-Neural/nir-rs/graph/badge.svg)](https://app.codecov.io/gh/Limen-Neural/nir-rs)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/93c7a013efe74f2f9f28f18f845d5c67)](https://app.codacy.com/gh/Limen-Neural/nir-rs/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 [![Maintainability](https://qlty.sh/gh/Limen-Neural/projects/nir-rs/maintainability.svg)](https://qlty.sh/gh/Limen-Neural/projects/nir-rs)
@@ -58,7 +57,7 @@ and hardware without being rewritten.
 
 | Version | Focus |
 |---------|--------|
-| **0.4.x** (current) | Graph model, HDF5 I/O, Serde/debug DX, Docker image, crates.io |
+| **0.4.x** (current) | Graph model, HDF5 I/O, Serde/debug DX, crates.io |
 | Earlier | Dual license, typed nodes, fixtures, CI hardening |
 
 Release notes and the upstream compatibility matrix:
@@ -211,30 +210,6 @@ cargo run --example load_inspect_lif --features hdf5 -- model.nir copy.nir
 
 Default input is `tests/fixtures/lif_norse.nir`; default output is a
 PID-qualified file in the system temp directory.
-
-## Docker
-
-`:latest` (and images built from this pin) ship a **Rust 1.98.1 + libhdf5**
-environment with the crate sources and the `load_inspect_lif` example binary
-(not an SNN simulator). The immutable `:0.4.3` tag was built from the 0.4.3
-release (`rust:1.98.1-bookworm`) and is not overwritten on later `main` pushes.
-
-```bash
-docker pull ghcr.io/limen-neural/nir-rs:0.4.3
-docker pull ghcr.io/limen-neural/nir-rs:latest
-
-docker run --rm ghcr.io/limen-neural/nir-rs:latest rustc --version
-docker run --rm ghcr.io/limen-neural/nir-rs:latest load_inspect_lif
-```
-
-The same tags may also appear on **Docker Hub**; prefer GHCR for a stable,
-documented image path.
-
-Local image:
-
-```bash
-docker build -t nir-rs:local .
-```
 
 ## Debug serialization
 
