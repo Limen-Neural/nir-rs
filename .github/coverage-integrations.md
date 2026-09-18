@@ -16,8 +16,17 @@ established; it does not replace the required CI, package, or semver jobs.
 
 ## Codacy
 
+Codacy has two independent integrations for this repository:
+
+- The Codacy GitHub App analyzes commits and pull requests. It provides the
+  README quality badge and the `Codacy Static Code Analysis` GitHub check.
+- The `Coverage` workflow can upload `lcov.info` to Codacy. This optional upload
+  is independent of the GitHub App analysis.
+
 1. An organization administrator connects `Limen-Neural/nir-rs` in
-   [Codacy](https://app.codacy.com/).
+   [Codacy](https://app.codacy.com/). If a repository rename or visibility change
+   leaves Codacy unable to locate a commit, use **Settings → General → Synchronize
+   with provider → Update repository** before requesting another analysis.
 2. Create a **project API token** in Codacy and store it as the repository
    Actions secret `CODACY_PROJECT_TOKEN`. Do not add it to a workflow, file,
    issue, or pull-request comment.
