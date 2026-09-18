@@ -14,8 +14,6 @@ concurrency:
 
 permissions:
   contents: read
-  # Codecov authenticates this public-repository upload using GitHub OIDC.
-  id-token: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -62,14 +60,14 @@ jobs:
       - name: Generate LCOV report
         run: cargo llvm-cov --locked --all-features --workspace --lcov --output-path lcov.info
 
-      # Codecov setup is tokenless after the Codecov GitHub App authorizes this
-      # repository for OIDC uploads. A missing provider-side authorization is
-      # advisory while the integration is being connected; tests already passed.
+      # The organization-managed token is supplied only at runtime. The explicit
+      # slug is required when Codecov receives an organization upload token.
       - name: Upload coverage to Codecov
         continue-on-error: true
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
-          use_oidc: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: Limen-Neural/nir-rs
           files: lcov.info
           disable_search: true
           flags: rust

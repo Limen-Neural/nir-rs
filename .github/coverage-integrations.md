@@ -7,12 +7,10 @@ established; it does not replace the required CI, package, or semver jobs.
 
 ## Codecov
 
-1. An organization administrator installs or authorizes the [Codecov GitHub
-   App](https://github.com/apps/codecov) for `Limen-Neural/nir-rs`.
-2. In Codecov, enable GitHub OIDC uploads for this repository. The workflow uses
-   `id-token: write` and `use_oidc: true`, so it does **not** need a
-   `CODECOV_TOKEN` repository secret.
-3. Confirm a `rust`-flagged upload appears for a `Coverage` workflow run. Review
+1. The workflow reads the existing organization-managed `CODECOV_TOKEN` only at
+   runtime. Its explicit `Limen-Neural/nir-rs` slug identifies this repository
+   for organization-token uploads.
+2. Confirm a `rust`-flagged upload appears for a `Coverage` workflow run. Review
    the first baseline before enabling Codecov required status checks or numeric
    coverage thresholds.
 
