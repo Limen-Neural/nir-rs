@@ -17,8 +17,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # Empty until a Codacy administrator stores the project API token in Actions.
-  CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
 
 jobs:
   coverage:
@@ -74,13 +72,27 @@ jobs:
           fail_ci_if_error: false
           verbose: true
 
+      # Inspect the secret only in this shell step. The output is non-secret and
+      # lets later conditions avoid exposing the token to the test/build steps.
+      - name: Check Codacy configuration
+        id: codacy
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        run: |
+          if [ -n "$CODACY_PROJECT_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Explain skipped Codacy upload
-        if: env.CODACY_PROJECT_TOKEN == ''
+        if: steps.codacy.outputs.configured != 'true'
         run: |
           echo "::notice::Codacy coverage upload skipped: add CODACY_PROJECT_TOKEN after connecting the repository in Codacy."
 
       - name: Upload coverage to Codacy
-        if: env.CODACY_PROJECT_TOKEN != ''
+        if: steps.codacy.outputs.configured == 'true'
+        continue-on-error: true
         uses: codacy/codacy-coverage-reporter-action@89d6c85cfafaec52c72b6c5e8b2878d33104c699 # v1.3.0
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}

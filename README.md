@@ -4,6 +4,8 @@
 
 [![CI](https://github.com/Limen-Neural/nir-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions)
 [![Docker](https://github.com/Limen-Neural/nir-rs/actions/workflows/docker.yml/badge.svg)](https://github.com/Limen-Neural/nir-rs/actions/workflows/docker.yml)
+[![Codecov](https://codecov.io/gh/Limen-Neural/nir-rs/graph/badge.svg)](https://app.codecov.io/gh/Limen-Neural/nir-rs)
+[![Maintainability](https://qlty.sh/gh/Limen-Neural/projects/nir-rs/maintainability.svg)](https://qlty.sh/gh/Limen-Neural/projects/nir-rs)
 [![crates.io](https://img.shields.io/crates/v/nir-rs.svg)](https://crates.io/crates/nir-rs)
 [![docs.rs](https://docs.rs/nir-rs/badge.svg)](https://docs.rs/nir-rs)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
