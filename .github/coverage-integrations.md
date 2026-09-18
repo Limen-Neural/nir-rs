@@ -1,9 +1,11 @@
 # Coverage integrations
 
 The [`Coverage` workflow](workflows/coverage.yml) creates one `lcov.info`
-report from the Rust 1.98.1 all-feature test suite. It reports the same file to
-Codecov and Codacy. The workflow is informational while a baseline is being
-established; it does not replace the required CI, package, or semver jobs.
+report from the Rust 1.98.1 all-feature test suite. It uploads that report to
+Codecov and, when `CODACY_PROJECT_TOKEN` is configured, to Codacy through the
+Codacy coverage reporter action. The workflow is informational while a baseline
+is being established; it does not replace the required CI, package, or semver
+jobs.
 
 ## Codecov
 
@@ -30,8 +32,10 @@ Codacy has two independent integrations for this repository:
 2. Create a **project API token** in Codacy and store it as the repository
    Actions secret `CODACY_PROJECT_TOKEN`. Do not add it to a workflow, file,
    issue, or pull-request comment.
-3. The next `Coverage` workflow sends `lcov.info` to Codacy. Until that secret
-   exists, the workflow prints a notice and safely skips only the Codacy upload.
+3. The Codacy coverage reporter action uses that project token to send
+   `lcov.info` to Codacy. No separate Codacy API client or workflow job is
+   required. Until the secret exists, the workflow prints a notice and safely
+   skips only the Codacy upload.
 4. Review the first baseline before enabling Codacy coverage or quality status
    checks as required GitHub checks.
 
