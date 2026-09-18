@@ -1,0 +1,90 @@
+# Coverage reporting is observational until a reviewed baseline is available.
+# It must never replace the required CI, package, or semver gates.
+name: Coverage
+
+on:
+  push:
+    branches: [Main, main]
+  pull_request:
+    branches: [Main, main]
+
+concurrency:
+  group: coverage-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  # Codecov authenticates this public-repository upload using GitHub OIDC.
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # Empty until a Codacy administrator stores the project API token in Actions.
+  CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+
+jobs:
+  coverage:
+    name: Rust coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          # Keep in sync with rust-toolchain.toml and the required CI jobs.
+          toolchain: "1.98.1"
+          components: llvm-tools-preview
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: coverage-1.98.1
+
+      # Required by optional `hdf5` so coverage includes all feature-gated code.
+      - name: Install libhdf5
+        run: |
+          set -euo pipefail
+          for f in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*; do
+            [ -e "$f" ] && sudo mv "$f" "${f}.disabled" || true
+          done
+          sudo apt-get update
+          sudo apt-get install -y libhdf5-dev pkg-config
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@868747438ea8f2c3701d0cf6fe59dcfebbdb06a2 # cargo-llvm-cov
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Generate LCOV report
+        run: cargo llvm-cov --locked --all-features --workspace --lcov --output-path lcov.info
+
+      # Codecov setup is tokenless after the Codecov GitHub App authorizes this
+      # repository for OIDC uploads. A missing provider-side authorization is
+      # advisory while the integration is being connected; tests already passed.
+      - name: Upload coverage to Codecov
+        continue-on-error: true
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        with:
+          use_oidc: true
+          files: lcov.info
+          disable_search: true
+          flags: rust
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Explain skipped Codacy upload
+        if: env.CODACY_PROJECT_TOKEN == ''
+        run: |
+          echo "::notice::Codacy coverage upload skipped: add CODACY_PROJECT_TOKEN after connecting the repository in Codacy."
+
+      - name: Upload coverage to Codacy
+        if: env.CODACY_PROJECT_TOKEN != ''
+        uses: codacy/codacy-coverage-reporter-action@89d6c85cfafaec52c72b6c5e8b2878d33104c699 # v1.3.0
+        with:
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          coverage-reports: lcov.info
+          language: Rust
