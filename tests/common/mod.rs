@@ -85,3 +85,30 @@ pub fn write_then(
     drop(file);
     path
 }
+
+/// Decode a documented, comment-bearing hexadecimal fixture into `dir`.
+pub fn decode_hex_fixture(
+    dir: &TempDir,
+    fixture: impl AsRef<std::path::Path>,
+    name: &str,
+) -> std::path::PathBuf {
+    let encoded = std::fs::read_to_string(fixture).unwrap();
+    let hex: String = encoded
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .flat_map(str::chars)
+        .filter(|ch| !ch.is_whitespace())
+        .collect();
+    let (pairs, remainder) = hex.as_bytes().as_chunks::<2>();
+    assert!(remainder.is_empty(), "hex fixture must contain whole bytes");
+    let bytes: Vec<u8> = pairs
+        .iter()
+        .map(|pair| {
+            let digits = std::str::from_utf8(pair).unwrap();
+            u8::from_str_radix(digits, 16).unwrap()
+        })
+        .collect();
+    let path = dir.path().join(name);
+    std::fs::write(&path, bytes).unwrap();
+    path
+}

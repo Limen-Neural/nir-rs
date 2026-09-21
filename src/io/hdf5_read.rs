@@ -396,7 +396,7 @@ fn read_edges(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<Vec<(S
     validate_dataset_security(ds, context)?;
     // h5py encodes an empty edge list as a zero-length dataset whose element
     // type is float, not string; treat any empty dataset as "no edges".
-    if ds.size() == 0 {
+    if dataset_element_count(ds, context, budget)? == 0 {
         return Ok(Vec::new());
     }
     let shape = ds.shape();
@@ -1242,9 +1242,11 @@ fn read_tensor(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<Tenso
         }
         Td::Unsigned(IntSize::U8) => {
             let two_buffers = size_of::<u64>().checked_add(size_of::<i64>());
-            budget.charge(
+            let count = dataset_element_count(ds, context, budget)?;
+            charge_allocation(
+                budget,
                 context,
-                two_buffers.and_then(|width| ds.size().checked_mul(width)),
+                two_buffers.and_then(|width| count.checked_mul(width)),
             )?;
             TensorData::I64(read_u64_as_i64(ds, context)?)
         }
@@ -1267,7 +1269,63 @@ fn charge_elements(
     context: &str,
     decoded_width: usize,
 ) -> Result<()> {
-    budget.charge(context, ds.size().checked_mul(decoded_width))
+    let count = dataset_element_count(ds, context, budget)?;
+    charge_allocation(budget, context, count.checked_mul(decoded_width))
+}
+
+/// Charge a computed allocation size, preserving bounded and unbounded errors.
+fn charge_allocation(budget: &ReadBudget, context: &str, requested: Option<usize>) -> Result<()> {
+    budget.charge(context, requested)?;
+    requested
+        .map(|_| ())
+        .ok_or_else(|| allocation_size_overflow(context))
+}
+
+/// Check a computed allocation size without updating the budget ledger.
+fn check_allocation(budget: &ReadBudget, context: &str, requested: Option<usize>) -> Result<()> {
+    budget.would_fit(context, requested)?;
+    requested
+        .map(|_| ())
+        .ok_or_else(|| allocation_size_overflow(context))
+}
+
+fn allocation_size_overflow(context: &str) -> NirError {
+    NirError::InvalidTensor(format!(
+        "{context}: decoded allocation size overflows usize"
+    ))
+}
+
+/// Compute a dataset's element count without `Dataset::size`, whose unchecked
+/// product can panic in debug builds or wrap in release builds.
+fn dataset_element_count(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<usize> {
+    let shape = ds.shape();
+    let count = checked_shape_product(&shape);
+    let Some(count) = count else {
+        // A bounded read reports the impossible allocation through its normal
+        // structured budget error. An unbounded read still fails closed below.
+        budget.would_fit(context, None)?;
+        return Err(dataset_extent_overflow(context, &shape));
+    };
+    Ok(count)
+}
+
+/// Return the mathematical product when it fits in `usize`.
+///
+/// A zero extent makes the product zero regardless of the other extents, so
+/// detect it before multiplication that could otherwise overflow first.
+fn checked_shape_product(shape: &[usize]) -> Option<usize> {
+    if shape.contains(&0) {
+        return Some(0);
+    }
+    shape
+        .iter()
+        .try_fold(1usize, |count, &extent| count.checked_mul(extent))
+}
+
+fn dataset_extent_overflow(context: &str, shape: &[usize]) -> NirError {
+    NirError::InvalidTensor(format!(
+        "{context}: dataset shape product overflows usize (shape={shape:?})"
+    ))
 }
 
 /// `u64` is the one integer width that does not fit losslessly in `i64`.
@@ -1314,7 +1372,7 @@ fn read_string_scalar_validated(
     context: &str,
     budget: &ReadBudget,
 ) -> Result<String> {
-    let size = ds.size();
+    let size = dataset_element_count(ds, context, budget)?;
     if size != 1 {
         return Err(NirError::Io(format!(
             "{context}: expected a single string, found {size} elements"
@@ -1381,42 +1439,55 @@ fn read_strings_unchecked(ds: &Dataset, context: &str, budget: &ReadBudget) -> R
 
 /// Charge every allocation performed while decoding a string dataset.
 fn charge_strings(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<()> {
-    if budget.limit.is_none() {
-        return Ok(());
-    }
-
-    let count = ds.size();
+    let count = dataset_element_count(ds, context, budget)?;
     let headers = count.checked_mul(size_of::<String>());
-    let requested = match ds.dtype()?.to_descriptor()? {
+    match ds.dtype()?.to_descriptor()? {
         Td::VarLenUnicode => {
             let descriptors = count.checked_mul(size_of::<VarLenUnicode>());
             // Reject enormous declared counts before asking HDF5 to size the
             // heap, since the VLEN sizing call itself must traverse the data.
             let min = checked_sum([descriptors, headers]);
-            budget.would_fit(context, min)?;
+            check_allocation(budget, context, min)?;
+            if budget.limit.is_none() {
+                return Ok(());
+            }
             let payload = vlen_payload_bytes(ds, context)?;
-            checked_sum([descriptors, Some(payload), headers, Some(payload)])
+            charge_allocation(
+                budget,
+                context,
+                checked_sum([descriptors, Some(payload), headers, Some(payload)]),
+            )
         }
         Td::VarLenAscii => {
             let descriptors = count.checked_mul(size_of::<VarLenAscii>());
             let min = checked_sum([descriptors, headers]);
-            budget.would_fit(context, min)?;
+            check_allocation(budget, context, min)?;
+            if budget.limit.is_none() {
+                return Ok(());
+            }
             let payload = vlen_payload_bytes(ds, context)?;
-            checked_sum([descriptors, Some(payload), headers, Some(payload)])
+            charge_allocation(
+                budget,
+                context,
+                checked_sum([descriptors, Some(payload), headers, Some(payload)]),
+            )
         }
         Td::FixedAscii(width) | Td::FixedUnicode(width) => {
             let Some(capacity) = FIXED_STRING_CAPS.iter().copied().find(|cap| width <= *cap) else {
                 return Ok(());
             };
-            checked_sum([
-                count.checked_mul(capacity),
-                headers,
-                count.checked_mul(width),
-            ])
+            charge_allocation(
+                budget,
+                context,
+                checked_sum([
+                    count.checked_mul(capacity),
+                    headers,
+                    count.checked_mul(width),
+                ]),
+            )
         }
-        _ => return Ok(()),
-    };
-    budget.charge(context, requested)
+        _ => Ok(()),
+    }
 }
 
 fn checked_sum<const N: usize>(parts: [Option<usize>; N]) -> Option<usize> {
@@ -1539,6 +1610,43 @@ mod tests {
             }
             other => panic!("expected ReadCountLimitExceeded, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn checked_shape_product_preserves_scalar_and_zero_extent_semantics() {
+        assert_eq!(checked_shape_product(&[]), Some(1));
+        assert_eq!(checked_shape_product(&[usize::MAX, 2, 0]), Some(0));
+        assert_eq!(checked_shape_product(&[usize::MAX, 2]), None);
+    }
+
+    #[test]
+    fn allocation_overflow_fails_closed_with_and_without_a_byte_limit() {
+        let dual_buffer = size_of::<u64>().checked_add(size_of::<i64>());
+        let u64_request = dual_buffer.and_then(|width| usize::MAX.checked_mul(width));
+        assert_eq!(u64_request, None);
+
+        let unbounded = ReadBudget::new(&ReadOptions::default());
+        assert!(matches!(
+            charge_allocation(&unbounded, "u64", u64_request),
+            Err(NirError::InvalidTensor(_))
+        ));
+
+        let bounded = ReadBudget::new(&ReadOptions::default().with_max_bytes(Some(usize::MAX)));
+        assert!(matches!(
+            charge_allocation(&bounded, "u64", u64_request),
+            Err(NirError::ReadLimitExceeded { .. })
+        ));
+
+        let string_request = checked_sum([Some(usize::MAX), Some(size_of::<String>())]);
+        assert_eq!(string_request, None);
+        assert!(matches!(
+            check_allocation(&unbounded, "strings", string_request),
+            Err(NirError::InvalidTensor(_))
+        ));
+        assert!(matches!(
+            check_allocation(&bounded, "strings", string_request),
+            Err(NirError::ReadLimitExceeded { .. })
+        ));
     }
 
     proptest! {
