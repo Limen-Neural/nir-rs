@@ -5,12 +5,8 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use nir_rs::io::wire::{check_hdf5_string, check_link_name};
+use nir_rs_fuzz::check_link_name_input;
 
 fuzz_target!(|data: &[u8]| {
-    // Interpret as lossy UTF-8 so we cover NULs and path separators.
-    let s = String::from_utf8_lossy(data);
-    let name = if s.len() > 128 { &s[..128] } else { &s };
-    let _ = check_link_name("node name", name);
-    let _ = check_hdf5_string("metadata", name);
+    check_link_name_input(data);
 });
