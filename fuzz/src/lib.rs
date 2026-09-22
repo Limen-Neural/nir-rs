@@ -8,7 +8,7 @@ const MAX_NAME_BYTES: usize = 128;
 
 fn truncate_at_char_boundary(value: &str, max_bytes: usize) -> &str {
     let mut end = value.len().min(max_bytes);
-    while !value.is_char_boundary(end) {
+    while end > 0 && !value.is_char_boundary(end) {
         end -= 1;
     }
     &value[..end]
