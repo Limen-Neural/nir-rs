@@ -5,7 +5,7 @@
 #![cfg(feature = "hdf5")]
 
 mod common;
-use common::{assert_err, write_then};
+use common::{assert_err, decode_hex_fixture, write_then};
 use nir_rs::NirError;
 use nir_rs::io::ReadOptions;
 use tempfile::TempDir;
@@ -250,6 +250,34 @@ fn oversized_dataset_is_rejected() {
     let err = assert_limit(
         nir_rs::io::read_with(&path, &bounded(800_000_000)),
         800_000_000,
+    );
+    assert!(err.to_string().contains("input.shape"));
+}
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn overflowing_dataset_extents_are_rejected_before_reading() {
+    // The declared element count is 2^64, but the chunked dataset has no
+    // allocated chunks. The file remains small and `read_raw` must never be
+    // reached. In particular, do not call `Dataset::size` here: its unchecked
+    // extent product is the behavior this regression exercises through the
+    // public reader.
+    let dir = TempDir::new().unwrap();
+    let path = decode_hex_fixture(
+        &dir,
+        "tests/fixtures/overflowing_extents.nir.hex",
+        "overflowing_extents.nir",
+    );
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidTensor,
+        &["input.shape", "shape product overflows usize"],
+    );
+
+    let err = assert_limit(
+        nir_rs::io::read_with(&path, &bounded(usize::MAX)),
+        usize::MAX,
     );
     assert!(err.to_string().contains("input.shape"));
 }
