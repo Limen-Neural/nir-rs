@@ -1,0 +1,56 @@
+Synfire registry fixture notice
+================================
+
+The `.nir` files in this directory were acquired from the Synfire model
+registry (see GitHub #43 / LIM-1085). Each model's `nir-card.json` declares
+`"license": "BSD-3-Clause"`, which permits redistribution with attribution and
+this notice. Following the `tests/fixtures/huggingface/LICENSE-NeuroCUDA`
+precedent, the applicable copyright notices and the full BSD 3-Clause license
+body are reproduced below. This notice governs the vendored `.nir` files in
+this directory only; it does not apply to the rest of `nir-rs`, which is
+licensed MIT OR Apache-2.0.
+
+Coverage of the copyright notices:
+
+- `Copyright (c) 2023, NIR Team.` covers the NIR-paper / registry artifacts:
+  `lifneuron-1.0.0.nir`, `nmnistcnn-1.0.0.nir`, and `brailernn-1.0.1.nir`
+  (all produced by the NIR Team), and `ifsynfire-0.1.0.nir` (published by
+  Petrut Bogdan through the NIR registry under the same BSD 3-Clause terms).
+- `Copyright (c) the swavelet authors (Jens E. Pedersen, Tony Lindeberg, Peter Gerstoft).`
+  covers `swavelet-1.0.0.nir` (github.com/jegp/swavelet).
+
+Both copyright holders release their files under the BSD 3-Clause License whose
+full text follows.
+
+```
+BSD 3-Clause License
+
+Copyright (c) 2023, NIR Team.
+Copyright (c) the swavelet authors (Jens E. Pedersen, Tony Lindeberg, Peter Gerstoft).
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
