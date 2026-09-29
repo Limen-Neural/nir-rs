@@ -1241,12 +1241,14 @@ fn read_tensor(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<Tenso
             TensorData::I64(ds.read_raw::<i64>()?)
         }
         Td::Unsigned(IntSize::U8) => {
-            let two_buffers = size_of::<u64>().checked_add(size_of::<i64>());
             let count = dataset_element_count(ds, context, budget)?;
             charge_allocation(
                 budget,
                 context,
-                two_buffers.and_then(|width| count.checked_mul(width)),
+                checked_sum([
+                    allocation_bytes(count, size_of::<u64>()),
+                    allocation_bytes(count, size_of::<i64>()),
+                ]),
             )?;
             TensorData::I64(read_u64_as_i64(ds, context)?)
         }
@@ -1270,7 +1272,15 @@ fn charge_elements(
     decoded_width: usize,
 ) -> Result<()> {
     let count = dataset_element_count(ds, context, budget)?;
-    charge_allocation(budget, context, count.checked_mul(decoded_width))
+    charge_allocation(budget, context, allocation_bytes(count, decoded_width))
+}
+
+/// Each buffer must fit Rust's object-size limit even when its byte count
+/// fits usize. Combined budget charges may still exceed isize::MAX.
+fn allocation_bytes(count: usize, width: usize) -> Option<usize> {
+    count
+        .checked_mul(width)
+        .filter(|&bytes| bytes <= isize::MAX as usize)
 }
 
 /// Charge a computed allocation size, preserving bounded and unbounded errors.
@@ -1291,14 +1301,30 @@ fn check_allocation(budget: &ReadBudget, context: &str, requested: Option<usize>
 
 fn allocation_size_overflow(context: &str) -> NirError {
     NirError::InvalidTensor(format!(
-        "{context}: decoded allocation size overflows usize"
+        "{context}: decoded allocation size overflows usize or exceeds Rust's object-size limit"
     ))
 }
 
 /// Compute a dataset's element count without `Dataset::size`, whose unchecked
 /// product can panic in debug builds or wrap in release builds.
 fn dataset_element_count(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<usize> {
-    let shape = ds.shape();
+    let space = ds.space()?;
+    let mut shape = vec![0; space.ndim()];
+    let status = hdf5::sync::sync(|| {
+        // SAFETY: `space` owns a live dataspace ID and cannot change rank.
+        // `shape` has one hsize_t slot per dimension, so HDF5 can write all
+        // extents without narrowing them. A null maxdims pointer requests
+        // no maximum extents. No ownership is transferred and `sync` holds
+        // the hdf5-metno global lock throughout the call.
+        unsafe {
+            hdf5_sys::h5s::H5Sget_simple_extent_dims(
+                space.id(),
+                shape.as_mut_ptr(),
+                std::ptr::null_mut(),
+            )
+        }
+    });
+    hdf5::h5check(status)?;
     let count = checked_shape_product(&shape);
     let Some(count) = count else {
         // A bounded read reports the impossible allocation through its normal
@@ -1313,7 +1339,13 @@ fn dataset_element_count(ds: &Dataset, context: &str, budget: &ReadBudget) -> Re
 ///
 /// A zero extent makes the product zero regardless of the other extents, so
 /// detect it before multiplication that could otherwise overflow first.
-fn checked_shape_product(shape: &[usize]) -> Option<usize> {
+fn checked_shape_product(shape: &[hdf5_sys::h5::hsize_t]) -> Option<usize> {
+    // Convert every extent before applying the zero shortcut: a true zero
+    // must not hide an unrepresentable dimension on 32-bit hosts.
+    let shape: Vec<usize> = shape
+        .iter()
+        .map(|&extent| usize::try_from(extent).ok())
+        .collect::<Option<_>>()?;
     if shape.contains(&0) {
         return Some(0);
     }
@@ -1322,7 +1354,7 @@ fn checked_shape_product(shape: &[usize]) -> Option<usize> {
         .try_fold(1usize, |count, &extent| count.checked_mul(extent))
 }
 
-fn dataset_extent_overflow(context: &str, shape: &[usize]) -> NirError {
+fn dataset_extent_overflow(context: &str, shape: &[hdf5_sys::h5::hsize_t]) -> NirError {
     NirError::InvalidTensor(format!(
         "{context}: dataset shape product overflows usize (shape={shape:?})"
     ))
@@ -1440,10 +1472,10 @@ fn read_strings_unchecked(ds: &Dataset, context: &str, budget: &ReadBudget) -> R
 /// Charge every allocation performed while decoding a string dataset.
 fn charge_strings(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<()> {
     let count = dataset_element_count(ds, context, budget)?;
-    let headers = count.checked_mul(size_of::<String>());
+    let headers = allocation_bytes(count, size_of::<String>());
     match ds.dtype()?.to_descriptor()? {
         Td::VarLenUnicode => {
-            let descriptors = count.checked_mul(size_of::<VarLenUnicode>());
+            let descriptors = allocation_bytes(count, size_of::<VarLenUnicode>());
             // Reject enormous declared counts before asking HDF5 to size the
             // heap, since the VLEN sizing call itself must traverse the data.
             let min = checked_sum([descriptors, headers]);
@@ -1451,25 +1483,25 @@ fn charge_strings(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<()
             if budget.limit.is_none() {
                 return Ok(());
             }
-            let payload = vlen_payload_bytes(ds, context)?;
+            let payload = allocation_bytes(vlen_payload_bytes(ds, context)?, 1);
             charge_allocation(
                 budget,
                 context,
-                checked_sum([descriptors, Some(payload), headers, Some(payload)]),
+                checked_sum([descriptors, payload, headers, payload]),
             )
         }
         Td::VarLenAscii => {
-            let descriptors = count.checked_mul(size_of::<VarLenAscii>());
+            let descriptors = allocation_bytes(count, size_of::<VarLenAscii>());
             let min = checked_sum([descriptors, headers]);
             check_allocation(budget, context, min)?;
             if budget.limit.is_none() {
                 return Ok(());
             }
-            let payload = vlen_payload_bytes(ds, context)?;
+            let payload = allocation_bytes(vlen_payload_bytes(ds, context)?, 1);
             charge_allocation(
                 budget,
                 context,
-                checked_sum([descriptors, Some(payload), headers, Some(payload)]),
+                checked_sum([descriptors, payload, headers, payload]),
             )
         }
         Td::FixedAscii(width) | Td::FixedUnicode(width) => {
@@ -1480,9 +1512,9 @@ fn charge_strings(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<()
                 budget,
                 context,
                 checked_sum([
-                    count.checked_mul(capacity),
+                    allocation_bytes(count, capacity),
                     headers,
-                    count.checked_mul(width),
+                    allocation_bytes(count, width),
                 ]),
             )
         }
@@ -1615,8 +1647,40 @@ mod tests {
     #[test]
     fn checked_shape_product_preserves_scalar_and_zero_extent_semantics() {
         assert_eq!(checked_shape_product(&[]), Some(1));
-        assert_eq!(checked_shape_product(&[usize::MAX, 2, 0]), Some(0));
-        assert_eq!(checked_shape_product(&[usize::MAX, 2]), None);
+        assert_eq!(checked_shape_product(&[usize::MAX as u64, 2, 0]), Some(0));
+        assert_eq!(checked_shape_product(&[usize::MAX as u64, 2]), None);
+    }
+
+    #[test]
+    fn raw_extents_are_not_truncated_to_pointer_width() {
+        let extent = 1_u64 << 32;
+        #[cfg(target_pointer_width = "32")]
+        {
+            assert_eq!(checked_shape_product(&[extent]), None);
+            assert_eq!(checked_shape_product(&[extent, 0]), None);
+        }
+        #[cfg(target_pointer_width = "64")]
+        {
+            assert_eq!(checked_shape_product(&[extent]), Some(4_294_967_296));
+            assert_eq!(checked_shape_product(&[extent, 0]), Some(0));
+        }
+    }
+
+    #[test]
+    fn allocation_layout_limit_applies_to_each_buffer_not_the_charge_sum() {
+        let max = isize::MAX as usize;
+        assert_eq!(allocation_bytes(max, 1), Some(max));
+        assert_eq!(allocation_bytes(max + 1, 1), None);
+        assert_eq!(allocation_bytes(max / 8, 8), Some(max - 7));
+        assert_eq!(allocation_bytes(max / 8 + 1, 8), None);
+        assert_eq!(allocation_bytes(usize::MAX, 2), None);
+        assert_eq!(allocation_bytes(0, 8), Some(0));
+
+        let total = checked_sum([allocation_bytes(max, 1), allocation_bytes(max, 1)]);
+        assert_eq!(total, Some(usize::MAX - 1));
+        let budget = ReadBudget::new(&ReadOptions::default().with_max_bytes(Some(usize::MAX)));
+        charge_allocation(&budget, "two buffers", total).unwrap();
+        assert_eq!(budget.used.get(), usize::MAX - 1);
     }
 
     #[test]

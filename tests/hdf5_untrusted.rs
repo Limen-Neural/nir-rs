@@ -510,3 +510,31 @@ fn u64_combined_buffers_overflow_is_rejected_before_reading() {
     );
     assert!(err.to_string().contains("input.shape"));
 }
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn rust_object_size_limit_is_checked_before_reading() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "invalid_vec_layout.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+        // The byte count fits usize but cannot be represented by a Rust
+        // allocation layout. No chunks are written or read by this test.
+        node.new_dataset::<f32>()
+            .shape([1_usize << 61])
+            .chunk([1])
+            .create("shape")
+            .unwrap();
+    });
+
+    for options in [ReadOptions::default(), bounded(usize::MAX)] {
+        let result = nir_rs::io::read_with(&path, &options);
+        assert!(
+            matches!(
+                result,
+                Err(NirError::InvalidTensor(_)) | Err(NirError::ReadLimitExceeded { .. })
+            ),
+            "invalid Rust allocation layout must be rejected: {result:?}"
+        );
+    }
+}
