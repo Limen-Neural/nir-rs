@@ -538,3 +538,22 @@ fn rust_object_size_limit_is_checked_before_reading() {
     );
     assert!(err.to_string().contains("input.shape"));
 }
+
+#[test]
+fn null_dataspace_edges_are_empty() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "null_edges.nir", |file| {
+        let root = file.group("node").unwrap();
+        root.unlink("edges").unwrap();
+        root.new_dataset::<f32>()
+            .shape(hdf5::Extents::Null)
+            .create("edges")
+            .unwrap();
+    });
+
+    for options in [ReadOptions::default(), bounded(1_000_000)] {
+        let graph = nir_rs::io::read_with(&path, &options).unwrap();
+        assert!(graph.edges.is_empty());
+        assert_eq!(graph.nodes.len(), 2);
+    }
+}

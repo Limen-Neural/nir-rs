@@ -1309,6 +1309,11 @@ fn allocation_size_overflow(context: &str) -> NirError {
 /// product can panic in debug builds or wrap in release builds.
 fn dataset_element_count(ds: &Dataset, context: &str, budget: &ReadBudget) -> Result<usize> {
     let space = ds.space()?;
+    // NULL and scalar dataspaces both have rank zero, but only the scalar
+    // contains one element. Preserve NULL edge lists as empty.
+    if space.is_null() {
+        return Ok(0);
+    }
     let mut shape = vec![0; space.ndim()];
     let status = hdf5::sync::sync(|| {
         // SAFETY: `space` owns a live dataspace ID and cannot change rank.
