@@ -128,69 +128,63 @@ fn every_record_has_provenance_fields() {
     }
 }
 
+/// `supported` records must carry the full observed-topology facts.
+fn assert_supported_completeness(rec: &SynfireRecord, l: &str) {
+    let node_count = rec
+        .node_count
+        .unwrap_or_else(|| panic!("{l} supported record is missing node_count"));
+    assert!(
+        rec.edge_count.is_some(),
+        "{l} supported record is missing edge_count"
+    );
+    assert!(
+        !rec.node_types.is_empty(),
+        "{l} supported record has empty node_types"
+    );
+    assert!(
+        rec.nir_version.is_some(),
+        "{l} supported record is missing nir_version"
+    );
+    assert_eq!(
+        inventory_total(&rec.node_types),
+        node_count,
+        "{l} node_types counts must sum to node_count"
+    );
+}
+
+/// Regression statuses share the `error_class` + `follow_up` requirements.
+fn assert_regression_basics(rec: &SynfireRecord, l: &str) {
+    assert!(
+        rec.error_class.is_some(),
+        "{l} {} record is missing error_class",
+        rec.status
+    );
+    assert!(
+        !rec.follow_up.is_empty(),
+        "{l} {} record is missing follow_up",
+        rec.status
+    );
+}
+
 #[test]
 fn record_completeness_matches_status() {
     for rec in records() {
         let l = label(&rec);
         match rec.status.as_str() {
-            "supported" => {
-                let node_count = rec
-                    .node_count
-                    .unwrap_or_else(|| panic!("{l} supported record is missing node_count"));
-                assert!(
-                    rec.edge_count.is_some(),
-                    "{l} supported record is missing edge_count"
-                );
-                assert!(
-                    !rec.node_types.is_empty(),
-                    "{l} supported record has empty node_types"
-                );
-                assert!(
-                    rec.nir_version.is_some(),
-                    "{l} supported record is missing nir_version"
-                );
-                assert_eq!(
-                    inventory_total(&rec.node_types),
-                    node_count,
-                    "{l} node_types counts must sum to node_count"
-                );
-            }
+            "supported" => assert_supported_completeness(&rec, &l),
             // These branches will not fire in the current all-`supported`
             // corpus, but must exist so a future re-pull that records a
             // regression is checked, not silently accepted.
             "unsupported-valid" => {
-                assert!(
-                    rec.error_class.is_some(),
-                    "{l} unsupported-valid record is missing error_class"
-                );
-                assert!(
-                    !rec.follow_up.is_empty(),
-                    "{l} unsupported-valid record is missing follow_up"
-                );
+                assert_regression_basics(&rec, &l);
                 assert!(
                     rec.evidence.is_some(),
                     "{l} unsupported-valid record is missing evidence"
                 );
             }
-            "malformed" => {
-                assert!(
-                    rec.error_class.is_some(),
-                    "{l} malformed record is missing error_class"
-                );
-                assert!(
-                    !rec.follow_up.is_empty(),
-                    "{l} malformed record is missing follow_up"
-                );
-            }
+            "malformed" => assert_regression_basics(&rec, &l),
             "inaccessible" => {
-                assert!(
-                    rec.error_class.is_some(),
-                    "{l} inaccessible record is missing error_class"
-                );
-                assert!(
-                    !rec.follow_up.is_empty(),
-                    "{l} inaccessible record is missing follow_up"
-                );
+                assert_regression_basics(&rec, &l);
                 assert!(
                     rec.reason.is_some(),
                     "{l} inaccessible record is missing reason"

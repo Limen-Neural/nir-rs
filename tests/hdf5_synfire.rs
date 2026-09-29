@@ -127,25 +127,30 @@ fn assert_nested_graphs(rec: &SynfireRecord, g: &NirGraph, l: &str) {
         rec.nested.iter().map(String::as_str).collect();
     for (name, node) in &g.nodes {
         if let NirNode::Graph(sub) = node {
-            assert!(
-                rec.nested.iter().any(|n| n == name),
-                "{l} has undeclared nested graph {name:?}"
-            );
-            assert!(
-                !rec.nested_node_types.is_empty(),
-                "{l} nested graph {name:?} present but nested_node_types is empty"
-            );
-            assert_eq!(
-                inventory(sub),
-                rec.nested_node_types,
-                "{l} nested graph {name:?} inventory mismatch"
-            );
+            check_nested_node(rec, name, sub, l);
             pending_nested.remove(name.as_str());
         }
     }
     assert!(
         pending_nested.is_empty(),
         "{l} declares nested graphs {pending_nested:?} that were not found on load"
+    );
+}
+
+/// Verify one nested subgraph found on load against the record's declarations.
+fn check_nested_node(rec: &SynfireRecord, name: &str, sub: &NirGraph, l: &str) {
+    assert!(
+        rec.nested.iter().any(|n| n == name),
+        "{l} has undeclared nested graph {name:?}"
+    );
+    assert!(
+        !rec.nested_node_types.is_empty(),
+        "{l} nested graph {name:?} present but nested_node_types is empty"
+    );
+    assert_eq!(
+        inventory(sub),
+        rec.nested_node_types,
+        "{l} nested graph {name:?} inventory mismatch"
     );
 }
 
@@ -288,31 +293,65 @@ fn ifsynfire_structure_is_single_if_recurrent_loop() {
     assert_eq!(rec.weight.shape(), [50, 50]);
 }
 
+/// Full ordered wire-type inventory of `nmnistcnn-1.0.0.nir` in `read` sort
+/// order (`0, 1, 10, 11, 12, 2, 3, ...`).
+fn nmnistcnn_type_names() -> [(&'static str, &'static str); 15] {
+    [
+        ("0", "Conv2d"),
+        ("1", "IF"),
+        ("10", "IF"),
+        ("11", "Affine"),
+        ("12", "IF"),
+        ("2", "Conv2d"),
+        ("3", "IF"),
+        ("4", "SumPool2d"),
+        ("5", "Conv2d"),
+        ("6", "IF"),
+        ("7", "SumPool2d"),
+        ("8", "Flatten"),
+        ("9", "Affine"),
+        ("input", "Input"),
+        ("output", "Output"),
+    ]
+}
+
+/// Selected weight shapes + operator counts (substitution detection).
+fn nmnistcnn_shapes_and_operators(g: &NirGraph) {
+    let NirNode::Conv2d(c0) = g.get("0").unwrap() else {
+        panic!("expected Conv2d at 0");
+    };
+    assert_eq!(c0.weight.shape(), [16, 2, 5, 5]);
+    let NirNode::Conv2d(c2) = g.get("2").unwrap() else {
+        panic!("expected Conv2d at 2");
+    };
+    assert_eq!(c2.weight.shape(), [16, 16, 3, 3]);
+    let NirNode::Conv2d(c5) = g.get("5").unwrap() else {
+        panic!("expected Conv2d at 5");
+    };
+    assert_eq!(c5.weight.shape(), [8, 16, 3, 3]);
+    let NirNode::Affine(a11) = g.get("11").unwrap() else {
+        panic!("expected Affine at 11");
+    };
+    assert_eq!(a11.weight.shape(), [10, 256]);
+
+    // Operator presence + counts. Pooling is SumPool2d (NOT AvgPool2d).
+    let count = |ty: &str| g.nodes.values().filter(|n| n.type_name() == ty).count();
+    assert_eq!(count("Conv2d"), 3, "expected three Conv2d");
+    assert_eq!(count("SumPool2d"), 2, "expected two SumPool2d");
+    assert_eq!(
+        count("AvgPool2d"),
+        0,
+        "Synfire CNN uses SumPool2d, not AvgPool2d"
+    );
+    assert_eq!(count("Flatten"), 1, "expected one Flatten");
+}
+
 #[test]
 fn nmnistcnn_structure_and_selected_shapes() {
     let g = read(NMNISTCNN);
     g.validate_structure().unwrap();
     assert_eq!(g.version.as_deref(), Some("0.2.0"));
-    assert_eq!(
-        type_names(&g),
-        [
-            ("0", "Conv2d"),
-            ("1", "IF"),
-            ("10", "IF"),
-            ("11", "Affine"),
-            ("12", "IF"),
-            ("2", "Conv2d"),
-            ("3", "IF"),
-            ("4", "SumPool2d"),
-            ("5", "Conv2d"),
-            ("6", "IF"),
-            ("7", "SumPool2d"),
-            ("8", "Flatten"),
-            ("9", "Affine"),
-            ("input", "Input"),
-            ("output", "Output"),
-        ]
-    );
+    assert_eq!(type_names(&g), nmnistcnn_type_names());
     assert_eq!(
         g.edges,
         edges(&[
@@ -345,34 +384,7 @@ fn nmnistcnn_structure_and_selected_shapes() {
         ]
     );
 
-    // Selected weight shapes (substitution detection).
-    let NirNode::Conv2d(c0) = g.get("0").unwrap() else {
-        panic!("expected Conv2d at 0");
-    };
-    assert_eq!(c0.weight.shape(), [16, 2, 5, 5]);
-    let NirNode::Conv2d(c2) = g.get("2").unwrap() else {
-        panic!("expected Conv2d at 2");
-    };
-    assert_eq!(c2.weight.shape(), [16, 16, 3, 3]);
-    let NirNode::Conv2d(c5) = g.get("5").unwrap() else {
-        panic!("expected Conv2d at 5");
-    };
-    assert_eq!(c5.weight.shape(), [8, 16, 3, 3]);
-    let NirNode::Affine(a11) = g.get("11").unwrap() else {
-        panic!("expected Affine at 11");
-    };
-    assert_eq!(a11.weight.shape(), [10, 256]);
-
-    // Operator presence + counts. Pooling is SumPool2d (NOT AvgPool2d).
-    let count = |ty: &str| g.nodes.values().filter(|n| n.type_name() == ty).count();
-    assert_eq!(count("Conv2d"), 3, "expected three Conv2d");
-    assert_eq!(count("SumPool2d"), 2, "expected two SumPool2d");
-    assert_eq!(
-        count("AvgPool2d"),
-        0,
-        "Synfire CNN uses SumPool2d, not AvgPool2d"
-    );
-    assert_eq!(count("Flatten"), 1, "expected one Flatten");
+    nmnistcnn_shapes_and_operators(&g);
 
     let NirNode::Input(input) = g.get("input").unwrap() else {
         panic!("expected Input");

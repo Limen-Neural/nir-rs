@@ -43,8 +43,8 @@ carry the NIR-paper citation (DOI
 | pabogdan/lifneuron | NIR Team | NIR paper, DOI 10.1038/s41467-024-52259-9 | source: github.com/neuromorphs/NIR (`paper/01_lif`) |
 | pabogdan/ifsynfire | Petrut Bogdan | none (no citation field in card) | none (card declares no source repository) |
 | pabogdan/nmnistcnn | NIR Team | NIR paper, DOI 10.1038/s41467-024-52259-9 | source: github.com/neuromorphs/NIR (`paper/02_cnn`, Sinabs export) |
-| pabogdan/brailernn | NIR Team | NIR paper, DOI 10.1038/s41467-024-52259-9 | source: github.com/neuromorphs/NIR (`paper/03_rnn`, snnTorch export); Braille dataset paper: https://www.frontiersin.org/articles/10.3389/fnins.2022.951164/full |
-| jegp/swavelet | Jens E. Pedersen, Tony Lindeberg, Peter Gerstoft | NIR paper, DOI 10.1038/s41467-024-52259-9 | repo: https://github.com/jegp/swavelet; paper: https://arxiv.org/abs/2605.09770 |
+| pabogdan/brailernn | NIR Team | NIR paper, DOI 10.1038/s41467-024-52259-9 | source: github.com/neuromorphs/NIR (`paper/03_rnn`, snnTorch export); Braille dataset paper: <https://www.frontiersin.org/articles/10.3389/fnins.2022.951164/full> |
+| jegp/swavelet | Jens E. Pedersen, Tony Lindeberg, Peter Gerstoft | NIR paper, DOI 10.1038/s41467-024-52259-9 | repo: <https://github.com/jegp/swavelet>; paper: <https://arxiv.org/abs/2605.09770> |
 
 The full NIR-paper citation recorded for the four NIR-cited models is:
 
