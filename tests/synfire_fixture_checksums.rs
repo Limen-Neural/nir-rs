@@ -74,22 +74,44 @@ fn manifest_records_exactly_the_five_pinned_models() {
 #[test]
 fn synfire_fixtures_match_manifest_sha256() {
     for rec in records() {
-        let file = rec
-            .file
-            .as_ref()
-            .unwrap_or_else(|| panic!("{} is missing a file key", label(&rec)));
-        let digest = rec
-            .sha256
-            .as_ref()
-            .unwrap_or_else(|| panic!("{} is missing a sha256 key", label(&rec)));
-        let path = Path::new(DIR).join(file);
-        let actual = sha256_hex(&path);
-        assert_eq!(
-            &actual,
-            digest,
-            "{} SHA-256 does not match MANIFEST.toml",
-            label(&rec)
-        );
+        let l = label(&rec);
+        match rec.status.as_str() {
+            // An `inaccessible` model could not be redistributed or retrieved,
+            // so no bytes are vendored: it must declare neither a file nor a
+            // digest. This branch will not fire in the current all-`supported`
+            // corpus, but keeps the checksum suite from panicking on a future
+            // re-pull that records one.
+            "inaccessible" => {
+                assert!(
+                    rec.file.is_none(),
+                    "{l} inaccessible record must not commit a file"
+                );
+                assert!(
+                    rec.sha256.is_none(),
+                    "{l} inaccessible record must not record a sha256"
+                );
+            }
+            // Every committed record (`supported`, `unsupported-valid`,
+            // `malformed`) vendors bytes that must hash-match the manifest.
+            _ => {
+                let file = rec
+                    .file
+                    .as_ref()
+                    .unwrap_or_else(|| panic!("{l} is missing a file key"));
+                let digest = rec
+                    .sha256
+                    .as_ref()
+                    .unwrap_or_else(|| panic!("{l} is missing a sha256 key"));
+                let path = Path::new(DIR).join(file);
+                let actual = sha256_hex(&path);
+                assert_eq!(
+                    &actual,
+                    digest,
+                    "{} SHA-256 does not match MANIFEST.toml",
+                    label(&rec)
+                );
+            }
+        }
     }
 }
 
