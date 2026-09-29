@@ -83,6 +83,13 @@ by `tests/hf_fixture_checksums.rs`; load/inspect tests are
 converter vs parser failures stay distinguishable, and so Synfire work (#43)
 does not grow a Hub download surface in CI.
 
+Synfire registry pulls (pinned `org/model:version` releases, vendored
+byte-identically; all BSD-3-Clause) live in [`synfire/`](synfire/) and are
+covered by `tests/synfire_fixture_checksums.rs`,
+`tests/synfire_fixture_attribution.rs`, and `tests/hdf5_synfire.rs` (#43 /
+LIM-1085). CI never talks to Synfire; refresh is a maintainer-only
+`synfire pull` step documented in that directory's README.
+
 These files are **inputs to tests only**. They are not part of the published
 library API, and nothing in `src/` depends on them.
 

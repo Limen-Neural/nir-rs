@@ -1,0 +1,78 @@
+# Machine-readable catalog of Synfire registry interoperability fixtures.
+# Source of truth for provenance; keep in sync with README.md SHA table.
+#
+# These `.nir` files were pulled from the public Synfire registry
+# (https://synfire.dev) with `synfire pull <org>/<model>:<version>` and are
+# vendored byte-identically. They are not paper-corpus artifacts and not
+# Hugging Face conversions (see `tests/fixtures/huggingface/`).
+
+registry = "https://synfire.dev"
+retrieved = "2026-09-29"
+license = "BSD-3-Clause"
+modified = false
+notes = """
+Pinned compatibility corpus for LIM-1085 / GitHub #43: five representative
+public Synfire releases covering LIF, IF synfire-chain, CNN, recurrent, and
+LI/LIF signal-processing graphs. Do not silently substitute newer versions;
+corpus expansion is a separate follow-up.
+"""
+
+[[fixture]]
+file = "lifneuron_1.0.0.nir"
+synfire_model = "pabogdan/lifneuron"
+synfire_version = "1.0.0"
+producer = "norse"
+nir_version = "0.1.1"
+nodes = 4
+edges = 3
+sha256 = "0dd9143ef624892d4a6461f474d93653a337b3490a62e23ec9ec5d18fde9b7b6"
+covers = ["Input", "Affine", "LIF", "Output", "f32", "v_reset_absent", "NIR_0_1_1"]
+upstream_path = "paper/01_lif/lif_norse.nir"
+
+[[fixture]]
+file = "ifsynfire_0.1.0.nir"
+synfire_model = "pabogdan/ifsynfire"
+synfire_version = "0.1.0"
+producer = "synfire"
+nir_version = "1.0.7"
+nodes = 5
+edges = 5
+sha256 = "62be4ef638af7ba5dba85f2254083ec98257c838d9dcd6c7c0a7dbe1a3c20d70"
+covers = ["Input", "Linear", "IF", "Output", "recurrence", "NIR_1_0_7"]
+upstream_path = ""
+
+[[fixture]]
+file = "nmnistcnn_1.0.0.nir"
+synfire_model = "pabogdan/nmnistcnn"
+synfire_version = "1.0.0"
+producer = "sinabs"
+nir_version = "0.2.0"
+nodes = 15
+edges = 14
+sha256 = "e2fa55bda7aab5a772485e1b690358bcb825b303eca7dc426e3973937fcb5bcb"
+covers = ["Input", "Conv2d", "IF", "SumPool2d", "Flatten", "Affine", "Output", "multi_axis_shapes", "explicit_padding", "NIR_0_2_0"]
+upstream_path = "paper/02_cnn/cnn_sinabs.nir"
+
+[[fixture]]
+file = "brailernn_1.0.1.nir"
+synfire_model = "pabogdan/brailernn"
+synfire_version = "1.0.1"
+producer = "braille_rnn"
+nir_version = "0.2.0"
+nodes = 7
+edges = 7
+sha256 = "14f59e0903d76437be3cb23d7e4be6b4e08ea476e482f7478dbb4592b29377d3"
+covers = ["CubaLIF", "Linear", "Input", "Output", "recurrence", "dotted_names", "w_in_present", "f32_f64_mix", "NIR_0_2_0"]
+upstream_path = "paper/03_rnn/braille_noDelay_noBias_subtract.nir"
+
+[[fixture]]
+file = "swavelet_1.0.0.nir"
+synfire_model = "jegp/swavelet"
+synfire_version = "1.0.0"
+producer = "swavelet"
+nir_version = "1.0.7"
+nodes = 6
+edges = 5
+sha256 = "d453379b30cb86a05ed7f73587fed971753744c8a2bfe7fe22bd3e9802135f69"
+covers = ["Input", "Affine", "LI", "LIF", "Output", "f32", "NIR_1_0_7"]
+upstream_path = "examples/spiking_doe_16ch.nir"

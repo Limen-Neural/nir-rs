@@ -43,6 +43,21 @@ vendored files only (no network). See
 | `huggingface/neurocuda_mlp_mnist.nir` | `Krishnav1234/neurocuda-mlp-mnist-snn` `@5a24224` | Affine + IF MLP; NIR `/version` **1.0.8** |
 | `huggingface/neurocuda_cnn_nmnist.nir` | `Krishnav1234/neurocuda-cnn-nmnist-snn` `@1ee6ba2` | Conv2d, IF, **AvgPool2d**, Flatten, Affine |
 
+### Synfire registry fixtures (0.4.x)
+
+Pulled with `synfire pull <org>/<model>:<version>` from the public Synfire
+registry and vendored byte-identically (#43 / LIM-1085). CI loads the
+committed files only — no registry access. See
+[`tests/fixtures/synfire/README.md`](tests/fixtures/synfire/README.md).
+
+| Fixture | Synfire release | Exercises |
+|---------|-----------------|-----------|
+| `synfire/lifneuron_1.0.0.nir` | `pabogdan/lifneuron:1.0.0` | Minimal Affine + LIF graph; `/version` 0.1.1 |
+| `synfire/ifsynfire_0.1.0.nir` | `pabogdan/ifsynfire:0.1.0` | IF synfire chain; Linear feed-forward + recurrent loop; `/version` 1.0.7 |
+| `synfire/nmnistcnn_1.0.0.nir` | `pabogdan/nmnistcnn:1.0.0` | Conv2d / IF / SumPool2d / Flatten / Affine CNN; `/version` 0.2.0 |
+| `synfire/brailernn_1.0.1.nir` | `pabogdan/brailernn:1.0.1` | Recurrent CubaLIF RNN (`w_in`); `/version` 0.2.0 |
+| `synfire/swavelet_1.0.0.nir` | `jegp/swavelet:1.0.0` | Affine → **LI** → LIF wavelet encoder; `/version` 1.0.7 |
+
 ## Fidelity semantics
 
 These are intentional, documented behaviors — not bugs:

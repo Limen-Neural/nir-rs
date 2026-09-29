@@ -8,6 +8,17 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Added
+
+- Vendored pinned Synfire registry fixtures under `tests/fixtures/synfire/`
+  (LIM-1085 / #43): `pabogdan/lifneuron:1.0.0`, `pabogdan/ifsynfire:0.1.0`,
+  `pabogdan/nmnistcnn:1.0.0`, `pabogdan/brailernn:1.0.1`, and
+  `jegp/swavelet:1.0.0`, with a `MANIFEST.toml` recording release, retrieval
+  date, SHA-256, NIR `/version`, node/edge counts, wire-type inventory, and
+  BSD-3-Clause provenance. Feature-gated load tests in
+  `tests/hdf5_synfire.rs` plus checksum/attribution guards; CI consumes the
+  committed files only — no Synfire network access.
+
 ### Changed
 
 - Keep HDF5 interoperability validation in native CI across Linux, macOS, and
