@@ -67,129 +67,153 @@ fn edges(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
 #[test]
 fn manifest_records_load_and_match_observed_facts() {
     for rec in records() {
-        let l = label(&rec);
         match rec.status.as_str() {
-            "supported" => {
-                let file = rec
-                    .file
-                    .as_ref()
-                    .unwrap_or_else(|| panic!("{l} supported record is missing a file key"));
-                let g = read(file);
-                g.validate_structure()
-                    .unwrap_or_else(|e| panic!("{l} failed validate_structure: {e}"));
-
-                assert_eq!(
-                    g.version.as_deref(),
-                    rec.nir_version.as_deref(),
-                    "{l} embedded /version mismatch"
-                );
-                assert_eq!(
-                    Some(g.nodes.len()),
-                    rec.node_count,
-                    "{l} node_count mismatch"
-                );
-                assert_eq!(
-                    Some(g.edges.len()),
-                    rec.edge_count,
-                    "{l} edge_count mismatch"
-                );
-                assert_eq!(
-                    inventory(&g),
-                    rec.node_types,
-                    "{l} node_types inventory mismatch"
-                );
-
-                // No nested subgraphs in the current corpus, but assert each
-                // nested graph's counts + inventory if a future re-pull adds
-                // one (record must then carry `nested` / `nested_node_types`).
-                // Track which declared nested names are actually found on load
-                // so that declared-and-found graphs pass while a stale manifest
-                // entry (declared but never found) still fails below.
-                let mut pending_nested: std::collections::BTreeSet<&str> =
-                    rec.nested.iter().map(String::as_str).collect();
-                for (name, node) in &g.nodes {
-                    if let NirNode::Graph(sub) = node {
-                        assert!(
-                            rec.nested.iter().any(|n| n == name),
-                            "{l} has undeclared nested graph {name:?}"
-                        );
-                        assert!(
-                            !rec.nested_node_types.is_empty(),
-                            "{l} nested graph {name:?} present but nested_node_types is empty"
-                        );
-                        assert_eq!(
-                            inventory(sub),
-                            rec.nested_node_types,
-                            "{l} nested graph {name:?} inventory mismatch"
-                        );
-                        pending_nested.remove(name.as_str());
-                    }
-                }
-                assert!(
-                    pending_nested.is_empty(),
-                    "{l} declares nested graphs {pending_nested:?} that were not found on load"
-                );
-            }
+            "supported" => assert_supported(&rec),
             // The following branches do not fire in the all-`supported`
             // corpus, but exist for a future re-pull per the four-way scheme.
-            "unsupported-valid" => {
-                let file = rec
-                    .file
-                    .as_ref()
-                    .unwrap_or_else(|| panic!("{l} unsupported-valid record is missing a file"));
-                let err = nir_rs::io::read(format!("{DIR}/{file}"))
-                    .expect_err(&format!("{l} expected read to fail"));
-                assert_eq!(
-                    synfire_manifest::nir_error_variant_name(&err),
-                    "UnknownNodeType",
-                    "{l} unsupported-valid must fail with UnknownNodeType"
-                );
-                assert_eq!(
-                    rec.error_class.as_deref(),
-                    Some("UnknownNodeType"),
-                    "{l} unsupported-valid must record error_class = UnknownNodeType"
-                );
-                let fragment = rec
-                    .error_fragment
-                    .as_ref()
-                    .unwrap_or_else(|| panic!("{l} unsupported-valid is missing error_fragment"));
-                assert!(
-                    err.to_string().contains(fragment.as_str()),
-                    "{l} error string must contain {fragment:?}, got {err}"
-                );
-            }
-            "malformed" => {
-                let file = rec
-                    .file
-                    .as_ref()
-                    .unwrap_or_else(|| panic!("{l} malformed record is missing a file"));
-                let expected = rec
-                    .error_class
-                    .as_ref()
-                    .unwrap_or_else(|| panic!("{l} malformed record is missing error_class"));
-                let err = match nir_rs::io::read(format!("{DIR}/{file}")) {
-                    Ok(g) => g
-                        .validate_structure()
-                        .expect_err(&format!("{l} expected malformed file to fail")),
-                    Err(e) => e,
-                };
-                assert_eq!(
-                    synfire_manifest::nir_error_variant_name(&err),
-                    expected.as_str(),
-                    "{l} malformed error variant mismatch"
-                );
-            }
-            "inaccessible" => {
-                if let Some(file) = &rec.file {
-                    let path = format!("{DIR}/{file}");
-                    assert!(
-                        !std::path::Path::new(&path).exists(),
-                        "{l} inaccessible record must not commit a file, found {path}"
-                    );
-                }
-            }
-            other => panic!("{l} has an unknown status {other:?}"),
+            "unsupported-valid" => assert_unsupported_valid(&rec),
+            "malformed" => assert_malformed(&rec),
+            "inaccessible" => assert_inaccessible(&rec),
+            other => panic!("{} has an unknown status {other:?}", label(&rec)),
         }
+    }
+}
+
+/// Assert a `supported` record: the committed file loads, validates, and its
+/// observed topology matches every value recorded in the manifest.
+fn assert_supported(rec: &SynfireRecord) {
+    let l = label(rec);
+    let file = rec
+        .file
+        .as_ref()
+        .unwrap_or_else(|| panic!("{l} supported record is missing a file key"));
+    let g = read(file);
+    g.validate_structure()
+        .unwrap_or_else(|e| panic!("{l} failed validate_structure: {e}"));
+
+    assert_eq!(
+        g.version.as_deref(),
+        rec.nir_version.as_deref(),
+        "{l} embedded /version mismatch"
+    );
+    assert_eq!(
+        Some(g.nodes.len()),
+        rec.node_count,
+        "{l} node_count mismatch"
+    );
+    assert_eq!(
+        Some(g.edges.len()),
+        rec.edge_count,
+        "{l} edge_count mismatch"
+    );
+    assert_eq!(
+        inventory(&g),
+        rec.node_types,
+        "{l} node_types inventory mismatch"
+    );
+
+    assert_nested_graphs(rec, &g, &l);
+}
+
+/// Assert the nested-subgraph facts for a `supported` record.
+///
+/// No nested subgraphs exist in the current corpus, but assert each nested
+/// graph's counts + inventory if a future re-pull adds one (the record must
+/// then carry `nested` / `nested_node_types`). Track which declared nested
+/// names are actually found on load so that declared-and-found graphs pass
+/// while a stale manifest entry (declared but never found) still fails below.
+fn assert_nested_graphs(rec: &SynfireRecord, g: &NirGraph, l: &str) {
+    let mut pending_nested: std::collections::BTreeSet<&str> =
+        rec.nested.iter().map(String::as_str).collect();
+    for (name, node) in &g.nodes {
+        if let NirNode::Graph(sub) = node {
+            assert!(
+                rec.nested.iter().any(|n| n == name),
+                "{l} has undeclared nested graph {name:?}"
+            );
+            assert!(
+                !rec.nested_node_types.is_empty(),
+                "{l} nested graph {name:?} present but nested_node_types is empty"
+            );
+            assert_eq!(
+                inventory(sub),
+                rec.nested_node_types,
+                "{l} nested graph {name:?} inventory mismatch"
+            );
+            pending_nested.remove(name.as_str());
+        }
+    }
+    assert!(
+        pending_nested.is_empty(),
+        "{l} declares nested graphs {pending_nested:?} that were not found on load"
+    );
+}
+
+/// Assert an `unsupported-valid` record: the committed file reads back a
+/// `UnknownNodeType` error whose message carries the recorded fragment.
+fn assert_unsupported_valid(rec: &SynfireRecord) {
+    let l = label(rec);
+    let file = rec
+        .file
+        .as_ref()
+        .unwrap_or_else(|| panic!("{l} unsupported-valid record is missing a file"));
+    let err =
+        nir_rs::io::read(format!("{DIR}/{file}")).expect_err(&format!("{l} expected read to fail"));
+    assert_eq!(
+        synfire_manifest::nir_error_variant_name(&err),
+        "UnknownNodeType",
+        "{l} unsupported-valid must fail with UnknownNodeType"
+    );
+    assert_eq!(
+        rec.error_class.as_deref(),
+        Some("UnknownNodeType"),
+        "{l} unsupported-valid must record error_class = UnknownNodeType"
+    );
+    let fragment = rec
+        .error_fragment
+        .as_ref()
+        .unwrap_or_else(|| panic!("{l} unsupported-valid is missing error_fragment"));
+    assert!(
+        err.to_string().contains(fragment.as_str()),
+        "{l} error string must contain {fragment:?}, got {err}"
+    );
+}
+
+/// Assert a `malformed` record: reading or validating the committed file fails
+/// with the recorded error variant.
+fn assert_malformed(rec: &SynfireRecord) {
+    let l = label(rec);
+    let file = rec
+        .file
+        .as_ref()
+        .unwrap_or_else(|| panic!("{l} malformed record is missing a file"));
+    let expected = rec
+        .error_class
+        .as_ref()
+        .unwrap_or_else(|| panic!("{l} malformed record is missing error_class"));
+    let err = match nir_rs::io::read(format!("{DIR}/{file}")) {
+        Ok(g) => g
+            .validate_structure()
+            .expect_err(&format!("{l} expected malformed file to fail")),
+        Err(e) => e,
+    };
+    assert_eq!(
+        synfire_manifest::nir_error_variant_name(&err),
+        expected.as_str(),
+        "{l} malformed error variant mismatch"
+    );
+}
+
+/// Assert an `inaccessible` record: if it names a file, that file must not be
+/// committed to the fixture directory.
+fn assert_inaccessible(rec: &SynfireRecord) {
+    let l = label(rec);
+    if let Some(file) = &rec.file {
+        let path = format!("{DIR}/{file}");
+        assert!(
+            !std::path::Path::new(&path).exists(),
+            "{l} inaccessible record must not commit a file, found {path}"
+        );
     }
 }
 

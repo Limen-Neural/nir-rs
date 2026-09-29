@@ -118,6 +118,75 @@ fn list_value(line: &str, key: &str) -> Option<Vec<String>> {
     Some(out)
 }
 
+/// Plain `key = "value"` string fields, keyed by manifest name to the record
+/// slot each one fills.
+///
+/// Order matters: `license_source` precedes `license` and `nested_node_types`
+/// precedes `nested` because each pair shares a prefix and [`quoted_value`]
+/// matches on `"{key} = \""`, so the longer, more specific key must be tried
+/// first (the same precedence the original `else if` chain relied on).
+type StringField = (&'static str, fn(&mut SynfireRecord, String));
+
+const STRING_FIELDS: &[StringField] = &[
+    ("synfire_model", |rec, v| rec.synfire_model = v),
+    ("synfire_version", |rec, v| rec.synfire_version = v),
+    ("status", |rec, v| rec.status = v),
+    ("file", |rec, v| rec.file = Some(v)),
+    ("sha256", |rec, v| rec.sha256 = Some(v)),
+    ("nir_version", |rec, v| rec.nir_version = Some(v)),
+    ("retrieved", |rec, v| rec.retrieved = Some(v)),
+    // `license_source` before `license`: shared `license` prefix.
+    ("license_source", |rec, v| rec.license_source = Some(v)),
+    ("license", |rec, v| rec.license = Some(v)),
+    ("error_class", |rec, v| rec.error_class = Some(v)),
+    ("error_fragment", |rec, v| rec.error_fragment = Some(v)),
+    ("evidence", |rec, v| rec.evidence = Some(v)),
+    ("reason", |rec, v| rec.reason = Some(v)),
+];
+
+/// Single-line `key = ["a", ...]` list fields, keyed by manifest name.
+///
+/// `nested_node_types` precedes `nested` for the same shared-prefix reason as
+/// the string fields above.
+type ListField = (&'static str, fn(&mut SynfireRecord, Vec<String>));
+
+const LIST_FIELDS: &[ListField] = &[
+    ("node_types", |rec, v| rec.node_types = v),
+    // `nested_node_types` before `nested`: shared `nested` prefix.
+    ("nested_node_types", |rec, v| rec.nested_node_types = v),
+    ("nested", |rec, v| rec.nested = v),
+    ("follow_up", |rec, v| rec.follow_up = v),
+];
+
+/// Apply a single `key = value` manifest line to the record under construction.
+///
+/// Tries each recognized key in the same precedence order as the original
+/// `else if` dispatch chain: string fields, then the two integer counts, then
+/// the list fields. Unrecognized keys (`registry_url`, `producer`, `covers`,
+/// `auth_required`, ...) are provenance-only and left untouched.
+fn apply_field(rec: &mut SynfireRecord, line: &str) {
+    for (key, set) in STRING_FIELDS {
+        if let Some(v) = quoted_value(line, key) {
+            set(rec, v.to_owned());
+            return;
+        }
+    }
+    if let Some(v) = int_value(line, "node_count") {
+        rec.node_count = Some(v);
+        return;
+    }
+    if let Some(v) = int_value(line, "edge_count") {
+        rec.edge_count = Some(v);
+        return;
+    }
+    for (key, set) in LIST_FIELDS {
+        if let Some(v) = list_value(line, key) {
+            set(rec, v);
+            return;
+        }
+    }
+}
+
 /// Parse the manifest text into one [`SynfireRecord`] per `[[fixture]]` block.
 ///
 /// This is not a general TOML parser: it splits on `[[fixture]]` header lines
@@ -141,52 +210,7 @@ pub fn read_manifest(text: &str) -> Vec<SynfireRecord> {
             // Still in the file-level header; skip.
             continue;
         };
-
-        if let Some(v) = quoted_value(trimmed, "synfire_model") {
-            rec.synfire_model = v.to_owned();
-        } else if let Some(v) = quoted_value(trimmed, "synfire_version") {
-            rec.synfire_version = v.to_owned();
-        } else if let Some(v) = quoted_value(trimmed, "status") {
-            rec.status = v.to_owned();
-        } else if let Some(v) = quoted_value(trimmed, "file") {
-            rec.file = Some(v.to_owned());
-        } else if let Some(v) = quoted_value(trimmed, "sha256") {
-            rec.sha256 = Some(v.to_owned());
-        } else if let Some(v) = quoted_value(trimmed, "nir_version") {
-            rec.nir_version = Some(v.to_owned());
-        } else if let Some(v) = quoted_value(trimmed, "retrieved") {
-            rec.retrieved = Some(v.to_owned());
-        } else if let Some(v) = quoted_value(trimmed, "license_source") {
-            // Checked before `license` because `license_source` also starts
-            // with `license`.
-            rec.license_source = Some(v.to_owned());
-        } else if let Some(v) = quoted_value(trimmed, "license") {
-            rec.license = Some(v.to_owned());
-        } else if let Some(v) = quoted_value(trimmed, "error_class") {
-            rec.error_class = Some(v.to_owned());
-        } else if let Some(v) = quoted_value(trimmed, "error_fragment") {
-            rec.error_fragment = Some(v.to_owned());
-        } else if let Some(v) = quoted_value(trimmed, "evidence") {
-            rec.evidence = Some(v.to_owned());
-        } else if let Some(v) = quoted_value(trimmed, "reason") {
-            rec.reason = Some(v.to_owned());
-        } else if let Some(v) = int_value(trimmed, "node_count") {
-            rec.node_count = Some(v);
-        } else if let Some(v) = int_value(trimmed, "edge_count") {
-            rec.edge_count = Some(v);
-        } else if let Some(v) = list_value(trimmed, "node_types") {
-            rec.node_types = v;
-        } else if let Some(v) = list_value(trimmed, "nested_node_types") {
-            // Checked before `nested` because it shares the `nested` prefix.
-            rec.nested_node_types = v;
-        } else if let Some(v) = list_value(trimmed, "nested") {
-            rec.nested = v;
-        } else if let Some(v) = list_value(trimmed, "follow_up") {
-            rec.follow_up = v;
-        }
-        // Unrecognized keys (registry_url, producer, covers, auth_required,
-        // ...) are provenance-only and not consumed by the tests.
-        let _ = bool_value(trimmed, "auth_required");
+        apply_field(rec, trimmed);
     }
     if let Some(rec) = current.take() {
         records.push(rec);
