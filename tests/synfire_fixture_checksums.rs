@@ -123,6 +123,10 @@ fn record_completeness_matches_status() {
                     !rec.node_types.is_empty(),
                     "{l} supported record has empty node_types"
                 );
+                assert!(
+                    rec.nir_version.is_some(),
+                    "{l} supported record is missing nir_version"
+                );
                 assert_eq!(
                     inventory_total(&rec.node_types),
                     node_count,

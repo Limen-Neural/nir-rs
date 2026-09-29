@@ -139,6 +139,11 @@ fn manifest_records_load_and_match_observed_facts() {
                     "UnknownNodeType",
                     "{l} unsupported-valid must fail with UnknownNodeType"
                 );
+                assert_eq!(
+                    rec.error_class.as_deref(),
+                    Some("UnknownNodeType"),
+                    "{l} unsupported-valid must record error_class = UnknownNodeType"
+                );
                 let fragment = rec
                     .error_fragment
                     .as_ref()
