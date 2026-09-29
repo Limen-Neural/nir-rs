@@ -5,7 +5,7 @@
 #![cfg(feature = "hdf5")]
 
 mod common;
-use common::{assert_err, write_then};
+use common::{assert_err, decode_hex_fixture, write_then};
 use nir_rs::NirError;
 use nir_rs::io::ReadOptions;
 use tempfile::TempDir;
@@ -255,6 +255,34 @@ fn oversized_dataset_is_rejected() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
+fn overflowing_dataset_extents_are_rejected_before_reading() {
+    // The declared element count is 2^64, but the chunked dataset has no
+    // allocated chunks. The file remains small and `read_raw` must never be
+    // reached. In particular, do not call `Dataset::size` here: its unchecked
+    // extent product is the behavior this regression exercises through the
+    // public reader.
+    let dir = TempDir::new().unwrap();
+    let path = decode_hex_fixture(
+        &dir,
+        "tests/fixtures/overflowing_extents.nir.hex",
+        "overflowing_extents.nir",
+    );
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidTensor,
+        &["input.shape", "shape product overflows usize"],
+    );
+
+    let err = assert_limit(
+        nir_rs::io::read_with(&path, &bounded(usize::MAX)),
+        usize::MAX,
+    );
+    assert!(err.to_string().contains("input.shape"));
+}
+
+#[test]
 fn ordinary_files_still_pass_the_guards() {
     // The guards must not reject the real thing.
     for name in ["lif_norse.nir", "cnn_sinabs.nir"] {
@@ -384,4 +412,148 @@ fn variable_length_payload_is_charged_before_read() {
 
     // The compatibility entry point remains intentionally unbounded.
     assert_eq!(nir_rs::io::read_version(&path).unwrap(), "v".repeat(16_384));
+}
+
+#[test]
+fn ascii_version_charges_both_payload_copies() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "ascii_version.nir", |file| {
+        file.unlink("version").unwrap();
+        let value = hdf5::types::VarLenAscii::from_ascii("1.0.0").unwrap();
+        file.new_dataset_builder()
+            .with_data(&[value])
+            .create("version")
+            .unwrap();
+    });
+
+    // One HDF5 descriptor, one Rust String header, and two payload charges.
+    // HDF5 reports six bytes including the trailing NUL; the Rust copy is
+    // conservatively charged at that same size.
+    let bytes = size_of::<hdf5::types::VarLenAscii>() + size_of::<String>() + 12;
+    assert_eq!(nir_rs::io::read_version(&path).unwrap(), "1.0.0");
+    assert_eq!(
+        nir_rs::io::read_version_with(&path, &bounded(bytes)).unwrap(),
+        "1.0.0"
+    );
+    let err = assert_limit(
+        nir_rs::io::read_version_with(&path, &bounded(bytes - 1)),
+        bytes - 1,
+    );
+    assert!(err.to_string().contains("version"));
+}
+
+#[test]
+fn numeric_version_is_rejected_as_a_non_string() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "numeric_version.nir", |file| {
+        file.unlink("version").unwrap();
+        file.new_dataset_builder()
+            .with_data(&[1_i32])
+            .create("version")
+            .unwrap();
+    });
+
+    for options in [ReadOptions::default(), bounded(1024)] {
+        assert_err(
+            nir_rs::io::read_version_with(&path, &options),
+            NirError::Io,
+            &["version", "expected a string dataset"],
+        );
+    }
+}
+
+#[test]
+fn u64_shape_is_decoded_losslessly() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "u64_shape.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+        node.new_dataset_builder()
+            .with_data(&[7_u64])
+            .create("shape")
+            .unwrap();
+    });
+
+    for options in [ReadOptions::default(), bounded(1_000_000)] {
+        let graph = nir_rs::io::read_with(&path, &options).unwrap();
+        let Some(nir_rs::NirNode::Input(input)) = graph.nodes.get("input") else {
+            panic!("expected an Input node");
+        };
+        assert_eq!(input.shape, vec![7]);
+    }
+}
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn u64_combined_buffers_overflow_is_rejected_before_reading() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "u64_allocation_overflow.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+        // Each eight-byte buffer fits in usize, but their combined charge
+        // does not. Leave all chunks unallocated so the fixture stays small.
+        node.new_dataset::<u64>()
+            .shape([1_usize << 60])
+            .chunk([1])
+            .create("shape")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidTensor,
+        &["input.shape", "decoded allocation size overflows usize"],
+    );
+    let err = assert_limit(
+        nir_rs::io::read_with(&path, &bounded(usize::MAX)),
+        usize::MAX,
+    );
+    assert!(err.to_string().contains("input.shape"));
+}
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn rust_object_size_limit_is_checked_before_reading() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "invalid_vec_layout.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+        // The byte count fits usize but cannot be represented by a Rust
+        // allocation layout. No chunks are written or read by this test.
+        node.new_dataset::<f32>()
+            .shape([1_usize << 61])
+            .chunk([1])
+            .create("shape")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidTensor,
+        &["input.shape", "object-size limit"],
+    );
+    let err = assert_limit(
+        nir_rs::io::read_with(&path, &bounded(usize::MAX)),
+        usize::MAX,
+    );
+    assert!(err.to_string().contains("input.shape"));
+}
+
+#[test]
+fn null_dataspace_edges_are_empty() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "null_edges.nir", |file| {
+        let root = file.group("node").unwrap();
+        root.unlink("edges").unwrap();
+        root.new_dataset::<f32>()
+            .shape(hdf5::Extents::Null)
+            .create("edges")
+            .unwrap();
+    });
+
+    for options in [ReadOptions::default(), bounded(1_000_000)] {
+        let graph = nir_rs::io::read_with(&path, &options).unwrap();
+        assert!(graph.edges.is_empty());
+        assert_eq!(graph.nodes.len(), 2);
+    }
 }
