@@ -14,18 +14,21 @@ Coverage of the copyright notices:
 
 - `Copyright (c) 2023, NIR Team.` covers the NIR-paper / registry artifacts:
   `lifneuron-1.0.0.nir`, `nmnistcnn-1.0.0.nir`, and `brailernn-1.0.1.nir`
-  (all produced by the NIR Team), and `ifsynfire-0.1.0.nir` (published by
-  Petrut Bogdan through the NIR registry under the same BSD 3-Clause terms).
+  (all produced by the NIR Team).
+- `Copyright (c) Petrut Bogdan.` covers `ifsynfire-0.1.0.nir` (published by
+  Petrut Bogdan through the Synfire registry under the same BSD 3-Clause
+  terms).
 - `Copyright (c) the swavelet authors (Jens E. Pedersen, Tony Lindeberg, Peter Gerstoft).`
   covers `swavelet-1.0.0.nir` (github.com/jegp/swavelet).
 
-Both copyright holders release their files under the BSD 3-Clause License whose
-full text follows.
+All three copyright holders release their files under the BSD 3-Clause License
+whose full text follows.
 
 ```
 BSD 3-Clause License
 
 Copyright (c) 2023, NIR Team.
+Copyright (c) Petrut Bogdan.
 Copyright (c) the swavelet authors (Jens E. Pedersen, Tony Lindeberg, Peter Gerstoft).
 All rights reserved.
 

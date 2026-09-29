@@ -93,10 +93,10 @@ language features require it; document the bump in the changelog.
 
 ## Related issues
 
-- #26 — first crates.io publish  
-- #27 / #32 — multi-OS CI  
-- #28 / #33 — package + semver CI  
-- #29 — expand fixture corpus  
-- #31 — this document and changelog policy  
-- #43 / LIM-1085 — Synfire registry model → NIR → nir-rs load (Synfire corpus)  
-- #44 / LIM-1086 — Hugging Face SNN → NIR → nir-rs load (this corpus)  
+- #26 — first crates.io publish
+- #27 / #32 — multi-OS CI
+- #28 / #33 — package + semver CI
+- #29 — expand fixture corpus
+- #31 — this document and changelog policy
+- #43 / LIM-1085 — Synfire registry model → NIR → nir-rs load (Synfire corpus)
+- #44 / LIM-1086 — Hugging Face SNN → NIR → nir-rs load (this corpus)
