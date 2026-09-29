@@ -1,5 +1,9 @@
 # Machine-readable catalog of vendored interoperability fixtures.
 # Source of truth for provenance; keep in sync with README.md SHA table.
+#
+# This catalog covers the neuromorphs/NIR paper corpus in this directory. The
+# Hugging Face-derived corpus lives under huggingface/ and the Synfire registry
+# corpus (GitHub #43 / LIM-1085) under synfire/, each with its own MANIFEST.toml.
 
 upstream_repo = "https://github.com/neuromorphs/NIR"
 upstream_commit = "7883c3c85f1be27ed113ccc9e8d6ab47ab541df4"

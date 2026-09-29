@@ -5,8 +5,9 @@
 //! These files are **converted** from public HF SNN checkpoints with upstream
 //! Python `nir.write` (see `tests/fixtures/huggingface/README.md`). They are
 //! kept separate from the neuromorphs/NIR paper corpus so converter issues
-//! cannot be mistaken for `nir-rs` parser bugs, and so Synfire work (#43)
-//! does not grow a Hugging Face download surface in CI.
+//! cannot be mistaken for `nir-rs` parser bugs. Synfire registry work (#43)
+//! lives in its own corpus (`tests/fixtures/synfire/`, loaded by
+//! `tests/hdf5_synfire.rs`) and stays separate from this Hugging Face corpus.
 
 #![cfg(feature = "hdf5")]
 

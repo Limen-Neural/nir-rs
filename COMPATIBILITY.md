@@ -43,6 +43,13 @@ vendored files only (no network). See
 | `huggingface/neurocuda_mlp_mnist.nir` | `Krishnav1234/neurocuda-mlp-mnist-snn` `@5a24224` | Affine + IF MLP; NIR `/version` **1.0.8** |
 | `huggingface/neurocuda_cnn_nmnist.nir` | `Krishnav1234/neurocuda-cnn-nmnist-snn` `@1ee6ba2` | Conv2d, IF, **AvgPool2d**, Flatten, Affine |
 
+### Synfire registry–derived fixtures (0.4.x)
+
+Separate from the paper and Hugging Face corpora. Five pinned `.nir` artifacts
+vendored offline from the Synfire model registry (#43 / LIM-1085, milestone
+v0.4.5); CI loads only the committed bytes and never contacts the registry. See
+[`tests/fixtures/synfire/README.md`](tests/fixtures/synfire/README.md).
+
 ## Fidelity semantics
 
 These are intentional, documented behaviors — not bugs:
@@ -91,4 +98,5 @@ language features require it; document the bump in the changelog.
 - #28 / #33 — package + semver CI  
 - #29 — expand fixture corpus  
 - #31 — this document and changelog policy  
+- #43 / LIM-1085 — Synfire registry model → NIR → nir-rs load (Synfire corpus)  
 - #44 / LIM-1086 — Hugging Face SNN → NIR → nir-rs load (this corpus)  
