@@ -102,6 +102,11 @@ fn manifest_records_load_and_match_observed_facts() {
                 // No nested subgraphs in the current corpus, but assert each
                 // nested graph's counts + inventory if a future re-pull adds
                 // one (record must then carry `nested` / `nested_node_types`).
+                // Track which declared nested names are actually found on load
+                // so that declared-and-found graphs pass while a stale manifest
+                // entry (declared but never found) still fails below.
+                let mut pending_nested: std::collections::BTreeSet<&str> =
+                    rec.nested.iter().map(String::as_str).collect();
                 for (name, node) in &g.nodes {
                     if let NirNode::Graph(sub) = node {
                         assert!(
@@ -117,12 +122,12 @@ fn manifest_records_load_and_match_observed_facts() {
                             rec.nested_node_types,
                             "{l} nested graph {name:?} inventory mismatch"
                         );
+                        pending_nested.remove(name.as_str());
                     }
                 }
                 assert!(
-                    rec.nested.is_empty(),
-                    "{l} declares nested graphs {:?} that were not found on load",
-                    rec.nested
+                    pending_nested.is_empty(),
+                    "{l} declares nested graphs {pending_nested:?} that were not found on load"
                 );
             }
             // The following branches do not fire in the all-`supported`
