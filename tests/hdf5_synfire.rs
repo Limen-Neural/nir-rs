@@ -101,6 +101,9 @@ fn assert_supported(rec: &SynfireRecord) {
         rec.node_count,
         "{l} node_count mismatch"
     );
+
+    assert_nested_graphs(rec, &g, &l);
+
     assert_eq!(
         Some(g.edges.len()),
         rec.edge_count,
@@ -111,8 +114,6 @@ fn assert_supported(rec: &SynfireRecord) {
         rec.node_types,
         "{l} node_types inventory mismatch"
     );
-
-    assert_nested_graphs(rec, &g, &l);
 }
 
 /// Assert the nested-subgraph facts for a `supported` record.
@@ -244,11 +245,11 @@ fn lifneuron_structure() {
         g.edges,
         edges(&[("input", "0"), ("0", "1"), ("1", "output")])
     );
-    assert_eq!(inventory(&g), ["Affine:1", "Input:1", "LIF:1", "Output:1"]);
 
     let NirNode::Affine(a) = g.get("0").unwrap() else {
         panic!("expected Affine at 0");
     };
+    assert_eq!(inventory(&g), ["Affine:1", "Input:1", "LIF:1", "Output:1"]);
     assert_eq!(a.weight.shape(), [1, 1]);
     assert_eq!(a.bias.shape(), [1]);
 }
@@ -280,11 +281,10 @@ fn ifsynfire_structure_is_single_if_recurrent_loop() {
             ("neurons", "output"),
         ])
     );
-    assert_eq!(inventory(&g), ["IF:1", "Input:1", "Linear:2", "Output:1"]);
-
     let NirNode::If(neurons) = g.get("neurons").unwrap() else {
         panic!("expected IF at neurons");
     };
+    assert_eq!(inventory(&g), ["IF:1", "Input:1", "Linear:2", "Output:1"]);
     assert_eq!(neurons.v_threshold.shape(), [50]);
 
     let NirNode::Linear(rec) = g.get("recurrent_synapses").unwrap() else {
@@ -336,14 +336,16 @@ fn nmnistcnn_shapes_and_operators(g: &NirGraph) {
 
     // Operator presence + counts. Pooling is SumPool2d (NOT AvgPool2d).
     let count = |ty: &str| g.nodes.values().filter(|n| n.type_name() == ty).count();
-    assert_eq!(count("Conv2d"), 3, "expected three Conv2d");
-    assert_eq!(count("SumPool2d"), 2, "expected two SumPool2d");
     assert_eq!(
-        count("AvgPool2d"),
-        0,
-        "Synfire CNN uses SumPool2d, not AvgPool2d"
+        [
+            count("Conv2d"),
+            count("SumPool2d"),
+            count("AvgPool2d"),
+            count("Flatten")
+        ],
+        [3, 2, 0, 1],
+        "operator counts mismatch (Conv2d, SumPool2d, AvgPool2d, Flatten)"
     );
-    assert_eq!(count("Flatten"), 1, "expected one Flatten");
 }
 
 #[test]
@@ -352,6 +354,9 @@ fn nmnistcnn_structure_and_selected_shapes() {
     g.validate_structure().unwrap();
     assert_eq!(g.version.as_deref(), Some("0.2.0"));
     assert_eq!(type_names(&g), nmnistcnn_type_names());
+
+    nmnistcnn_shapes_and_operators(&g);
+
     assert_eq!(
         g.edges,
         edges(&[
@@ -383,8 +388,6 @@ fn nmnistcnn_structure_and_selected_shapes() {
             "SumPool2d:2"
         ]
     );
-
-    nmnistcnn_shapes_and_operators(&g);
 
     let NirNode::Input(input) = g.get("input").unwrap() else {
         panic!("expected Input");
@@ -421,26 +424,15 @@ fn brailernn_structure_and_recurrent_pair() {
             ("lif1.lif", "fc2"),
         ])
     );
+    // The exact-edge assertion above already covers the recurrent loop
+    // lif1.lif <-> lif1.w_rec.
+    let NirNode::Linear(w_rec) = g.get("lif1.w_rec").unwrap() else {
+        panic!("expected Linear at lif1.w_rec");
+    };
     assert_eq!(
         inventory(&g),
         ["CubaLIF:2", "Input:1", "Linear:3", "Output:1"]
     );
-
-    // Recurrent connectivity: the loop lif1.lif <-> lif1.w_rec.
-    assert!(
-        g.edges
-            .contains(&("lif1.lif".to_owned(), "lif1.w_rec".to_owned())),
-        "expected forward recurrent edge lif1.lif -> lif1.w_rec"
-    );
-    assert!(
-        g.edges
-            .contains(&("lif1.w_rec".to_owned(), "lif1.lif".to_owned())),
-        "expected feedback recurrent edge lif1.w_rec -> lif1.lif"
-    );
-
-    let NirNode::Linear(w_rec) = g.get("lif1.w_rec").unwrap() else {
-        panic!("expected Linear at lif1.w_rec");
-    };
     assert_eq!(w_rec.weight.shape(), [40, 40]);
 }
 
@@ -471,11 +463,6 @@ fn swavelet_structure_is_li_lif_chain() {
             ("lif", "output"),
         ])
     );
-    assert_eq!(
-        inventory(&g),
-        ["Affine:2", "Input:1", "LI:1", "LIF:1", "Output:1"]
-    );
-
     let NirNode::Affine(fanout) = g.get("fanout").unwrap() else {
         panic!("expected Affine at fanout");
     };
@@ -484,6 +471,10 @@ fn swavelet_structure_is_li_lif_chain() {
     let NirNode::Affine(conn) = g.get("connectivity").unwrap() else {
         panic!("expected Affine at connectivity");
     };
+    assert_eq!(
+        inventory(&g),
+        ["Affine:2", "Input:1", "LI:1", "LIF:1", "Output:1"]
+    );
     assert_eq!(conn.weight.shape(), [16, 15]);
     assert_eq!(conn.bias.shape(), [16]);
 }

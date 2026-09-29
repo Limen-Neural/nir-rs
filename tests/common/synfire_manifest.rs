@@ -69,121 +69,73 @@ pub struct SynfireRecord {
     pub follow_up: Vec<String>,
 }
 
-/// Extract the payload of a single-line `key = "value"` pair.
+/// Unquote a single `"value"` scalar.
 ///
-/// Mirrors `quoted_value` in `tests/hf_fixture_checksums.rs`. Not a full TOML
-/// parser: it only understands one double-quoted value on the line.
-fn quoted_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
-    let prefix = format!("{key} = \"");
-    line.trim().strip_prefix(&prefix)?.strip_suffix('"')
+/// Not a full TOML parser: it only understands one double-quoted value.
+fn string(value: &str) -> String {
+    value
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or_else(|| panic!("expected a double-quoted value, got {value:?}"))
+        .to_owned()
 }
 
-/// Extract a `key = <int>` value (unquoted integer).
-fn int_value(line: &str, key: &str) -> Option<usize> {
-    let prefix = format!("{key} = ");
-    let rest = line.trim().strip_prefix(&prefix)?;
-    rest.parse().ok()
-}
-
-/// Extract a `key = true|false` value.
-fn bool_value(line: &str, key: &str) -> Option<bool> {
-    let prefix = format!("{key} = ");
-    match line.trim().strip_prefix(&prefix)? {
-        "true" => Some(true),
-        "false" => Some(false),
-        _ => None,
-    }
-}
-
-/// Extract a single-line `key = ["a", "b", ...]` list of double-quoted items.
+/// Parse a single-line `["a", "b", ...]` list of double-quoted items.
 ///
-/// Returns `None` when the key is not on this line; returns an empty vec for
-/// `key = []`. Only handles the single-line array form the manifest uses.
-fn list_value(line: &str, key: &str) -> Option<Vec<String>> {
-    let prefix = format!("{key} = [");
-    let inner = line.trim().strip_prefix(&prefix)?.strip_suffix(']')?;
-    let inner = inner.trim();
+/// Returns an empty vec for `[]`. Only handles the single-line array form the
+/// manifest uses.
+fn list(key: &str, value: &str) -> Vec<String> {
+    let inner = value
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or_else(|| panic!("key {key} is not a single-line list: {value:?}"))
+        .trim();
     if inner.is_empty() {
-        return Some(Vec::new());
+        return Vec::new();
     }
-    let mut out = Vec::new();
-    for item in inner.split(',') {
-        let item = item.trim();
-        let item = item
-            .strip_prefix('"')
-            .and_then(|s| s.strip_suffix('"'))
-            .unwrap_or_else(|| panic!("list item {item:?} for key {key} is not double-quoted"));
-        out.push(item.to_owned());
-    }
-    Some(out)
+    inner
+        .split(',')
+        .map(|item| {
+            item.trim()
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .unwrap_or_else(|| panic!("list item {item:?} for key {key} is not double-quoted"))
+                .to_owned()
+        })
+        .collect()
 }
-
-/// Plain `key = "value"` string fields, keyed by manifest name to the record
-/// slot each one fills.
-///
-/// Order matters: `license_source` precedes `license` and `nested_node_types`
-/// precedes `nested` because each pair shares a prefix and [`quoted_value`]
-/// matches on `"{key} = \""`, so the longer, more specific key must be tried
-/// first (the same precedence the original `else if` chain relied on).
-type StringField = (&'static str, fn(&mut SynfireRecord, String));
-
-const STRING_FIELDS: &[StringField] = &[
-    ("synfire_model", |rec, v| rec.synfire_model = v),
-    ("synfire_version", |rec, v| rec.synfire_version = v),
-    ("status", |rec, v| rec.status = v),
-    ("file", |rec, v| rec.file = Some(v)),
-    ("sha256", |rec, v| rec.sha256 = Some(v)),
-    ("nir_version", |rec, v| rec.nir_version = Some(v)),
-    ("retrieved", |rec, v| rec.retrieved = Some(v)),
-    // `license_source` before `license`: shared `license` prefix.
-    ("license_source", |rec, v| rec.license_source = Some(v)),
-    ("license", |rec, v| rec.license = Some(v)),
-    ("error_class", |rec, v| rec.error_class = Some(v)),
-    ("error_fragment", |rec, v| rec.error_fragment = Some(v)),
-    ("evidence", |rec, v| rec.evidence = Some(v)),
-    ("reason", |rec, v| rec.reason = Some(v)),
-];
-
-/// Single-line `key = ["a", ...]` list fields, keyed by manifest name.
-///
-/// `nested_node_types` precedes `nested` for the same shared-prefix reason as
-/// the string fields above.
-type ListField = (&'static str, fn(&mut SynfireRecord, Vec<String>));
-
-const LIST_FIELDS: &[ListField] = &[
-    ("node_types", |rec, v| rec.node_types = v),
-    // `nested_node_types` before `nested`: shared `nested` prefix.
-    ("nested_node_types", |rec, v| rec.nested_node_types = v),
-    ("nested", |rec, v| rec.nested = v),
-    ("follow_up", |rec, v| rec.follow_up = v),
-];
 
 /// Apply a single `key = value` manifest line to the record under construction.
 ///
-/// Tries each recognized key in the same precedence order as the original
-/// `else if` dispatch chain: string fields, then the two integer counts, then
-/// the list fields. Unrecognized keys (`registry_url`, `producer`, `covers`,
-/// `auth_required`, ...) are provenance-only and left untouched.
+/// Dispatches on the exact key, so shared prefixes (`license_source` vs
+/// `license`, `nested_node_types` vs `nested`) need no precedence order.
+/// Unrecognized keys (`registry_url`, `producer`, `covers`, `auth_required`,
+/// ...) are provenance-only and left untouched.
 fn apply_field(rec: &mut SynfireRecord, line: &str) {
-    for (key, set) in STRING_FIELDS {
-        if let Some(v) = quoted_value(line, key) {
-            set(rec, v.to_owned());
-            return;
-        }
-    }
-    if let Some(v) = int_value(line, "node_count") {
-        rec.node_count = Some(v);
+    let Some((key, value)) = line.split_once(" = ") else {
         return;
-    }
-    if let Some(v) = int_value(line, "edge_count") {
-        rec.edge_count = Some(v);
-        return;
-    }
-    for (key, set) in LIST_FIELDS {
-        if let Some(v) = list_value(line, key) {
-            set(rec, v);
-            return;
-        }
+    };
+    match key {
+        "synfire_model" => rec.synfire_model = string(value),
+        "synfire_version" => rec.synfire_version = string(value),
+        "status" => rec.status = string(value),
+        "file" => rec.file = Some(string(value)),
+        "sha256" => rec.sha256 = Some(string(value)),
+        "nir_version" => rec.nir_version = Some(string(value)),
+        "retrieved" => rec.retrieved = Some(string(value)),
+        "license_source" => rec.license_source = Some(string(value)),
+        "license" => rec.license = Some(string(value)),
+        "error_class" => rec.error_class = Some(string(value)),
+        "error_fragment" => rec.error_fragment = Some(string(value)),
+        "evidence" => rec.evidence = Some(string(value)),
+        "reason" => rec.reason = Some(string(value)),
+        "node_count" => rec.node_count = value.parse().ok(),
+        "edge_count" => rec.edge_count = value.parse().ok(),
+        "node_types" => rec.node_types = list(key, value),
+        "nested_node_types" => rec.nested_node_types = list(key, value),
+        "nested" => rec.nested = list(key, value),
+        "follow_up" => rec.follow_up = list(key, value),
+        _ => {}
     }
 }
 
