@@ -1,18 +1,33 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Shared helpers for the HDF5 failure-mode test binaries.
+//! Shared helpers for the integration test binaries.
 //!
-//! Rust compiles each file in `tests/` into its own binary, so the error
-//! suites are split by responsibility — reading malformed files, rejecting
-//! bad graphs on write, and refusing files that reach outside the container —
-//! and share this module rather than repeating the scaffolding.
+//! Rust compiles each file in `tests/` into its own binary, so the suites are
+//! split by responsibility — reading malformed files, rejecting bad graphs on
+//! write, refusing files that reach outside the container, and verifying the
+//! vendored fixture corpora — and share this module rather than repeating the
+//! scaffolding.
+//!
+//! The module itself is **not** gated behind the `hdf5` feature so that the
+//! default-feature fixture tests (checksum, attribution) can reach
+//! [`synfire_manifest`] without libhdf5. Only the helpers that actually touch
+//! the HDF5 backend are gated with `#[cfg(feature = "hdf5")]`.
 
-#![cfg(feature = "hdf5")]
 // Each test binary uses a different subset of these helpers.
 #![allow(dead_code)]
 
+/// Hand-written reader + helpers for the Synfire fixture manifest.
+///
+/// Feature-independent: it uses only the always-compiled graph model
+/// (`NirGraph`, `NirNode`, `NirError`), so both the default-feature checksum /
+/// attribution tests and the hdf5-gated load test can share it.
+pub mod synfire_manifest;
+
+#[cfg(feature = "hdf5")]
 use nir_rs::nodes::{Input, Output};
+#[cfg(feature = "hdf5")]
 use nir_rs::{NirError, NirGraph, NirNode};
+#[cfg(feature = "hdf5")]
 use tempfile::TempDir;
 
 /// Assert that `result` failed with `expected_variant`, and that its message
@@ -22,6 +37,7 @@ use tempfile::TempDir;
 /// several things of one message, and so that "check the variant only" has to
 /// be written as an explicit empty slice — an accidental `""` would otherwise
 /// pass vacuously, since `str::contains("")` is always true.
+#[cfg(feature = "hdf5")]
 pub fn assert_err<T>(
     result: Result<T, NirError>,
     expected_variant: fn(String) -> NirError,
@@ -51,6 +67,7 @@ pub fn assert_err<T>(
     }
 }
 
+#[cfg(feature = "hdf5")]
 pub fn input(shape: Vec<usize>) -> NirNode {
     NirNode::Input(Input {
         shape,
@@ -59,6 +76,7 @@ pub fn input(shape: Vec<usize>) -> NirNode {
 }
 
 /// Build a minimal well-formed file, then hand it to `mutate` for corruption.
+#[cfg(feature = "hdf5")]
 pub fn write_then(
     dir: &TempDir,
     name: &str,
@@ -87,6 +105,7 @@ pub fn write_then(
 }
 
 /// Decode a documented, comment-bearing hexadecimal fixture into `dir`.
+#[cfg(feature = "hdf5")]
 pub fn decode_hex_fixture(
     dir: &TempDir,
     fixture: impl AsRef<std::path::Path>,

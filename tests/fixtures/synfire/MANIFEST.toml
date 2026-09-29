@@ -1,0 +1,131 @@
+# Machine-readable catalog of vendored Synfire registry fixtures.
+# Source of truth for provenance; keep in sync with README.md tables.
+#
+# These files were acquired from the Synfire model registry (see GitHub #43 /
+# LIM-1085). Acquisition is maintainer-only; committed bytes make CI fully
+# offline. Every value here was observed by loading the committed .nir files
+# through nir_rs::io::read + validate_structure(). Keep each key and each list
+# on ONE line: a hand-written single-line `key = value` parser reads this file
+# (no TOML dependency is added, per AGENTS.md).
+
+source = "synfire registry"
+registry_url = "https://synfire.rpd-34.dev"
+# synfire_cli_version is the observed `synfire --version` string (0.0.1). The
+# published PyPI package is 0.0.2; the CLI's internal _version.py lags it.
+synfire_cli_version = "0.0.1"
+synfire_pypi_version = "0.0.2"
+corpus_as_of = "2026-09-29"
+milestone = "v0.4.5"
+modified = false
+notes = """
+First pinned Synfire compatibility baseline for milestone v0.4.5 (GitHub #43 /
+LIM-1085). The baseline is the FIVE-model pinned corpus below; do not substitute
+versions or add models. All five load and validate under nir-rs, so all are
+`supported`. CI and default tests never contact the registry or authenticate;
+the committed bytes plus these SHA-256 values are authoritative.
+"""
+
+[[fixture]]
+synfire_model = "pabogdan/lifneuron"
+synfire_version = "1.0.0"
+status = "supported"
+file = "lifneuron-1.0.0.nir"
+sha256 = "0dd9143ef624892d4a6461f474d93653a337b3490a62e23ec9ec5d18fde9b7b6"
+registry_checksum = "none"
+nir_version = "0.1.1"
+retrieved = "2026-09-29"
+auth_required = false
+license = "BSD-3-Clause"
+license_source = "nir-card.json"
+source_repo = "https://github.com/neuromorphs/NIR"
+producer = "NIR Team"
+authors = ["NIR Team"]
+citation = "Pedersen JE, Abreu S, Jobst M, et al. Neuromorphic Intermediate Representation: A Unified Instruction Set for Interoperable Brain-Inspired Computing. Nature Communications. DOI: 10.1038/s41467-024-52259-9."
+covers = ["Minimal LIF graph / basic neuron compatibility"]
+node_count = 4
+edge_count = 3
+node_types = ["Affine:1", "Input:1", "LIF:1", "Output:1"]
+
+[[fixture]]
+synfire_model = "pabogdan/ifsynfire"
+synfire_version = "0.1.0"
+status = "supported"
+file = "ifsynfire-0.1.0.nir"
+sha256 = "62be4ef638af7ba5dba85f2254083ec98257c838d9dcd6c7c0a7dbe1a3c20d70"
+registry_checksum = "none"
+nir_version = "1.0.7"
+retrieved = "2026-09-29"
+auth_required = false
+license = "BSD-3-Clause"
+license_source = "nir-card.json"
+source_repo = "none"
+producer = "Petrut Bogdan (pabogdan)"
+authors = ["Petrut Bogdan"]
+citation = "none"
+covers = ["IF synfire-chain topology / multi-node wiring"]
+node_count = 5
+edge_count = 5
+node_types = ["IF:1", "Input:1", "Linear:2", "Output:1"]
+
+[[fixture]]
+synfire_model = "pabogdan/nmnistcnn"
+synfire_version = "1.0.0"
+status = "supported"
+file = "nmnistcnn-1.0.0.nir"
+sha256 = "e2fa55bda7aab5a772485e1b690358bcb825b303eca7dc426e3973937fcb5bcb"
+registry_checksum = "none"
+nir_version = "0.2.0"
+retrieved = "2026-09-29"
+auth_required = false
+license = "BSD-3-Clause"
+license_source = "nir-card.json"
+source_repo = "https://github.com/neuromorphs/NIR"
+producer = "NIR Team"
+authors = ["NIR Team"]
+citation = "Pedersen JE, Abreu S, Jobst M, et al. Neuromorphic Intermediate Representation: A Unified Instruction Set for Interoperable Brain-Inspired Computing. Nature Communications. DOI: 10.1038/s41467-024-52259-9."
+covers = ["Convolutional event-vision graph / CNN operators"]
+node_count = 15
+edge_count = 14
+node_types = ["Affine:2", "Conv2d:3", "Flatten:1", "IF:5", "Input:1", "Output:1", "SumPool2d:2"]
+
+[[fixture]]
+synfire_model = "pabogdan/brailernn"
+synfire_version = "1.0.1"
+status = "supported"
+file = "brailernn-1.0.1.nir"
+sha256 = "14f59e0903d76437be3cb23d7e4be6b4e08ea476e482f7478dbb4592b29377d3"
+registry_checksum = "none"
+nir_version = "0.2.0"
+retrieved = "2026-09-29"
+auth_required = false
+license = "BSD-3-Clause"
+license_source = "nir-card.json"
+source_repo = "https://github.com/neuromorphs/NIR"
+producer = "NIR Team"
+authors = ["NIR Team"]
+citation = "Pedersen JE, Abreu S, Jobst M, et al. Neuromorphic Intermediate Representation: A Unified Instruction Set for Interoperable Brain-Inspired Computing. Nature Communications. DOI: 10.1038/s41467-024-52259-9."
+covers = ["Recurrent SNN graph / recurrent connectivity"]
+node_count = 7
+edge_count = 7
+node_types = ["CubaLIF:2", "Input:1", "Linear:3", "Output:1"]
+
+[[fixture]]
+synfire_model = "jegp/swavelet"
+synfire_version = "1.0.0"
+status = "supported"
+file = "swavelet-1.0.0.nir"
+sha256 = "d453379b30cb86a05ed7f73587fed971753744c8a2bfe7fe22bd3e9802135f69"
+registry_checksum = "none"
+nir_version = "1.0.7"
+retrieved = "2026-09-29"
+auth_required = false
+license = "BSD-3-Clause"
+license_source = "nir-card.json"
+source_repo = "https://github.com/jegp/swavelet"
+producer = "Jens E. Pedersen et al (jegp)"
+authors = ["Jens E. Pedersen", "Tony Lindeberg", "Peter Gerstoft"]
+citation = "Pedersen JE, Abreu S, Jobst M, et al. Neuromorphic Intermediate Representation: A Unified Instruction Set for Interoperable Brain-Inspired Computing. Nature Communications. DOI: 10.1038/s41467-024-52259-9."
+covers = ["Independent publisher plus LI/LIF signal-processing graph"]
+node_count = 6
+edge_count = 5
+node_types = ["Affine:2", "Input:1", "LI:1", "LIF:1", "Output:1"]

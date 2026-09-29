@@ -8,8 +8,9 @@ neuromorphs/NIR paper corpus.
 CI never talks to Hugging Face. These files are vendored;
 `tests/hf_fixture_checksums.rs` checks their SHA-256 against
 [`MANIFEST.toml`](MANIFEST.toml).
-Synfire registry pulls stay on GitHub [#43](https://github.com/Limen-Neural/nir-rs/issues/43)
-/ LIM-1085 and are not mixed into this directory.
+Synfire registry pulls (GitHub [#43](https://github.com/Limen-Neural/nir-rs/issues/43)
+/ LIM-1085) live in their own corpus under [`../synfire/`](../synfire/) and are
+kept separate from this directory.
 
 ## Why convert (not download `.nir`)
 

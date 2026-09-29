@@ -80,8 +80,10 @@ by Python `nir` 1.0.8) live in [`huggingface/`](huggingface/). SHA-256 values
 are in [`huggingface/MANIFEST.toml`](huggingface/MANIFEST.toml) and are checked
 by `tests/hf_fixture_checksums.rs`; load/inspect tests are
 `tests/hdf5_huggingface.rs`. They are kept separate from this paper corpus so
-converter vs parser failures stay distinguishable, and so Synfire work (#43)
-does not grow a Hub download surface in CI.
+converter vs parser failures stay distinguishable. The Synfire registry corpus
+(#43 / LIM-1085) is likewise vendored offline in its own directory,
+[`synfire/`](synfire/), and neither corpus grows a network download surface in
+CI.
 
 These files are **inputs to tests only**. They are not part of the published
 library API, and nothing in `src/` depends on them.

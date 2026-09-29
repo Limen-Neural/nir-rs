@@ -90,6 +90,10 @@ Known-good Python-written `.nir` files: [`tests/fixtures/`](tests/fixtures/).
 See that directory’s `README.md` and `MANIFEST.toml`. Hugging Face–derived
 conversions (vendored, checksummed; no Hub access in CI) live under
 [`tests/fixtures/huggingface/`](tests/fixtures/huggingface/) and are covered by
-`tests/hdf5_huggingface.rs`. Hostile / malformed HDF5 layouts are generated at
-runtime in `tests/hdf5_untrusted.rs` — keep those separate from the
-interoperability corpus.
+`tests/hdf5_huggingface.rs`. Synfire registry–derived fixtures (vendored,
+checksummed; no registry access in CI) live under
+[`tests/fixtures/synfire/`](tests/fixtures/synfire/) and are covered by
+`tests/synfire_fixture_checksums.rs`, `tests/synfire_fixture_attribution.rs`,
+and `tests/hdf5_synfire.rs`. All three corpora are kept separate. Hostile /
+malformed HDF5 layouts are generated at runtime in `tests/hdf5_untrusted.rs` —
+keep those separate from the interoperability corpus.

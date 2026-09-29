@@ -3,7 +3,8 @@
 #
 # These files are produced by converting public HF SNN checkpoints with the
 # official Python `nir.write` (neuromorphs/NIR). They are not Synfire registry
-# artifacts (see GitHub #43 / LIM-1085).
+# artifacts; the Synfire corpus (GitHub #43 / LIM-1085) lives separately under
+# tests/fixtures/synfire/.
 
 writer_package = "nir"
 writer_version = "1.0.8"
