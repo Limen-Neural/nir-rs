@@ -1585,26 +1585,37 @@ mod tests {
         ]
     }
 
+    fn assert_count_limit(err: NirError, expected: (ReadLimitResource, &str, usize, usize, usize)) {
+        match err {
+            NirError::ReadCountLimitExceeded {
+                resource,
+                context,
+                limit,
+                used,
+                requested,
+            } => assert_eq!(
+                (resource, context.as_str(), limit, used, requested),
+                expected
+            ),
+            other => panic!("expected ReadCountLimitExceeded, got {other:?}"),
+        }
+    }
+
     #[test]
     fn read_limit_count_overflow_is_a_structured_error() {
         let budget = ReadBudget::new(&ReadOptions::default().with_max_nodes(Some(usize::MAX)));
         budget.nodes.used.set(usize::MAX);
         let err = budget.charge_nodes("/node/nodes", Some(1)).unwrap_err();
-        match err {
-            NirError::ReadCountLimitExceeded {
-                resource: ReadLimitResource::Nodes,
-                context,
-                limit,
-                used,
-                requested,
-            } => {
-                assert_eq!(context, "/node/nodes");
-                assert_eq!(limit, usize::MAX);
-                assert_eq!(used, usize::MAX);
-                assert_eq!(requested, 1);
-            }
-            other => panic!("expected ReadCountLimitExceeded, got {other:?}"),
-        }
+        assert_count_limit(
+            err,
+            (
+                ReadLimitResource::Nodes,
+                "/node/nodes",
+                usize::MAX,
+                usize::MAX,
+                1,
+            ),
+        );
     }
 
     #[test]
@@ -1627,21 +1638,7 @@ mod tests {
         budget.charge_graph("/node").unwrap();
         budget.charge_graph("sub").unwrap();
         let err = budget.charge_graph("too_deep").unwrap_err();
-        match err {
-            NirError::ReadCountLimitExceeded {
-                resource: ReadLimitResource::NestedGraphs,
-                context,
-                limit,
-                used,
-                requested,
-            } => {
-                assert_eq!(context, "too_deep");
-                assert_eq!(limit, 2);
-                assert_eq!(used, 2);
-                assert_eq!(requested, 1);
-            }
-            other => panic!("expected ReadCountLimitExceeded, got {other:?}"),
-        }
+        assert_count_limit(err, (ReadLimitResource::NestedGraphs, "too_deep", 2, 2, 1));
     }
 
     #[test]
