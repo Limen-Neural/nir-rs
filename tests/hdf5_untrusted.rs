@@ -527,14 +527,14 @@ fn rust_object_size_limit_is_checked_before_reading() {
             .unwrap();
     });
 
-    for options in [ReadOptions::default(), bounded(usize::MAX)] {
-        let result = nir_rs::io::read_with(&path, &options);
-        assert!(
-            matches!(
-                result,
-                Err(NirError::InvalidTensor(_)) | Err(NirError::ReadLimitExceeded { .. })
-            ),
-            "invalid Rust allocation layout must be rejected: {result:?}"
-        );
-    }
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidTensor,
+        &["input.shape", "object-size limit"],
+    );
+    let err = assert_limit(
+        nir_rs::io::read_with(&path, &bounded(usize::MAX)),
+        usize::MAX,
+    );
+    assert!(err.to_string().contains("input.shape"));
 }
