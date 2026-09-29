@@ -105,6 +105,7 @@ pub fn write_then(
 }
 
 /// Decode a documented, comment-bearing hexadecimal fixture into `dir`.
+#[cfg(feature = "hdf5")]
 pub fn decode_hex_fixture(
     dir: &TempDir,
     fixture: impl AsRef<std::path::Path>,

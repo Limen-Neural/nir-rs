@@ -29,6 +29,32 @@ redistribution with attribution plus notice, so the bytes are committed. The
 registry publishes no per-release checksum, so the locally computed SHA-256 of
 the committed bytes is authoritative (`registry_checksum = "none"`).
 
+## Credits and citation
+
+The people and citations below are drawn verbatim from each model's own
+`nir-card.json` (observed at acquisition, 2026-09-29) and mirror the `authors`
+and `citation` keys in [`MANIFEST.toml`](MANIFEST.toml). Four of the five cards
+carry the NIR-paper citation (DOI
+[10.1038/s41467-024-52259-9](https://doi.org/10.1038/s41467-024-52259-9)); the
+`ifsynfire` card carries no citation field.
+
+| Model | Card authors | Citation / paper | Model links |
+|-------|--------------|------------------|-------------|
+| pabogdan/lifneuron | NIR Team | NIR paper, DOI 10.1038/s41467-024-52259-9 | source: github.com/neuromorphs/NIR (`paper/01_lif`) |
+| pabogdan/ifsynfire | Petrut Bogdan | none (no citation field in card) | none (card declares no source repository) |
+| pabogdan/nmnistcnn | NIR Team | NIR paper, DOI 10.1038/s41467-024-52259-9 | source: github.com/neuromorphs/NIR (`paper/02_cnn`, Sinabs export) |
+| pabogdan/brailernn | NIR Team | NIR paper, DOI 10.1038/s41467-024-52259-9 | source: github.com/neuromorphs/NIR (`paper/03_rnn`, snnTorch export); Braille dataset paper: https://www.frontiersin.org/articles/10.3389/fnins.2022.951164/full |
+| jegp/swavelet | Jens E. Pedersen, Tony Lindeberg, Peter Gerstoft | NIR paper, DOI 10.1038/s41467-024-52259-9 | repo: https://github.com/jegp/swavelet; paper: https://arxiv.org/abs/2605.09770 |
+
+The full NIR-paper citation recorded for the four NIR-cited models is:
+
+> Pedersen JE, Abreu S, Jobst M, et al. Neuromorphic Intermediate
+> Representation: A Unified Instruction Set for Interoperable Brain-Inspired
+> Computing. Nature Communications. DOI: 10.1038/s41467-024-52259-9.
+
+Redistribution basis and copyright holders are recorded separately in
+[`LICENSE-Synfire`](LICENSE-Synfire).
+
 ## Node-type inventory
 
 | Model | Node-type inventory | Nested graphs | Key topology feature |
