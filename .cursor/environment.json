@@ -4,7 +4,7 @@
     "dockerfile": "Dockerfile",
     "context": ".."
   },
-  "install": "rustc --version && cargo fmt --version && cargo clippy --version && pkg-config --exists hdf5 && cargo fetch",
+  "install": "export PATH=\"/usr/local/cargo/bin:${PATH}\" && rustc --version && cargo fmt --version && cargo clippy --version && pkg-config --exists hdf5 && cargo fetch",
   "terminals": [
     {
       "name": "shell",
