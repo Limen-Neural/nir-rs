@@ -1,0 +1,19 @@
+src/io/hdf5_read.rs
+  s_d09dc8a3b00022::t_4e1089d3656ec2 29,1106-1133,1135-1136,1152,1179-1204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f6e65f32cbf5f43d0f768ab5535c263f5a72cded",
+  "prompts": {},
+  "sessions": {
+    "s_d09dc8a3b00022": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0efe6-e4b8-7cc0-a777-681dd8ae8019",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
