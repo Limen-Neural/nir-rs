@@ -1,0 +1,34 @@
+CITATION.cff
+  s_d09dc8a3b00022::t_9b912bfd174d40 18
+Cargo.toml
+  s_d09dc8a3b00022::t_9b912bfd174d40 3
+COMPATIBILITY.md
+  s_d09dc8a3b00022::t_9d0f07a0cec72c 10-12,78-85
+.github/workflows/package.yml
+  s_d09dc8a3b00022::t_ea4870054a38e3 65-72,143-150,161,165-166,169,173-174,177-185
+AGENTS.md
+  s_d09dc8a3b00022::t_9b912bfd174d40 65,154-156
+CHANGELOG.md
+  s_d09dc8a3b00022::t_9d0f07a0cec72c 11-14,23-32,37-40,45-46
+README.md
+  s_d09dc8a3b00022::t_5604b832867f2b 192-205
+  s_d09dc8a3b00022::t_6064a5357d9c23 76,83,90,97,183-191,206-221,260,335,337
+examples/load_inspect_lif.rs
+  s_d09dc8a3b00022::t_9b912bfd174d40 16-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "96e68f5270ff41c914b50068e06dadb9bed76e1e",
+  "prompts": {},
+  "sessions": {
+    "s_d09dc8a3b00022": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0efe6-e4b8-7cc0-a777-681dd8ae8019",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
