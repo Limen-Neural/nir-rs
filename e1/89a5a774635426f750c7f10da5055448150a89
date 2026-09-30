@@ -1,0 +1,24 @@
+src/io/hdf5_read.rs
+  s_d09dc8a3b00022::t_80cc234d4eaa8b 28,1077,1106-1119
+tests/hdf5_untrusted.rs
+  s_d09dc8a3b00022::t_b0864530f4a670 30-52,82,96-145,147-166
+  s_d09dc8a3b00022::t_4be2b34e63fc22 53-74
+  s_d09dc8a3b00022::t_89ad96a71c025c 75-81,83,90-95,146,167-168
+  s_d09dc8a3b00022::t_15acb74dd65b81 84-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e189a5a774635426f750c7f10da5055448150a89",
+  "prompts": {},
+  "sessions": {
+    "s_d09dc8a3b00022": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0efe6-e4b8-7cc0-a777-681dd8ae8019",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
