@@ -25,6 +25,7 @@ use crate::nodes::{
     Linear, NirNode, Output, Padding, Scale, SumPool2d, Threshold,
 };
 use crate::types::{MetadataMap, MetadataValue, Tensor, TensorData};
+use hdf5::filters::Filter;
 use hdf5::plist::dataset_create::Layout;
 use hdf5::types::{
     FixedAscii, FixedUnicode, FloatSize, IntSize, TypeDescriptor as Td, VarLenAscii, VarLenUnicode,
@@ -1073,7 +1074,7 @@ fn validate_group_links(group: &Group, context: &str) -> Result<()> {
     Ok(())
 }
 
-/// Validate that a dataset does not use disallowed storage layouts.
+/// Validate that a dataset does not use disallowed storage layouts or filters.
 ///
 /// Rejects external storage (H5D_EXTERNAL) and virtual (VDS) layouts, so a
 /// dataset's raw data can only come from inside the `.nir` file itself. Fails
@@ -1100,6 +1101,22 @@ fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
         return Err(NirError::InvalidGraph(format!(
             "{context}: virtual dataset layouts are not allowed"
         )));
+    }
+
+    // Use the fallible API: `filters()` turns an unreadable pipeline into an
+    // empty list, which would incorrectly treat it as unfiltered data.
+    let filters = dcpl.get_filters().map_err(|e| {
+        NirError::InvalidGraph(format!("{context}: cannot inspect dataset filters: {e}"))
+    })?;
+    for filter in filters {
+        if !matches!(
+            filter,
+            Filter::Deflate(_) | Filter::Shuffle | Filter::Fletcher32
+        ) {
+            return Err(NirError::InvalidGraph(format!(
+                "{context}: HDF5 filter {filter:?} is not allowed"
+            )));
+        }
     }
 
     Ok(())

@@ -27,6 +27,145 @@ fn bounded(max_bytes: usize) -> ReadOptions {
     ReadOptions::default().with_max_bytes(Some(max_bytes))
 }
 
+fn user_filter_dcpl() -> hdf5::plist::DatasetCreate {
+    let dcpl = hdf5::plist::DatasetCreate::build()
+        .chunk([1])
+        .finish()
+        .unwrap();
+    let status = hdf5::sync::sync(|| {
+        // SAFETY: `dcpl` owns a live dataset-creation property list; no
+        // client-data values are supplied, so the null pointer and zero
+        // length agree. HDF5 access is serialized by `sync`.
+        unsafe {
+            hdf5_sys::h5p::H5Pset_filter(
+                dcpl.id(),
+                32_000,
+                hdf5_sys::h5z::H5Z_FLAG_OPTIONAL,
+                0,
+                std::ptr::null(),
+            )
+        }
+    });
+    hdf5::h5check(status).unwrap();
+    dcpl
+}
+
+#[test]
+fn nbit_filter_is_rejected_before_tensor_decode() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "nbit_shape.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+        node.new_dataset_builder()
+            .with_data(&[1_i64])
+            .nbit()
+            .create("shape")
+            .unwrap();
+    });
+
+    for options in [ReadOptions::default(), bounded(1_000_000)] {
+        assert_err(
+            nir_rs::io::read_with(&path, &options),
+            NirError::InvalidGraph,
+            &["input.shape", "NBit"],
+        );
+    }
+}
+
+#[test]
+fn user_filter_is_rejected_before_tensor_decode() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "user_filter_shape.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+
+        let dcpl = user_filter_dcpl();
+
+        node.new_dataset_builder()
+            .set_dcpl(&dcpl)
+            .empty::<i64>()
+            .shape([1])
+            .create("shape")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["input.shape", "User"],
+    );
+}
+
+#[test]
+fn user_filter_on_version_is_rejected_by_both_readers() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "user_filter_version.nir", |file| {
+        file.unlink("version").unwrap();
+        let dcpl = user_filter_dcpl();
+        file.new_dataset_builder()
+            .set_dcpl(&dcpl)
+            .empty::<hdf5::types::FixedAscii<8>>()
+            .shape([1])
+            .create("version")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["version", "User"],
+    );
+    assert_err(
+        nir_rs::io::read_version(&path),
+        NirError::InvalidGraph,
+        &["version", "User"],
+    );
+}
+
+#[test]
+fn non_allowlisted_metadata_filter_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "nbit_metadata.nir", |file| {
+        let metadata = file
+            .group("node")
+            .unwrap()
+            .create_group("metadata")
+            .unwrap();
+        metadata
+            .new_dataset_builder()
+            .with_data(&[7_i64])
+            .nbit()
+            .create("untrusted")
+            .unwrap();
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["metadata.untrusted", "NBit"],
+    );
+}
+
+#[test]
+fn built_in_filter_combination_remains_readable() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "allowed_filters.nir", |file| {
+        let node = file.group("node/nodes/input").unwrap();
+        node.unlink("shape").unwrap();
+        node.new_dataset_builder()
+            .with_data(&[1_i64])
+            .shuffle()
+            .deflate(4)
+            .fletcher32()
+            .create("shape")
+            .unwrap();
+    });
+
+    let graph = nir_rs::io::read(&path).unwrap();
+    assert_eq!(graph.nodes.len(), 2);
+    graph.validate_structure().unwrap();
+}
+
 fn assert_limit<T: std::fmt::Debug>(result: Result<T, NirError>, max_bytes: usize) -> NirError {
     let err = result.expect_err("bounded read should exceed its allocation budget");
     match &err {
