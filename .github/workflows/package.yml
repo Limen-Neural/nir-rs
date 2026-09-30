@@ -62,6 +62,14 @@ jobs:
             tests/fixtures/huggingface/MANIFEST.toml
             tests/fixtures/huggingface/LICENSE-NeuroCUDA
             tests/fixtures/huggingface/neurocuda_mlp_mnist.nir
+            tests/fixtures/overflowing_extents.nir.hex
+            tests/fixtures/synfire/MANIFEST.toml
+            tests/fixtures/synfire/LICENSE-Synfire
+            tests/fixtures/synfire/lifneuron-1.0.0.nir
+            tests/fixtures/synfire/ifsynfire-0.1.0.nir
+            tests/fixtures/synfire/nmnistcnn-1.0.0.nir
+            tests/fixtures/synfire/brailernn-1.0.1.nir
+            tests/fixtures/synfire/swavelet-1.0.0.nir
           )
           missing=0
           for f in "${required[@]}"; do
@@ -132,6 +140,14 @@ jobs:
         with:
           toolchain: "1.98.1"
 
+      - name: Install libhdf5 for API comparison
+        run: |
+          for f in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*; do
+            [ -e "$f" ] && sudo mv "$f" "${f}.disabled" || true
+          done
+          sudo apt-get update
+          sudo apt-get install -y libhdf5-dev pkg-config
+
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -142,17 +158,28 @@ jobs:
       - name: Install cargo-semver-checks
         run: cargo install cargo-semver-checks --locked --version 0.50.0
 
-      - name: Check public API vs crates.io 0.4.3 (default)
+      - name: Check public API vs crates.io 0.4.4 (default)
         run: |
           cargo semver-checks check-release \
             --package nir-rs \
-            --baseline-version 0.4.3 \
+            --baseline-version 0.4.4 \
+            --release-type patch \
             --default-features
 
-      - name: Check public API vs crates.io 0.4.3 (serde)
+      - name: Check public API vs crates.io 0.4.4 (serde)
         run: |
           cargo semver-checks check-release \
             --package nir-rs \
-            --baseline-version 0.4.3 \
+            --baseline-version 0.4.4 \
+            --release-type patch \
             --only-explicit-features \
             --features serde
+
+      - name: Check public API vs crates.io 0.4.4 (serde and hdf5)
+        run: |
+          cargo semver-checks check-release \
+            --package nir-rs \
+            --baseline-version 0.4.4 \
+            --release-type patch \
+            --only-explicit-features \
+            --features serde,hdf5

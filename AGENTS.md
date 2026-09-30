@@ -62,7 +62,7 @@ Separate workflow: [`.github/workflows/package.yml`](.github/workflows/package.y
 
 - **Package job** validates the crates.io *artifact* boundary, not only the
   checkout (licenses, README, fixtures, default-feature tests from the pack).
-- **Semver job** compares the public API to crates.io **`0.4.3`**. Bump the
+- **Semver job** compares the public API to crates.io **`0.4.4`**. Bump the
   registry baseline when cutting a release so the gate always covers the latest
   public API.
 
@@ -151,6 +151,6 @@ See [REVIEW.md](REVIEW.md) for the local quality bar.
 
 ## References
 
-- Upstream: https://github.com/neuromorphs/NIR
-- Paper: https://www.nature.com/articles/s41467-024-52259-9
-- Org epic: LIM-822 / https://github.com/Limen-Neural/nir-rs/issues/1
+- Upstream: <https://github.com/neuromorphs/NIR>
+- Paper: <https://www.nature.com/articles/s41467-024-52259-9>
+- Org epic: LIM-822 / <https://github.com/Limen-Neural/nir-rs/issues/1>

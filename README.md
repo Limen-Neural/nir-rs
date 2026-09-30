@@ -73,28 +73,28 @@ Compatibility claims are **fixture-backed** (`tests/fixtures/`).
 
 ```toml
 [dependencies]
-nir-rs = "0.4.3"
+nir-rs = "0.4.4"
 ```
 
 HDF5 `.nir` I/O (needs a system libhdf5, or a static build — see [File I/O](#file-io)):
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.3", features = ["hdf5"] }
+nir-rs = { version = "0.4.4", features = ["hdf5"] }
 ```
 
 Debug Serde (JSON / RON / etc.; not a wire standard):
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.3", features = ["serde"] }
+nir-rs = { version = "0.4.4", features = ["serde"] }
 ```
 
 From git — pin a release tag (same tree as the matching crates.io release once
 the tag exists):
 
 ```toml
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.3" }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.4" }
 ```
 
 For unreleased work on the default branch:
@@ -180,6 +180,45 @@ fn main() -> nir_rs::Result<()> {
 }
 ```
 
+### Untrusted files
+
+Plain `io::read` is intended for files from trusted producers. For a file
+supplied by someone else, set resource limits with `io::read_with` and apply
+your own file-size limit before opening it:
+
+```rust
+use nir_rs::io::ReadOptions;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let path = "model.nir";
+    if std::fs::metadata(path)?.len() > 64 * 1024 * 1024 {
+        return Err(std::io::Error::other("NIR file exceeds the file-size limit").into());
+    }
+    let opts = ReadOptions::default()
+        .with_max_bytes(Some(128 * 1024 * 1024))
+        .with_max_nodes(Some(10_000))
+        .with_max_edges(Some(50_000))
+        .with_max_nested_graphs(Some(64));
+    let graph = nir_rs::io::read_with(path, &opts)?;
+    println!("loaded {} nodes", graph.nodes.len());
+    Ok(())
+}
+```
+
+These are starting limits, not universal safe values. Choose `max_bytes` to
+cover the file's on-disk size **plus** the decoded data and temporary buffers
+you intend to allow: scalar variable-length strings conservatively charge the
+containing file's size. The byte budget does not count node/link names, map
+bookkeeping, allocator overhead, or libhdf5's internal caches. The HDF5 read
+path also has a separate hard cap of 1,024 graph groups. `read_with` rejects
+external links and storage, virtual datasets, and filters other than gzip,
+shuffle, and Fletcher32; those checks and budgets do not sandbox libhdf5.
+
+Parsing an untrusted file still invokes native libhdf5. Use **HDF5 1.14.4 or
+a distribution-patched equivalent** for the [2024 parsing fixes](https://www.hdfgroup.org/2024/05/06/new-hdf5-cve-issues-fixed-in-1-14-4/),
+and keep that library updated. The static build uses the version vendored by
+`hdf5-metno`; check that version when choosing it for untrusted inputs.
+
 I/O is behind the opt-in **`hdf5`** feature, which links native libhdf5.
 Without that feature the crate has no system dependencies:
 
@@ -218,7 +257,7 @@ model. It is independent of `hdf5`:
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.3", features = ["serde"] }
+nir-rs = { version = "0.4.4", features = ["serde"] }
 serde_json = "1"
 ```
 
@@ -293,8 +332,8 @@ official Python reference package.
 Dual-licensed under either:
 
 - Apache License, Version 2.0 ([LICENSE-APACHE-2.0](LICENSE-APACHE-2.0) or
-  https://www.apache.org/licenses/LICENSE-2.0)
+  <https://www.apache.org/licenses/LICENSE-2.0>)
 - MIT License ([LICENSE-MIT](LICENSE-MIT) or
-  https://opensource.org/licenses/MIT)
+  <https://opensource.org/licenses/MIT>)
 
 at your option.

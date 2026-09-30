@@ -13,6 +13,9 @@ const PREVIEW_ELEMENTS: usize = 8;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (input, output) = paths_from_args()?;
+    // This inspection example treats its input as trusted. For files from
+    // other producers, use io::read_with with explicit ReadOptions budgets;
+    // see the README's "Untrusted files" section.
     let graph = io::read(&input)?;
 
     println!(
