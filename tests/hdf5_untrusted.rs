@@ -27,27 +27,64 @@ fn bounded(max_bytes: usize) -> ReadOptions {
     ReadOptions::default().with_max_bytes(Some(max_bytes))
 }
 
-fn user_filter_dcpl() -> hdf5::plist::DatasetCreate {
+fn filter_dcpl(filter_id: i32, values: &[u32]) -> hdf5::plist::DatasetCreate {
     let dcpl = hdf5::plist::DatasetCreate::build()
         .chunk([1])
         .finish()
         .unwrap();
     let status = hdf5::sync::sync(|| {
-        // SAFETY: `dcpl` owns a live dataset-creation property list; no
-        // client-data values are supplied, so the null pointer and zero
-        // length agree. HDF5 access is serialized by `sync`.
+        // SAFETY: `dcpl` owns a live dataset-creation property list and
+        // `values` remains alive for the call. HDF5 access is serialized by
+        // `sync`.
         unsafe {
             hdf5_sys::h5p::H5Pset_filter(
                 dcpl.id(),
-                32_000,
+                filter_id,
                 hdf5_sys::h5z::H5Z_FLAG_OPTIONAL,
-                0,
-                std::ptr::null(),
+                values.len(),
+                values.as_ptr(),
             )
         }
     });
     hdf5::h5check(status).unwrap();
     dcpl
+}
+
+fn user_filter_dcpl(values: &[u32]) -> hdf5::plist::DatasetCreate {
+    filter_dcpl(32_000, values)
+}
+
+fn replace_shape_with_raw_dcpl(file: &hdf5::File, dcpl: &hdf5::plist::DatasetCreate) {
+    let node = file.group("node/nodes/input").unwrap();
+    let original = node.dataset("shape").unwrap();
+    let dtype = original.dtype().unwrap();
+    let space = original.space().unwrap();
+    node.unlink("shape").unwrap();
+    let name = std::ffi::CString::new("shape").unwrap();
+    let dataset_id = hdf5::sync::sync(|| {
+        // SAFETY: all HDF5 objects own live IDs and `name` remains alive
+        // throughout the call. The dataset is closed below, and `sync`
+        // serializes calls with hdf5-metno. Using the C API here avoids
+        // the upstream builder's own 32-parameter panic during setup.
+        unsafe {
+            hdf5_sys::h5d::H5Dcreate2(
+                node.id(),
+                name.as_ptr(),
+                dtype.id(),
+                space.id(),
+                hdf5_sys::h5p::H5P_DEFAULT,
+                dcpl.id(),
+                hdf5_sys::h5p::H5P_DEFAULT,
+            )
+        }
+    });
+    let dataset_id = hdf5::h5check(dataset_id).unwrap();
+    let close_status = hdf5::sync::sync(|| {
+        // SAFETY: `dataset_id` is the live ID returned by H5Dcreate2 and
+        // is closed exactly once while the HDF5 global lock is held.
+        unsafe { hdf5_sys::h5d::H5Dclose(dataset_id) }
+    });
+    hdf5::h5check(close_status).unwrap();
 }
 
 #[test]
@@ -79,7 +116,7 @@ fn user_filter_is_rejected_before_tensor_decode() {
         let node = file.group("node/nodes/input").unwrap();
         node.unlink("shape").unwrap();
 
-        let dcpl = user_filter_dcpl();
+        let dcpl = user_filter_dcpl(&[]);
 
         node.new_dataset_builder()
             .set_dcpl(&dcpl)
@@ -92,7 +129,37 @@ fn user_filter_is_rejected_before_tensor_decode() {
     assert_err(
         nir_rs::io::read(&path),
         NirError::InvalidGraph,
-        &["input.shape", "User"],
+        &["input.shape", "filter id 32000"],
+    );
+}
+
+#[test]
+fn oversized_user_filter_parameters_cannot_panic_the_reader() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "user_filter_many_parameters.nir", |file| {
+        let dcpl = user_filter_dcpl(&[7; 33]);
+        replace_shape_with_raw_dcpl(file, &dcpl);
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["input.shape", "filter"],
+    );
+}
+
+#[test]
+fn allowed_filter_with_oversized_parameters_cannot_panic_the_reader() {
+    let dir = TempDir::new().unwrap();
+    let path = tampered(&dir, "deflate_many_parameters.nir", |file| {
+        let dcpl = filter_dcpl(hdf5_sys::h5z::H5Z_FILTER_DEFLATE, &[7; 33]);
+        replace_shape_with_raw_dcpl(file, &dcpl);
+    });
+
+    assert_err(
+        nir_rs::io::read(&path),
+        NirError::InvalidGraph,
+        &["input.shape", "at most 32"],
     );
 }
 
@@ -101,7 +168,7 @@ fn user_filter_on_version_is_rejected_by_both_readers() {
     let dir = TempDir::new().unwrap();
     let path = tampered(&dir, "user_filter_version.nir", |file| {
         file.unlink("version").unwrap();
-        let dcpl = user_filter_dcpl();
+        let dcpl = user_filter_dcpl(&[]);
         file.new_dataset_builder()
             .set_dcpl(&dcpl)
             .empty::<hdf5::types::FixedAscii<8>>()
@@ -113,12 +180,12 @@ fn user_filter_on_version_is_rejected_by_both_readers() {
     assert_err(
         nir_rs::io::read(&path),
         NirError::InvalidGraph,
-        &["version", "User"],
+        &["version", "filter id 32000"],
     );
     assert_err(
         nir_rs::io::read_version(&path),
         NirError::InvalidGraph,
-        &["version", "User"],
+        &["version", "filter id 32000"],
     );
 }
 

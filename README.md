@@ -211,8 +211,9 @@ you intend to allow: scalar variable-length strings conservatively charge the
 containing file's size. The byte budget does not count node/link names, map
 bookkeeping, allocator overhead, or libhdf5's internal caches. The HDF5 read
 path also has a separate hard cap of 1,024 graph groups. `read_with` rejects
-external links and storage, virtual datasets, and filters other than gzip,
-shuffle, and Fletcher32; those checks and budgets do not sandbox libhdf5.
+external links and storage, virtual datasets, and **dataset** filters other
+than gzip, shuffle, and Fletcher32; those checks and budgets do not sandbox
+libhdf5 or inspect filters on dense HDF5 group link storage.
 
 Parsing an untrusted file still invokes native libhdf5. Use **HDF5 1.14.4 or
 a distribution-patched equivalent** for the [2024 parsing fixes](https://www.hdfgroup.org/2024/05/06/new-hdf5-cve-issues-fixed-in-1-14-4/),

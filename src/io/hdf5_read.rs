@@ -1103,6 +1103,70 @@ fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
         )));
     }
 
+    // hdf5-metno 0.14.1's filter decoder holds 32 client-data values but
+    // slices by the *reported* value count. Preflight raw IDs and counts before
+    // calling it: a crafted pipeline with 33 values would otherwise panic.
+    let filter_count = hdf5::sync::sync(|| {
+        // SAFETY: `dcpl` owns a live property-list ID; no ownership is
+        // transferred, and `sync` holds the hdf5-metno global lock.
+        unsafe { hdf5_sys::h5p::H5Pget_nfilters(dcpl.id()) }
+    });
+    let filter_count = hdf5::h5check(filter_count).map_err(|e| {
+        NirError::InvalidGraph(format!("{context}: cannot count dataset filters: {e}"))
+    })?;
+    if filter_count > hdf5_sys::h5z::H5Z_MAX_NFILTERS as i32 {
+        return Err(NirError::InvalidGraph(format!(
+            "{context}: HDF5 filter pipeline has {filter_count} entries; at most {} are allowed",
+            hdf5_sys::h5z::H5Z_MAX_NFILTERS
+        )));
+    }
+    for index in 0..filter_count {
+        let mut flags = 0;
+        let mut parameter_count = 0;
+        let filter_id = hdf5::sync::sync(|| {
+            // SAFETY: `dcpl` owns a live property-list ID. `flags` and
+            // `parameter_count` are valid output pointers; zero capacity and
+            // null data/name pointers ask only for the filter ID and count.
+            // `sync` holds the hdf5-metno global lock for the call.
+            unsafe {
+                hdf5_sys::h5p::H5Pget_filter2(
+                    dcpl.id(),
+                    index as u32,
+                    &mut flags,
+                    &mut parameter_count,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            }
+        });
+        let filter_id = hdf5::h5check(filter_id).map_err(|e| {
+            NirError::InvalidGraph(format!("{context}: cannot inspect dataset filter: {e}"))
+        })?;
+        if !matches!(
+            filter_id,
+            hdf5_sys::h5z::H5Z_FILTER_DEFLATE
+                | hdf5_sys::h5z::H5Z_FILTER_SHUFFLE
+                | hdf5_sys::h5z::H5Z_FILTER_FLETCHER32
+        ) {
+            let name = match filter_id {
+                hdf5_sys::h5z::H5Z_FILTER_SZIP => "SZip",
+                hdf5_sys::h5z::H5Z_FILTER_NBIT => "NBit",
+                hdf5_sys::h5z::H5Z_FILTER_SCALEOFFSET => "ScaleOffset",
+                _ => "user/unknown",
+            };
+            return Err(NirError::InvalidGraph(format!(
+                "{context}: HDF5 filter id {filter_id} ({name}) is not allowed"
+            )));
+        }
+        if parameter_count > 32 {
+            return Err(NirError::InvalidGraph(format!(
+                "{context}: HDF5 filter id {filter_id} has {parameter_count} parameters; at most 32 are allowed"
+            )));
+        }
+    }
+
     // Use the fallible API: `filters()` turns an unreadable pipeline into an
     // empty list, which would incorrectly treat it as unfiltered data.
     let filters = dcpl.get_filters().map_err(|e| {

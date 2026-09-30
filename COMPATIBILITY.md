@@ -77,8 +77,9 @@ Default builds and default-feature CI need **no** Python and **no** libhdf5.
 
 For untrusted `.nir` files, use `io::read_with` and caller-selected file-size,
 allocation, and collection limits (see the README). The reader permits only
-unfiltered, gzip/deflate, shuffle, and Fletcher32 datasets; this reduces the
-filter code that a file can invoke but does not sandbox native libhdf5. For the
+unfiltered, gzip/deflate, shuffle, and Fletcher32 **datasets**; this reduces
+dataset filter exposure but does not inspect filters on dense HDF5 group link
+storage or sandbox native libhdf5. For the
 [2024 HDF5 parsing fixes](https://www.hdfgroup.org/2024/05/06/new-hdf5-cve-issues-fixed-in-1-14-4/),
 use libhdf5 **1.14.4 or a distribution-patched equivalent** and keep it updated.
 The static feature builds the HDF5 version vendored by `hdf5-metno`; check that
