@@ -25,7 +25,6 @@ use crate::nodes::{
     Linear, NirNode, Output, Padding, Scale, SumPool2d, Threshold,
 };
 use crate::types::{MetadataMap, MetadataValue, Tensor, TensorData};
-use hdf5::filters::Filter;
 use hdf5::plist::{DatasetCreate, dataset_create::Layout};
 use hdf5::types::{
     FixedAscii, FixedUnicode, FloatSize, IntSize, TypeDescriptor as Td, VarLenAscii, VarLenUnicode,
@@ -1112,21 +1111,9 @@ fn validate_dataset_filters(dcpl: &DatasetCreate, context: &str) -> Result<()> {
 
     // Use the fallible API: `filters()` turns an unreadable pipeline into an
     // empty list, which would incorrectly treat it as unfiltered data.
-    let filters = dcpl.get_filters().map_err(|e| {
+    dcpl.get_filters().map(|_| ()).map_err(|e| {
         NirError::InvalidGraph(format!("{context}: cannot inspect dataset filters: {e}"))
-    })?;
-    for filter in filters {
-        if !matches!(
-            filter,
-            Filter::Deflate(_) | Filter::Shuffle | Filter::Fletcher32
-        ) {
-            return Err(NirError::InvalidGraph(format!(
-                "{context}: HDF5 filter {filter:?} is not allowed"
-            )));
-        }
-    }
-
-    Ok(())
+    })
 }
 
 /// Check raw IDs and parameter counts before hdf5-metno parses filter data.
@@ -1139,13 +1126,11 @@ fn preflight_filter_headers(dcpl: &DatasetCreate, context: &str) -> Result<()> {
         // transferred, and `sync` holds the hdf5-metno global lock.
         unsafe { hdf5_sys::h5p::H5Pget_nfilters(dcpl.id()) }
     });
-    let filter_count = hdf5::h5check(filter_count).map_err(|e| {
-        NirError::InvalidGraph(format!("{context}: cannot count dataset filters: {e}"))
-    })?;
+    let filter_count = hdf5::h5check(filter_count)
+        .map_err(|e| NirError::InvalidGraph(format!("{context}: filter count: {e}")))?;
     if filter_count > hdf5_sys::h5z::H5Z_MAX_NFILTERS as i32 {
         return Err(NirError::InvalidGraph(format!(
-            "{context}: HDF5 filter pipeline has {filter_count} entries; at most {} are allowed",
-            hdf5_sys::h5z::H5Z_MAX_NFILTERS
+            "{context}: too many HDF5 filters ({filter_count})"
         )));
     }
     for index in 0..filter_count {
@@ -1198,9 +1183,8 @@ fn filter_header_at(dcpl: &DatasetCreate, index: u32, context: &str) -> Result<(
             )
         }
     });
-    let filter_id = hdf5::h5check(filter_id).map_err(|e| {
-        NirError::InvalidGraph(format!("{context}: cannot inspect dataset filter: {e}"))
-    })?;
+    let filter_id = hdf5::h5check(filter_id)
+        .map_err(|e| NirError::InvalidGraph(format!("{context}: filter metadata: {e}")))?;
     Ok((filter_id, parameter_count))
 }
 

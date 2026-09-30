@@ -183,14 +183,15 @@ fn main() -> nir_rs::Result<()> {
 ### Untrusted files
 
 Plain `io::read` is intended for files from trusted producers. For a file
-supplied by someone else, set resource limits with `io::read_with` and apply
-your own file-size limit before opening it:
+supplied by someone else, first copy it into an application-owned directory
+that the supplier cannot change. Check the size of that stable copy, then set
+resource limits with `io::read_with`:
 
 ```rust
 use nir_rs::io::ReadOptions;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = "model.nir";
+    let path = "private-staging/model.nir"; // already copied; supplier cannot replace it
     if std::fs::metadata(path)?.len() > 64 * 1024 * 1024 {
         return Err(std::io::Error::other("NIR file exceeds the file-size limit").into());
     }

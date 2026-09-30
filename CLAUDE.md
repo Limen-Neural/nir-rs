@@ -21,10 +21,10 @@ quality bar. Read it before editing code or workflows.
 - Run `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`.
   See [REVIEW.md](REVIEW.md) for the local checklist.
 - Package work runs with `--locked`. The semver gate compares the candidate with
-  the latest published crates.io API, currently `0.4.3`, for default and Serde
-  feature configurations.
-- `0.4.4` is a release candidate until it is published. Keep public installation
-  snippets on published `0.4.3`; do not publish, tag, merge, or use
+  the latest published crates.io API, currently `0.4.4`, for default, Serde,
+  and HDF5 feature configurations under patch-release rules.
+- `0.4.5` is a release candidate until it is published. Keep public installation
+  snippets on published `0.4.4`; do not publish, tag, merge, or use
   `--allow-dirty` without explicit authorization.
 
 ## Coverage integrations

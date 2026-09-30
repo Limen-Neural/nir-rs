@@ -101,6 +101,25 @@ fn nbit_filter_is_rejected_before_tensor_decode() {
 }
 
 #[test]
+fn other_builtin_filters_are_rejected_before_decode() {
+    for (filter_id, name) in [
+        (hdf5_sys::h5z::H5Z_FILTER_SZIP, "SZip"),
+        (hdf5_sys::h5z::H5Z_FILTER_SCALEOFFSET, "ScaleOffset"),
+    ] {
+        let dir = TempDir::new().unwrap();
+        let path = tampered(&dir, "other_builtin_filter.nir", |file| {
+            let dcpl = filter_dcpl(filter_id, &[]);
+            replace_shape_with_raw_dcpl(file, &dcpl);
+        });
+        assert_err(
+            nir_rs::io::read(&path),
+            NirError::InvalidGraph,
+            &["input.shape", name],
+        );
+    }
+}
+
+#[test]
 fn user_filter_is_rejected_before_tensor_decode() {
     let dir = TempDir::new().unwrap();
     let path = tampered(&dir, "user_filter_shape.nir", |file| {
@@ -125,32 +144,40 @@ fn user_filter_is_rejected_before_tensor_decode() {
 }
 
 #[test]
-fn oversized_user_filter_parameters_cannot_panic_the_reader() {
-    let dir = TempDir::new().unwrap();
-    let path = tampered(&dir, "user_filter_many_parameters.nir", |file| {
-        let dcpl = user_filter_dcpl(&[7; 33]);
-        replace_shape_with_raw_dcpl(file, &dcpl);
-    });
-
-    assert_err(
-        nir_rs::io::read(&path),
-        NirError::InvalidGraph,
-        &["input.shape", "filter"],
-    );
+fn oversized_filter_parameters_cannot_panic_the_reader() {
+    for (filename, filter_id, error_fragment) in [
+        ("user_many_parameters.nir", 32_000, "not allowed"),
+        (
+            "deflate_many_parameters.nir",
+            hdf5_sys::h5z::H5Z_FILTER_DEFLATE,
+            "at most 32",
+        ),
+    ] {
+        let dir = TempDir::new().unwrap();
+        let path = tampered(&dir, filename, |file| {
+            let dcpl = filter_dcpl(filter_id, &[7; 33]);
+            replace_shape_with_raw_dcpl(file, &dcpl);
+        });
+        assert_err(
+            nir_rs::io::read(&path),
+            NirError::InvalidGraph,
+            &["input.shape", error_fragment],
+        );
+    }
 }
 
 #[test]
-fn allowed_filter_with_oversized_parameters_cannot_panic_the_reader() {
+fn malformed_deflate_parameters_fail_closed() {
     let dir = TempDir::new().unwrap();
-    let path = tampered(&dir, "deflate_many_parameters.nir", |file| {
-        let dcpl = filter_dcpl(hdf5_sys::h5z::H5Z_FILTER_DEFLATE, &[7; 33]);
+    let path = tampered(&dir, "deflate_no_parameters.nir", |file| {
+        let dcpl = filter_dcpl(hdf5_sys::h5z::H5Z_FILTER_DEFLATE, &[]);
         replace_shape_with_raw_dcpl(file, &dcpl);
     });
 
     assert_err(
         nir_rs::io::read(&path),
         NirError::InvalidGraph,
-        &["input.shape", "at most 32"],
+        &["input.shape", "cannot inspect dataset filters"],
     );
 }
 
