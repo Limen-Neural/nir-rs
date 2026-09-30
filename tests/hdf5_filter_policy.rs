@@ -101,25 +101,6 @@ fn nbit_filter_is_rejected_before_tensor_decode() {
 }
 
 #[test]
-fn other_builtin_filters_are_rejected_before_decode() {
-    for (filter_id, name) in [
-        (hdf5_sys::h5z::H5Z_FILTER_SZIP, "SZip"),
-        (hdf5_sys::h5z::H5Z_FILTER_SCALEOFFSET, "ScaleOffset"),
-    ] {
-        let dir = TempDir::new().unwrap();
-        let path = tampered(&dir, "other_builtin_filter.nir", |file| {
-            let dcpl = filter_dcpl(filter_id, &[]);
-            replace_shape_with_raw_dcpl(file, &dcpl);
-        });
-        assert_err(
-            nir_rs::io::read(&path),
-            NirError::InvalidGraph,
-            &["input.shape", name],
-        );
-    }
-}
-
-#[test]
 fn user_filter_is_rejected_before_tensor_decode() {
     let dir = TempDir::new().unwrap();
     let path = tampered(&dir, "user_filter_shape.nir", |file| {

@@ -1141,11 +1141,10 @@ fn preflight_filter_headers(dcpl: &DatasetCreate, context: &str) -> Result<()> {
                 | hdf5_sys::h5z::H5Z_FILTER_SHUFFLE
                 | hdf5_sys::h5z::H5Z_FILTER_FLETCHER32
         ) {
-            let name = match filter_id {
-                hdf5_sys::h5z::H5Z_FILTER_SZIP => "SZip",
-                hdf5_sys::h5z::H5Z_FILTER_NBIT => "NBit",
-                hdf5_sys::h5z::H5Z_FILTER_SCALEOFFSET => "ScaleOffset",
-                _ => "user/unknown",
+            let name = if filter_id == hdf5_sys::h5z::H5Z_FILTER_NBIT {
+                "NBit"
+            } else {
+                "other/unknown"
             };
             return Err(NirError::InvalidGraph(format!(
                 "{context}: HDF5 filter id {filter_id} ({name}) is not allowed"
