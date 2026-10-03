@@ -42,6 +42,7 @@ fn replace_shape_with_raw_dcpl(file: &hdf5::File, dcpl: &hdf5::plist::DatasetCre
         // throughout the call. The dataset is closed below, and `sync`
         // serializes calls with hdf5-metno. Using the C API here avoids
         // the upstream builder's own 32-parameter panic during setup.
+        // nosemgrep: unsafe-usage -- required to construct the malformed test fixture
         unsafe {
             hdf5_sys::h5d::H5Dcreate2(
                 node.id(),
