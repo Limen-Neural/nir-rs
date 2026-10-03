@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 for the **0.x** series as described under [Versioning](#versioning) below.
 
-## [Unreleased]
+## [0.4.5] - Unreleased
+
+The release date will be recorded when v0.4.5 is published.
 
 ### Added
 
@@ -16,16 +18,30 @@ for the **0.x** series as described under [Versioning](#versioning) below.
   `tests/synfire_fixture_checksums.rs`, `tests/synfire_fixture_attribution.rs`,
   and `tests/hdf5_synfire.rs` (#43 / LIM-1085). CI never contacts the registry.
 
+### Fixed
+
+- Reject HDF5 dataset filters other than gzip/deflate, shuffle, and Fletcher32
+  before decoding, including version and metadata datasets (LIM-1310).
+- Check dataset extent products and decoded allocation sizes before HDF5 reads,
+  preventing overflow on hostile shapes in both bounded and unbounded reads
+  (PR #59 / LIM-1307).
+- Truncate fuzz-generated HDF5 link names at UTF-8 character boundaries
+  (PR #60).
+
 ### Changed
 
 - Keep HDF5 interoperability validation in native CI across Linux, macOS, and
   Windows, including the separate hermetic static-HDF5 job.
+- Compare the public API against published crates.io 0.4.4 in the package
+  workflow, including the HDF5 feature.
+- Document resource limits for untrusted `.nir` files and the native libhdf5
+  version risk without changing the default read API (LIM-1308, LIM-1309).
 
 ### Removed
 
 - Retire the root release image, Docker Hub/GHCR publication workflow, registry
-  credentials, and public image documentation. `nir-rs` is distributed as a
-  Rust crate through crates.io; editor-specific development containers remain.
+  credentials, and public image documentation (PR #58). `nir-rs` is distributed
+  as a Rust crate through crates.io; editor-specific development containers remain.
 
 ## [0.4.4] - 2026-09-16
 

@@ -25,7 +25,7 @@ use crate::nodes::{
     Linear, NirNode, Output, Padding, Scale, SumPool2d, Threshold,
 };
 use crate::types::{MetadataMap, MetadataValue, Tensor, TensorData};
-use hdf5::plist::dataset_create::Layout;
+use hdf5::plist::{DatasetCreate, dataset_create::Layout};
 use hdf5::types::{
     FixedAscii, FixedUnicode, FloatSize, IntSize, TypeDescriptor as Td, VarLenAscii, VarLenUnicode,
 };
@@ -1073,7 +1073,7 @@ fn validate_group_links(group: &Group, context: &str) -> Result<()> {
     Ok(())
 }
 
-/// Validate that a dataset does not use disallowed storage layouts.
+/// Validate that a dataset does not use disallowed storage layouts or filters.
 ///
 /// Rejects external storage (H5D_EXTERNAL) and virtual (VDS) layouts, so a
 /// dataset's raw data can only come from inside the `.nir` file itself. Fails
@@ -1102,7 +1102,90 @@ fn validate_dataset_security(ds: &Dataset, context: &str) -> Result<()> {
         )));
     }
 
+    validate_dataset_filters(&dcpl, context)
+}
+
+/// Reject unsupported filters after a bounded check of their raw metadata.
+fn validate_dataset_filters(dcpl: &DatasetCreate, context: &str) -> Result<()> {
+    preflight_filter_headers(dcpl, context)?;
+
+    // Use the fallible API: `filters()` turns an unreadable pipeline into an
+    // empty list, which would incorrectly treat it as unfiltered data.
+    dcpl.get_filters().map(|_| ()).map_err(|e| {
+        NirError::InvalidGraph(format!("{context}: cannot inspect dataset filters: {e}"))
+    })
+}
+
+/// Check raw IDs and parameter counts before hdf5-metno parses filter data.
+fn preflight_filter_headers(dcpl: &DatasetCreate, context: &str) -> Result<()> {
+    // hdf5-metno 0.14.1's filter decoder holds 32 client-data values but
+    // slices by the *reported* value count. A crafted pipeline with 33 values
+    // would otherwise panic before the allowlist could reject it.
+    let filter_count = hdf5::sync::sync(|| {
+        // SAFETY: `dcpl` owns a live property-list ID; no ownership is
+        // transferred, and `sync` holds the hdf5-metno global lock.
+        // nosemgrep: unsafe-usage -- required to preflight the wrapper's fixed-size buffer
+        unsafe { hdf5_sys::h5p::H5Pget_nfilters(dcpl.id()) }
+    });
+    let filter_count = hdf5::h5check(filter_count)
+        .map_err(|e| NirError::InvalidGraph(format!("{context}: filter count: {e}")))?;
+    if filter_count > hdf5_sys::h5z::H5Z_MAX_NFILTERS as i32 {
+        return Err(NirError::InvalidGraph(format!(
+            "{context}: too many HDF5 filters ({filter_count})"
+        )));
+    }
+    for index in 0..filter_count {
+        let (filter_id, parameter_count) = filter_header_at(dcpl, index as u32, context)?;
+        if !matches!(
+            filter_id,
+            hdf5_sys::h5z::H5Z_FILTER_DEFLATE
+                | hdf5_sys::h5z::H5Z_FILTER_SHUFFLE
+                | hdf5_sys::h5z::H5Z_FILTER_FLETCHER32
+        ) {
+            let name = if filter_id == hdf5_sys::h5z::H5Z_FILTER_NBIT {
+                "NBit"
+            } else {
+                "other/unknown"
+            };
+            return Err(NirError::InvalidGraph(format!(
+                "{context}: HDF5 filter id {filter_id} ({name}) is not allowed"
+            )));
+        }
+        if parameter_count > 32 {
+            return Err(NirError::InvalidGraph(format!(
+                "{context}: HDF5 filter id {filter_id} has {parameter_count} parameters; at most 32 are allowed"
+            )));
+        }
+    }
+
     Ok(())
+}
+
+/// Query one ID and its full parameter count without allocating filter data.
+fn filter_header_at(dcpl: &DatasetCreate, index: u32, context: &str) -> Result<(i32, usize)> {
+    let mut flags = 0;
+    let mut parameter_count = 0;
+    let filter_id = hdf5::sync::sync(|| {
+        // SAFETY: `dcpl` owns a live property-list ID. `flags` and
+        // `parameter_count` are valid output pointers; zero capacity and
+        // null data/name pointers ask only for the filter ID and count.
+        // `sync` holds the hdf5-metno global lock for the call.
+        unsafe {
+            hdf5_sys::h5p::H5Pget_filter2(
+                dcpl.id(),
+                index,
+                &mut flags,
+                &mut parameter_count,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        }
+    });
+    let filter_id = hdf5::h5check(filter_id)
+        .map_err(|e| NirError::InvalidGraph(format!("{context}: filter metadata: {e}")))?;
+    Ok((filter_id, parameter_count))
 }
 
 // ---------------------------------------------------------------------------

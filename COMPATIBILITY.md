@@ -7,8 +7,9 @@ and what each release line claims.
 
 | nir-rs line | Git tag / crates.io | Upstream NIR (fixtures) | Notes |
 |-------------|---------------------|-------------------------|--------|
-| **0.4.4 (candidate)** | Release candidate; not yet tagged or published | Vendored from neuromorphs/NIR @ `7883c3c` (see `tests/fixtures/README.md`) | Graph model, validation, HDF5 I/O, serde DX, and release hardening |
-| 0.4.3 | `v0.4.3` / crates.io **0.4.3** | Same fixture commit | Current published release |
+| **0.4.5 (candidate)** | Not yet tagged or published | Paper fixtures from neuromorphs/NIR @ `7883c3c` plus five pinned Synfire registry artifacts (see `tests/fixtures/README.md`) | HDF5 read hardening and untrusted-file guidance; fixture-backed compatibility only |
+| 0.4.4 | `v0.4.4` / crates.io **0.4.4** | Paper fixtures from neuromorphs/NIR @ `7883c3c` | Current published release: graph model, validation, HDF5 I/O, Serde DX |
+| 0.4.3 | `v0.4.3` / crates.io **0.4.3** | Same paper fixture commit | Previous published release |
 | 0.4.1 | crates.io **0.4.1** | Same fixture commit | First crates.io release; README still org-oriented |
 | `v0.4.0` | git tag only (pre-crates.io) | Same fixture commit | First git-tagged consumer pin |
 
@@ -73,6 +74,17 @@ These are intentional, documented behaviors — not bugs:
 | `hdf5` | no | System **libhdf5** (or static recipe) | `.nir` read/write + fixture tests |
 
 Default builds and default-feature CI need **no** Python and **no** libhdf5.
+
+For untrusted `.nir` files, use `io::read_with` and caller-selected
+decoded-allocation (`max_bytes`) and collection budgets (`max_nodes`,
+`max_edges`, and `max_nested_graphs`); there is no on-disk file-size limit (see
+the README). The reader permits only unfiltered, gzip/deflate, shuffle, and
+Fletcher32 **datasets**; this reduces dataset filter exposure but does not
+inspect filters on dense HDF5 group link storage or sandbox native libhdf5. For
+the [2024 HDF5 parsing fixes](https://www.hdfgroup.org/2024/05/06/new-hdf5-cve-issues-fixed-in-1-14-4/),
+use libhdf5 **1.14.4 or a distribution-patched equivalent** and keep it updated.
+The static feature builds the HDF5 version vendored by `hdf5-metno`; check that
+version separately. This is guidance, not an enforced minimum library version.
 
 ## Toolchain (MSRV)
 
