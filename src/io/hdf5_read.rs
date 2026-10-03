@@ -1124,6 +1124,7 @@ fn preflight_filter_headers(dcpl: &DatasetCreate, context: &str) -> Result<()> {
     let filter_count = hdf5::sync::sync(|| {
         // SAFETY: `dcpl` owns a live property-list ID; no ownership is
         // transferred, and `sync` holds the hdf5-metno global lock.
+        // nosemgrep: unsafe-usage -- required to preflight the wrapper's fixed-size buffer
         unsafe { hdf5_sys::h5p::H5Pget_nfilters(dcpl.id()) }
     });
     let filter_count = hdf5::h5check(filter_count)

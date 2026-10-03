@@ -19,26 +19,11 @@ fn bounded(max_bytes: usize) -> ReadOptions {
 }
 
 fn filter_dcpl(filter_id: i32, values: &[u32]) -> hdf5::plist::DatasetCreate {
-    let dcpl = hdf5::plist::DatasetCreate::build()
+    hdf5::plist::DatasetCreate::build()
         .chunk([1])
+        .add_filter(filter_id, values)
         .finish()
-        .unwrap();
-    let status = hdf5::sync::sync(|| {
-        // SAFETY: `dcpl` owns a live dataset-creation property list and
-        // `values` remains alive for the call. HDF5 access is serialized by
-        // `sync`.
-        unsafe {
-            hdf5_sys::h5p::H5Pset_filter(
-                dcpl.id(),
-                filter_id,
-                hdf5_sys::h5z::H5Z_FLAG_OPTIONAL,
-                values.len(),
-                values.as_ptr(),
-            )
-        }
-    });
-    hdf5::h5check(status).unwrap();
-    dcpl
+        .unwrap()
 }
 
 fn user_filter_dcpl(values: &[u32]) -> hdf5::plist::DatasetCreate {
@@ -73,6 +58,7 @@ fn replace_shape_with_raw_dcpl(file: &hdf5::File, dcpl: &hdf5::plist::DatasetCre
     let close_status = hdf5::sync::sync(|| {
         // SAFETY: `dataset_id` is the live ID returned by H5Dcreate2 and
         // is closed exactly once while the HDF5 global lock is held.
+        // nosemgrep: unsafe-usage -- hdf5-metno exposes no public ID ownership wrapper
         unsafe { hdf5_sys::h5d::H5Dclose(dataset_id) }
     });
     hdf5::h5check(close_status).unwrap();
