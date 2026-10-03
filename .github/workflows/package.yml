@@ -140,18 +140,20 @@ jobs:
         with:
           toolchain: "1.98.1"
 
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: semver-1.98.1
+
       - name: Install libhdf5 for API comparison
         run: |
+          # GH Ubuntu images sometimes ship Microsoft/Azure apt sources that 403
+          # and fail `apt-get update` before we can install libhdf5-dev.
           for f in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*; do
             [ -e "$f" ] && sudo mv "$f" "${f}.disabled" || true
           done
           sudo apt-get update
           sudo apt-get install -y libhdf5-dev pkg-config
-
-      - name: Cache cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          key: semver-1.98.1
 
       # Pin cargo-semver-checks so rustdoc JSON format stays compatible with 1.98.1
       # (older 0.40.x fails on rustdoc v57). Bump with the CI toolchain when needed.
