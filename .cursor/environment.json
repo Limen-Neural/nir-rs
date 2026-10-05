@@ -4,7 +4,7 @@
     "dockerfile": "Dockerfile",
     "context": ".."
   },
-  "install": "rustc --version && cargo fmt --version && cargo clippy --version && pkg-config --exists hdf5 && cargo fetch && cargo test --all-features --no-run --locked",
+  "install": "rustc --version && cargo fmt --version && cargo clippy --version && pkg-config --exists hdf5 && cargo fetch --locked && cargo test --all-features --no-run --locked",
   "terminals": [
     {
       "name": "shell",
