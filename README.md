@@ -73,28 +73,28 @@ Compatibility claims are **fixture-backed** (`tests/fixtures/`).
 
 ```toml
 [dependencies]
-nir-rs = "0.4.4"
+nir-rs = "0.4.5"
 ```
 
 HDF5 `.nir` I/O (needs a system libhdf5, or a static build — see [File I/O](#file-io)):
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.4", features = ["hdf5"] }
+nir-rs = { version = "0.4.5", features = ["hdf5"] }
 ```
 
 Debug Serde (JSON / RON / etc.; not a wire standard):
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.4", features = ["serde"] }
+nir-rs = { version = "0.4.5", features = ["serde"] }
 ```
 
 From git — pin a release tag (same tree as the matching crates.io release once
 the tag exists):
 
 ```toml
-nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.4" }
+nir-rs = { git = "https://github.com/Limen-Neural/nir-rs", tag = "v0.4.5" }
 ```
 
 For unreleased work on the default branch:
@@ -259,7 +259,7 @@ model. It is independent of `hdf5`:
 
 ```toml
 [dependencies]
-nir-rs = { version = "0.4.4", features = ["serde"] }
+nir-rs = { version = "0.4.5", features = ["serde"] }
 serde_json = "1"
 ```
 

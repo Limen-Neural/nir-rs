@@ -6,9 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 for the **0.x** series as described under [Versioning](#versioning) below.
 
-## [0.4.5] - Unreleased
-
-The release date will be recorded when v0.4.5 is published.
+## [0.4.5] - 2026-10-08
 
 ### Added
 

@@ -7,8 +7,8 @@ and what each release line claims.
 
 | nir-rs line | Git tag / crates.io | Upstream NIR (fixtures) | Notes |
 |-------------|---------------------|-------------------------|--------|
-| **0.4.5 (candidate)** | Not yet tagged or published | Paper fixtures from neuromorphs/NIR @ `7883c3c` plus five pinned Synfire registry artifacts (see `tests/fixtures/README.md`) | HDF5 read hardening and untrusted-file guidance; fixture-backed compatibility only |
-| 0.4.4 | `v0.4.4` / crates.io **0.4.4** | Paper fixtures from neuromorphs/NIR @ `7883c3c` | Current published release: graph model, validation, HDF5 I/O, Serde DX |
+| **0.4.5** | `v0.4.5` / crates.io **0.4.5** | Paper fixtures from neuromorphs/NIR @ `7883c3c` plus five pinned Synfire registry artifacts (see `tests/fixtures/README.md`) | Current published release: HDF5 read hardening and untrusted-file guidance; fixture-backed compatibility only |
+| 0.4.4 | `v0.4.4` / crates.io **0.4.4** | Paper fixtures from neuromorphs/NIR @ `7883c3c` | Previous published release: graph model, validation, HDF5 I/O, Serde DX |
 | 0.4.3 | `v0.4.3` / crates.io **0.4.3** | Same paper fixture commit | Previous published release |
 | 0.4.1 | crates.io **0.4.1** | Same fixture commit | First crates.io release; README still org-oriented |
 | `v0.4.0` | git tag only (pre-crates.io) | Same fixture commit | First git-tagged consumer pin |
