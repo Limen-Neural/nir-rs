@@ -3,8 +3,8 @@ name = "nir-rs"
 version = "0.4.5"
 edition = "2024"
 # Supported toolchain — keep in lockstep with rust-toolchain.toml and CI
-# (`toolchain: "1.98.1"`). Raise when the pin moves.
-rust-version = "1.98.1"
+# (`toolchain: "1.99.0"`). Raise when the pin moves.
+rust-version = "1.99.0"
 license = "MIT OR Apache-2.0"
 authors = ["Raul Cardenas Montoya <montoyaraul34@gmail.com>"]
 description = "Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR) — the standard interchange format for spiking neural networks."

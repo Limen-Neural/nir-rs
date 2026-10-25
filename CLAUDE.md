@@ -8,7 +8,7 @@ quality bar. Read it before editing code or workflows.
 
 ## Release-sensitive commands
 
-- Use Rust **1.98.1**. Keep [`rust-toolchain.toml`](rust-toolchain.toml),
+- Use Rust **1.99.0**. Keep [`rust-toolchain.toml`](rust-toolchain.toml),
   `package.rust-version`, CI, and development images in lockstep.
 - Preserve the Rust 2024 edition and a default build free of native/system
   library dependencies. The `hdf5` feature stays opt-in, with system and static
