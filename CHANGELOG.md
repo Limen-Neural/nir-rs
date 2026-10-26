@@ -28,6 +28,9 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ### Changed
 
+- Toolchain pin raised **1.98.1 → 1.99.0** in lockstep (`rust-toolchain.toml`,
+  `package.rust-version`, CI/package/coverage workflows, `rust:1.99.0-bookworm`
+  Cursor/devcontainer image, docs) (LIM-1512).
 - Keep HDF5 interoperability validation in native CI across Linux, macOS, and
   Windows, including the separate hermetic static-HDF5 job.
 - Compare the public API against published crates.io 0.4.4 in the package

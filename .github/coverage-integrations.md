@@ -1,7 +1,7 @@
 # Coverage integrations
 
 The [`Coverage` workflow](workflows/coverage.yml) creates one `lcov.info`
-report from the Rust 1.98.1 all-feature test suite. It uploads that report to
+report from the Rust 1.99.0 all-feature test suite. It uploads that report to
 Codecov and, when `CODACY_PROJECT_TOKEN` is configured, to Codacy through the
 Codacy coverage reporter action. The workflow is informational while a baseline
 is being established; it does not replace the required CI, package, or semver

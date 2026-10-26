@@ -268,7 +268,7 @@ for Python and hardware tooling. JSON cannot represent NaN/infinities faithfully
 
 ## Toolchain
 
-**Rust 1.98.1** — `rust-toolchain.toml`, `package.rust-version`, and CI
+**Rust 1.99.0** — `rust-toolchain.toml`, `package.rust-version`, and CI
 (Linux / macOS / Windows) all pin the same version.
 
 ## Develop
