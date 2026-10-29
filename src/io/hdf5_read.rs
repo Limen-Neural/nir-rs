@@ -16,8 +16,8 @@
 //! [`read_node`] is a flat dispatch table over the wire `type` string; the
 //! per-type functions below it own one node kind each.
 
-use super::ReadOptions;
 use super::wire::{self, KEY_EDGES, KEY_METADATA, KEY_NODE, KEY_NODES, KEY_TYPE, KEY_VERSION};
+use super::{ReadOptions, UnknownFieldPolicy};
 use crate::error::{NirError, ReadLimitResource, Result};
 use crate::graph::NirGraph;
 use crate::nodes::{
@@ -49,6 +49,7 @@ struct ReadBudget {
     nodes: CountLedger,
     edges: CountLedger,
     graphs: CountLedger,
+    unknown_fields: UnknownFieldPolicy,
 }
 
 /// One optional count budget with checked, monotonic charging.
@@ -115,6 +116,30 @@ impl ReadBudget {
             nodes: CountLedger::new(opts.max_nodes),
             edges: CountLedger::new(opts.max_edges),
             graphs: CountLedger::new(opts.max_nested_graphs),
+            unknown_fields: opts.unknown_fields,
+        }
+    }
+
+    /// Under [`UnknownFieldPolicy::Reject`], fail on any member of `group`
+    /// that is not `type`, `metadata`, or listed for wire type `ty`.
+    fn check_fields(&self, group: &Group, ty: &str, context: &str) -> Result<()> {
+        if self.unknown_fields != UnknownFieldPolicy::Reject {
+            return Ok(());
+        }
+        let Some(allowed) = wire::node_fields(ty) else {
+            return Ok(());
+        };
+        let mut names = group.member_names()?;
+        names.sort();
+        match names
+            .into_iter()
+            .find(|n| n != KEY_TYPE && n != KEY_METADATA && !allowed.contains(&n.as_str()))
+        {
+            Some(field) => Err(NirError::UnknownField {
+                context: context.to_owned(),
+                field,
+            }),
+            None => Ok(()),
         }
     }
 
@@ -357,6 +382,7 @@ fn read_graph_body_inner(
     let mut graph = NirGraph::new();
 
     validate_group_links(group, context)?;
+    budget.check_fields(group, "NIRGraph", context)?;
 
     let nodes = group
         .group(KEY_NODES)
@@ -468,6 +494,8 @@ fn read_graph_node(
 }
 
 fn read_leaf_node(group: &Group, name: &str, ty: &str, budget: &ReadBudget) -> Result<NirNode> {
+    // Unknown *types* fall through to `UnknownNodeType` in the dispatch below.
+    budget.check_fields(group, ty, name)?;
     let metadata = read_metadata(group, budget)?;
     let r = NodeReader {
         group,

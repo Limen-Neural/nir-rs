@@ -64,6 +64,7 @@ These are intentional, documented behaviors — not bugs:
 | Wire type strings | Must match neuromorphs/NIR exactly (`CubaLIF`, `Conv2d`, `SumPool2d`, …). Marketing aliases are rejected. |
 | Parameter validation | Opt-in via `NirGraph::validate_parameters`. Reads stay permissive; default writes do not run convolution/pooling checks. |
 | `/version` on read | Default `read` is **permissive** (missing or arbitrary strings stored verbatim). Opt in with `ReadOptions::version_policy`: `RequirePresent`, or `CompatibleMajor` with caller-supplied majors (typically `[0, 1]` for paper fixtures and 1.x writers). Prerelease/build suffixes are parsed then ignored for the major check; the original string is stored. Policy failures use `NirError::IncompatibleVersion` and run before the graph body is decoded. |
+| Unknown fields on a known node type | **Divergence from Python by default.** Python `from_dict` calls `cls(**kwargs)`, so an extra dataset on a node is a `TypeError`; default `read` **silently drops** it (lost on rewrite). Opt in to Python's behaviour with `ReadOptions::with_unknown_fields(UnknownFieldPolicy::Reject)` → `NirError::UnknownField`. `type` and `metadata` (free-form keys) are always allowed; nested `NIRGraph` groups and the root graph recurse. Allowed fields per type: `io::wire::node_fields`. Unknown node *types* always fail with `UnknownNodeType`. |
 
 ## Features
 

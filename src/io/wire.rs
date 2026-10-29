@@ -66,6 +66,72 @@ pub const WIRE_TYPES: [&str; 19] = [
     "NIRGraph",
 ];
 
+/// Datasets a node of wire type `ty` may carry besides `type` and `metadata`.
+///
+/// This is the field table behind
+/// [`UnknownFieldPolicy::Reject`](super::UnknownFieldPolicy::Reject). Every
+/// non-graph entry is a dataset; `NIRGraph` lists its `nodes` and `edges`
+/// members. `metadata` (free-form) and `type` are allowed on every node and
+/// are not repeated here. Returns [`None`] for a string outside
+/// [`WIRE_TYPES`].
+///
+/// | Type | Fields |
+/// |------|--------|
+/// | `Input`, `Output` | `shape` |
+/// | `Affine` | `weight`, `bias` |
+/// | `Linear` | `weight` |
+/// | `Scale` | `scale` |
+/// | `Conv1d`, `Conv2d` | `weight`, `stride`, `padding`, `dilation`, `groups`, `bias`, `input_shape` |
+/// | `CubaLI` | `tau_syn`, `tau_mem`, `r`, `w_in`, `v_leak` |
+/// | `CubaLIF` | `CubaLI` fields + `v_threshold`, `v_reset` |
+/// | `Delay` | `delay` |
+/// | `Flatten` | `start_dim`, `end_dim`, `input_type` |
+/// | `I` | `r` |
+/// | `IF` | `r`, `v_threshold`, `v_reset` |
+/// | `LI` | `tau`, `r`, `v_leak` |
+/// | `LIF` | `LI` fields + `v_threshold`, `v_reset` |
+/// | `SumPool2d`, `AvgPool2d` | `kernel_size`, `stride`, `padding` |
+/// | `Threshold` | `threshold` |
+/// | `NIRGraph` | `nodes`, `edges` |
+#[must_use]
+pub fn node_fields(ty: &str) -> Option<&'static [&'static str]> {
+    Some(match ty {
+        "Input" | "Output" => &["shape"],
+        "Affine" => &["weight", "bias"],
+        "Linear" => &["weight"],
+        "Scale" => &["scale"],
+        "Conv1d" | "Conv2d" => &[
+            "weight",
+            "stride",
+            "padding",
+            "dilation",
+            "groups",
+            "bias",
+            "input_shape",
+        ],
+        "CubaLI" => &["tau_syn", "tau_mem", "r", "w_in", "v_leak"],
+        "CubaLIF" => &[
+            "tau_syn",
+            "tau_mem",
+            "r",
+            "w_in",
+            "v_leak",
+            "v_threshold",
+            "v_reset",
+        ],
+        "Delay" => &["delay"],
+        "Flatten" => &["start_dim", "end_dim", "input_type"],
+        "I" => &["r"],
+        "IF" => &["r", "v_threshold", "v_reset"],
+        "LI" => &["tau", "r", "v_leak"],
+        "LIF" => &["tau", "r", "v_leak", "v_threshold", "v_reset"],
+        "SumPool2d" | "AvgPool2d" => &["kernel_size", "stride", "padding"],
+        "Threshold" => &["threshold"],
+        "NIRGraph" => &["nodes", "edges"],
+        _ => return None,
+    })
+}
+
 /// Whether `name` is a NIR wire node type this crate understands.
 #[must_use]
 pub fn is_wire_type(name: &str) -> bool {
@@ -368,6 +434,15 @@ mod tests {
         }));
         nodes.push(NirNode::Graph(Box::new(NirGraph::new())));
         nodes
+    }
+
+    #[test]
+    fn node_fields_covers_exactly_the_wire_types() {
+        for ty in WIRE_TYPES {
+            assert!(node_fields(ty).is_some(), "{ty} has no field table");
+        }
+        assert!(node_fields("CurrLIF").is_none());
+        assert!(node_fields("LIF").unwrap().contains(&"v_reset"));
     }
 
     #[test]

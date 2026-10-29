@@ -188,9 +188,49 @@ pub struct ReadOptions {
     /// and keeps [`read`] byte-for-byte compatible with earlier crate
     /// versions.
     pub version_policy: VersionPolicy,
+    /// How to treat datasets or groups on a node that are not fields of its
+    /// wire type. Defaults to [`UnknownFieldPolicy::Ignore`]; see that type
+    /// for the compatibility trade-off against Python `nir.read`.
+    pub unknown_fields: UnknownFieldPolicy,
+}
+
+/// Policy for members of a node group that its wire type does not define.
+///
+/// Python `NIRNode.from_dict` calls `cls(**kwargs)`, so an extra dataset on a
+/// node is a hard `TypeError` there. This crate's default is
+/// [`Ignore`](Self::Ignore): the extra member is **silently dropped** (and
+/// therefore lost on rewrite), so a file can load here that Python rejects.
+/// Importers that want Python's behaviour opt in to
+/// [`Reject`](Self::Reject). The allowed set per type is
+/// [`wire::node_fields`]; `type` and `metadata` (whose keys are free-form) are
+/// always allowed. The policy applies to every node, including nested
+/// `NIRGraph` groups, which recurse. Unknown node *types* are always an error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum UnknownFieldPolicy {
+    /// Drop unknown members (default; permissive, for forensic loaders).
+    #[default]
+    Ignore,
+    /// Fail with [`NirError::UnknownField`] (Python-compatible).
+    Reject,
 }
 
 impl ReadOptions {
+    /// Set the unknown-field policy.
+    ///
+    /// ```
+    /// use nir_rs::io::{ReadOptions, UnknownFieldPolicy};
+    ///
+    /// assert_eq!(ReadOptions::default().unknown_fields, UnknownFieldPolicy::Ignore);
+    /// let strict = ReadOptions::default().with_unknown_fields(UnknownFieldPolicy::Reject);
+    /// assert_eq!(strict.unknown_fields, UnknownFieldPolicy::Reject);
+    /// ```
+    #[must_use]
+    pub fn with_unknown_fields(mut self, unknown_fields: UnknownFieldPolicy) -> Self {
+        self.unknown_fields = unknown_fields;
+        self
+    }
+
     /// Set the decoded-allocation budget in bytes; `None` makes it unbounded.
     #[must_use]
     pub fn with_max_bytes(mut self, max_bytes: Option<usize>) -> Self {

@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 for the **0.x** series as described under [Versioning](#versioning) below.
 
+## [Unreleased]
+
+### Added
+
+- `ReadOptions::unknown_fields` / `io::UnknownFieldPolicy` (LIM-1312): opt-in
+  `Reject` fails with the new `NirError::UnknownField` on any member of a node
+  or graph group that is not a field of its wire type, matching Python
+  `from_dict`. Default stays `Ignore` (no behavior change). `io::wire::node_fields`
+  exposes the per-type field table.
+
 ## [0.4.5] - 2026-10-08
 
 ### Added

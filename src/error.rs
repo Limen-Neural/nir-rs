@@ -183,6 +183,19 @@ pub enum NirError {
         policy: String,
     },
 
+    /// An opt-in [`crate::io::UnknownFieldPolicy::Reject`] found a member that
+    /// is not a field of the node's wire type.
+    ///
+    /// Default [`crate::io::read`] ignores such members and never produces
+    /// this variant. Unknown node *types* are [`NirError::UnknownNodeType`].
+    #[error("unknown field {field:?} on {context}")]
+    UnknownField {
+        /// Node name (or graph path) the member was found on.
+        context: String,
+        /// The unexpected HDF5 member name.
+        field: String,
+    },
+
     /// A required wire field was absent when decoding a node or graph.
     #[error("missing field: {0}")]
     MissingField(String),
