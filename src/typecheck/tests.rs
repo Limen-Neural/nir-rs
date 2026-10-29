@@ -361,3 +361,232 @@ fn deep_nesting_is_bounded() {
     }
     assert!(matches!(type_error(&g), TypeError::NestingTooDeep { .. }));
 }
+
+fn conv1d(weight: Tensor, padding: Padding, input_shape: Option<usize>) -> NirNode {
+    NirNode::Conv1d(Conv1d {
+        weight,
+        stride: vec![1],
+        padding,
+        dilation: vec![1],
+        groups: 1,
+        bias: Tensor::from_f32(vec![1], vec![0.0]).unwrap(),
+        input_shape,
+        metadata: Default::default(),
+    })
+}
+
+fn zeros(shape: &[usize]) -> Tensor {
+    Tensor::from_f32(shape.to_vec(), vec![0.0; shape.iter().product()]).unwrap()
+}
+
+fn inference_reason(g: &NirGraph) -> String {
+    match type_error(g) {
+        TypeError::Inference { reason, .. } => reason,
+        other => panic!("expected Inference, got {other:?}"),
+    }
+}
+
+#[test]
+fn conv1d_is_inferred_and_repaired() {
+    let mut g = chain(vec![
+        ("in", input(&[2, 10])),
+        ("conv", conv1d(zeros(&[3, 2, 3]), Padding::Valid, None)),
+        ("out", output(&[3, 8])),
+    ]);
+    g.check_types().unwrap();
+    g.infer_and_repair().unwrap();
+    let NirNode::Conv1d(conv) = g.get("conv").unwrap() else {
+        unreachable!()
+    };
+    assert_eq!(conv.input_shape, Some(10));
+}
+
+#[test]
+fn nested_graph_is_repaired() {
+    let mut g = chain(vec![
+        ("in", input(&[1, 8, 8])),
+        (
+            "sub",
+            NirNode::Graph(Box::new(chain(vec![
+                ("sin", input(&[1, 8, 8])),
+                ("conv", conv2d(2, 1, (3, 3), None)),
+                ("sout", output(&[2, 6, 6])),
+            ]))),
+        ),
+    ]);
+    g.infer_and_repair().unwrap();
+    let Some(NirNode::Graph(sub)) = g.get("sub") else {
+        unreachable!()
+    };
+    let NirNode::Conv2d(conv) = sub.get("conv").unwrap() else {
+        unreachable!()
+    };
+    assert_eq!(conv.input_shape, Some(vec![8, 8]));
+}
+
+#[test]
+fn invalid_node_parameters_become_inference_errors() {
+    let bad_declared = chain(vec![
+        ("in", input(&[5])),
+        ("conv", conv1d(zeros(&[2, 2]), Padding::Valid, Some(5))),
+    ]);
+    assert!(inference_reason(&bad_declared).contains("weight rank"));
+
+    let float_pool = NirNode::SumPool2d(SumPool2d {
+        kernel_size: zeros(&[2]),
+        stride: Tensor::from_i64(vec![2], vec![1, 1]).unwrap(),
+        padding: Tensor::from_i64(vec![2], vec![0, 0]).unwrap(),
+        metadata: Default::default(),
+    });
+    let g = chain(vec![("in", input(&[1, 4, 4])), ("pool", float_pool)]);
+    assert!(inference_reason(&g).contains("integer tensor"));
+
+    let g = chain(vec![("in", input(&[4, 4])), ("pool", pool(2))]);
+    assert!(inference_reason(&g).contains("is not 3"));
+
+    let g = chain(vec![
+        ("in", input(&[1, 4, 4])),
+        ("conv", conv2d(1, 1, (3, 3), None)),
+        ("flat", flatten(None)),
+    ]);
+    g.check_types().unwrap();
+    let g = chain(vec![
+        ("in", input(&[4])),
+        ("conv", conv2d(1, 1, (3, 3), None)),
+    ]);
+    assert!(inference_reason(&g).contains("input rank"));
+}
+
+#[test]
+fn pool_extent_errors() {
+    let ints = |v: &[i64]| Tensor::from_i64(vec![v.len()], v.to_vec()).unwrap();
+    let ok = ints(&[1, 1]);
+    assert!(
+        pool_output(&[1, 4, 4], &ints(&[0, 2]), &ok, &ok)
+            .unwrap_err()
+            .contains("positive")
+    );
+    assert!(
+        pool_output(&[1, 4, 4], &ints(&[]), &ok, &ok)
+            .unwrap_err()
+            .contains("is empty")
+    );
+    assert_eq!(
+        pool_output(&[1, 4, 4], &ints(&[2, 2]), &ints(&[2, 2]), &ints(&[0, 0])).unwrap(),
+        vec![1, 2, 2]
+    );
+}
+
+#[test]
+fn window_extent_errors() {
+    let window = |padding, dilation, kernel, stride| Window {
+        padding,
+        dilation,
+        kernel,
+        stride,
+    };
+    let ok = window(Pad::Valid, &[1], &[3], &[1]);
+    assert_eq!(ok.output(&[5]).unwrap(), vec![3]);
+    assert_eq!(
+        window(Pad::Same, &[1], &[3], &[2]).output(&[5]).unwrap(),
+        vec![5]
+    );
+    assert!(window(Pad::Valid, &[1], &[3], &[0]).output(&[5]).is_err());
+    assert!(
+        window(Pad::Valid, &[1], &[3, 3, 3], &[1])
+            .output(&[5, 5])
+            .unwrap_err()
+            .contains("kernel has 3")
+    );
+    assert!(
+        window(Pad::Explicit(&[1, 2, 3]), &[1], &[3], &[1])
+            .output(&[5, 5])
+            .unwrap_err()
+            .contains("padding has 3")
+    );
+    assert!(
+        window(Pad::Valid, &[1], &[9], &[1])
+            .output(&[5])
+            .unwrap_err()
+            .contains("out of range")
+    );
+}
+
+#[test]
+fn flatten_overflow_is_an_error() {
+    assert!(
+        flatten_output(&[usize::MAX, 2], 0, -1)
+            .unwrap_err()
+            .contains("overflows")
+    );
+    assert_eq!(flatten_output(&[2, 3, 4], 0, 1).unwrap(), vec![6, 4]);
+    assert_eq!(py_slice(3, Some(-1), None), (2, 3));
+}
+
+fn two_input_graph() -> NirGraph {
+    let mut sub = NirGraph::new();
+    sub.insert_node("a", input(&[1])).unwrap();
+    sub.insert_node("b", input(&[1])).unwrap();
+    sub.insert_node("o", output(&[1])).unwrap();
+    sub.add_edge("a", "o");
+    sub.add_edge("b", "o");
+    sub
+}
+
+#[test]
+fn multi_port_subgraph_as_root_is_unsupported() {
+    let mut g = NirGraph::new();
+    g.insert_node("sub", NirNode::Graph(Box::new(two_input_graph())))
+        .unwrap();
+    assert!(matches!(type_error(&g), TypeError::MultiPort { .. }));
+}
+
+#[test]
+fn multi_port_subgraph_as_leaf_is_unsupported() {
+    let mut sub = NirGraph::new();
+    sub.insert_node("i", input(&[1])).unwrap();
+    sub.insert_node("a", output(&[1])).unwrap();
+    sub.insert_node("b", output(&[1])).unwrap();
+    sub.add_edge("i", "a");
+    sub.add_edge("i", "b");
+    let mut g = chain(vec![("in", input(&[1]))]);
+    g.insert_node("sub", NirNode::Graph(Box::new(sub))).unwrap();
+    g.add_edge("in", "sub");
+    assert!(matches!(type_error(&g), TypeError::MultiPort { .. }));
+}
+
+#[test]
+fn check_edge_reports_each_port_defect() {
+    let g = chain(vec![("in", input(&[1])), ("out", output(&[1]))]);
+    let scope = Scope {
+        graph: &g,
+        prefix: "p",
+    };
+    let run = |pre: NodeTypes, post: NodeTypes| {
+        let mut inferred = InferredTypes::default();
+        inferred.nodes.insert("in".into(), pre);
+        inferred.nodes.insert("out".into(), post);
+        match scope.check_edge(&inferred, "in", "out").unwrap_err() {
+            NirError::TypeCheck(e) => *e,
+            other => panic!("{other:?}"),
+        }
+    };
+    let known = || NodeTypes::leaf(Some(vec![1]), Some(vec![1]));
+    assert!(matches!(
+        run(NodeTypes::leaf(Some(vec![1]), None), known()),
+        TypeError::UndefinedOutput { node, .. } if node == "p/in"
+    ));
+    assert!(matches!(
+        run(known(), NodeTypes::leaf(None, Some(vec![1]))),
+        TypeError::UndefinedInput { .. }
+    ));
+    let two = NodeTypes {
+        input: vec![Some(vec![1]); 2],
+        output: vec![Some(vec![1]); 2],
+    };
+    assert!(matches!(
+        run(known(), two.clone()),
+        TypeError::PortCountMismatch { .. }
+    ));
+    assert!(matches!(run(two.clone(), two), TypeError::MultiPort { .. }));
+}

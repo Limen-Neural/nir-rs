@@ -31,7 +31,7 @@
 
 use crate::error::{NirError, Result, TypeError};
 use crate::graph::NirGraph;
-use crate::nodes::{Input, NirNode, Output, Padding};
+use crate::nodes::{Conv1d, Conv2d, Input, NirNode, Output, Padding};
 use crate::types::{Tensor, TensorData};
 use indexmap::IndexMap;
 use std::collections::HashSet;
@@ -210,6 +210,34 @@ fn unique_name(base: &str, taken: &mut HashSet<String>) -> String {
     name
 }
 
+/// A graph under inference, with its path for error messages.
+struct Scope<'a> {
+    graph: &'a NirGraph,
+    prefix: &'a str,
+}
+
+/// Edge list and name bookkeeping, extended with the implicit ports Python adds.
+struct Wiring {
+    edges: Vec<(String, String)>,
+    taken: HashSet<String>,
+    input_names: HashSet<String>,
+}
+
+impl Wiring {
+    fn new(graph: &NirGraph) -> Self {
+        Self {
+            edges: graph.edges.clone(),
+            taken: graph.nodes.keys().cloned().collect(),
+            input_names: graph
+                .nodes
+                .iter()
+                .filter(|(_, n)| matches!(n, NirNode::Input(_)))
+                .map(|(k, _)| k.clone())
+                .collect(),
+        }
+    }
+}
+
 fn infer_graph(graph: &NirGraph, prefix: &str, depth: usize) -> Result<InferredTypes> {
     if depth > NirGraph::MAX_TYPE_CHECK_DEPTH {
         return Err(type_err(TypeError::NestingTooDeep {
@@ -220,90 +248,139 @@ fn infer_graph(graph: &NirGraph, prefix: &str, depth: usize) -> Result<InferredT
     if graph.nodes.is_empty() {
         return Ok(out);
     }
+    let scope = Scope { graph, prefix };
+    let mut types = scope.declared(depth, &mut out)?;
+    let mut wiring = Wiring::new(graph);
+    out.implicit_inputs = scope.implicit_inputs(&mut types, &mut wiring)?;
+    scope.propagate(&mut types, &wiring)?;
+    out.implicit_outputs = scope.implicit_outputs(&types, &mut wiring.taken)?;
+    out.nodes = graph
+        .nodes
+        .keys()
+        .map(|name| (name.clone(), types[name].clone()))
+        .collect();
+    Ok(out)
+}
 
-    // Declared types (what each node knows on its own).
-    let mut types: IndexMap<String, NodeTypes> = IndexMap::with_capacity(graph.nodes.len());
-    for (name, node) in &graph.nodes {
-        let declared = if let NirNode::Graph(sub) = node {
-            let inner = infer_graph(sub, &qualify(prefix, name), depth + 1)?;
-            let ports = graph_ports(sub, &inner);
-            out.subgraphs.insert(name.clone(), inner);
-            ports
-        } else {
-            declared_types(node).map_err(|reason| {
-                type_err(TypeError::Inference {
-                    node: qualify(prefix, name),
-                    node_type: node.type_name(),
-                    reason,
-                })
-            })?
-        };
-        types.insert(name.clone(), declared);
+impl Scope<'_> {
+    fn qualified(&self, name: &str) -> String {
+        qualify(self.prefix, name)
     }
 
-    // Working edge list: real edges plus the implicit `Input -> root` ones.
-    let mut edges: Vec<(String, String)> = graph.edges.clone();
-    let mut taken: HashSet<String> = graph.nodes.keys().cloned().collect();
-    let mut input_names: HashSet<String> = graph
-        .nodes
-        .iter()
-        .filter(|(_, n)| matches!(n, NirNode::Input(_)))
-        .map(|(k, _)| k.clone())
-        .collect();
-    let dests: HashSet<&str> = graph.edges.iter().map(|(_, d)| d.as_str()).collect();
-    let srcs: HashSet<&str> = graph.edges.iter().map(|(s, _)| s.as_str()).collect();
+    fn inference_error(&self, name: &str, node: &NirNode, reason: String) -> NirError {
+        type_err(TypeError::Inference {
+            node: self.qualified(name),
+            node_type: node.type_name(),
+            reason,
+        })
+    }
 
-    // Every root must be an Input, or have a type to build one from.
-    for (name, node) in &graph.nodes {
-        if dests.contains(name.as_str()) || matches!(node, NirNode::Input(_)) {
-            continue;
+    /// Types each node knows on its own; nested graphs are inferred here.
+    fn declared(
+        &self,
+        depth: usize,
+        out: &mut InferredTypes,
+    ) -> Result<IndexMap<String, NodeTypes>> {
+        let mut types = IndexMap::with_capacity(self.graph.nodes.len());
+        for (name, node) in &self.graph.nodes {
+            let declared = if let NirNode::Graph(sub) = node {
+                let inner = infer_graph(sub, &self.qualified(name), depth + 1)?;
+                let ports = graph_ports(sub, &inner);
+                out.subgraphs.insert(name.clone(), inner);
+                ports
+            } else {
+                declared_types(node).map_err(|reason| self.inference_error(name, node, reason))?
+            };
+            types.insert(name.clone(), declared);
         }
-        let declared = &types[name];
-        if declared.input_undefined() {
-            return Err(type_err(TypeError::UndefinedInput {
-                node: qualify(prefix, name),
-                node_type: node.type_name(),
+        Ok(types)
+    }
+
+    /// Every root must be an `Input`, or have a type to build one from.
+    fn implicit_inputs(
+        &self,
+        types: &mut IndexMap<String, NodeTypes>,
+        wiring: &mut Wiring,
+    ) -> Result<Vec<ImplicitPort>> {
+        let dests: HashSet<&str> = self.graph.edges.iter().map(|(_, d)| d.as_str()).collect();
+        let mut ports = Vec::new();
+        for (name, node) in &self.graph.nodes {
+            if dests.contains(name.as_str()) || matches!(node, NirNode::Input(_)) {
+                continue;
+            }
+            let declared = &types[name];
+            if declared.input_undefined() {
+                return Err(type_err(TypeError::UndefinedInput {
+                    node: self.qualified(name),
+                    node_type: node.type_name(),
+                }));
+            }
+            let shape = single_port(&declared.input, &self.qualified(name), name)?;
+            let new_name = unique_name(&format!("input_{name}"), &mut wiring.taken);
+            types.insert(
+                new_name.clone(),
+                NodeTypes::leaf(Some(shape.clone()), Some(shape.clone())),
+            );
+            wiring.input_names.insert(new_name.clone());
+            wiring.edges.push((new_name.clone(), name.clone()));
+            ports.push(ImplicitPort {
+                name: new_name,
+                node: name.clone(),
+                shape,
+            });
+        }
+        Ok(ports)
+    }
+
+    /// Walk the edges from the `Input` nodes, filling in undefined types.
+    fn propagate(&self, types: &mut IndexMap<String, NodeTypes>, wiring: &Wiring) -> Result<()> {
+        let mut ready: Vec<(String, String)> = wiring
+            .edges
+            .iter()
+            .filter(|(s, _)| wiring.input_names.contains(s))
+            .cloned()
+            .collect();
+        if ready.is_empty() {
+            return Err(type_err(TypeError::NoInputs {
+                graph: self.prefix.to_owned(),
             }));
         }
-        let shape = single_port(&declared.input, &qualify(prefix, name), name)?;
-        let new_name = unique_name(&format!("input_{name}"), &mut taken);
-        types.insert(
-            new_name.clone(),
-            NodeTypes::leaf(Some(shape.clone()), Some(shape.clone())),
-        );
-        input_names.insert(new_name.clone());
-        edges.push((new_name.clone(), name.clone()));
-        out.implicit_inputs.push(ImplicitPort {
-            name: new_name,
-            node: name.clone(),
-            shape,
-        });
+        let mut seen: HashSet<String> = ready.iter().map(|(s, _)| s.clone()).collect();
+        while let Some((pre, post)) = ready.pop() {
+            self.propagate_edge(types, &pre, &post)?;
+            seen.insert(post.clone());
+            ready.extend(
+                wiring
+                    .edges
+                    .iter()
+                    .filter(|(s, d)| *s == post && !seen.contains(d))
+                    .cloned(),
+            );
+        }
+        Ok(())
     }
 
-    let mut ready: Vec<(String, String)> = edges
-        .iter()
-        .filter(|(s, _)| input_names.contains(s))
-        .cloned()
-        .collect();
-    if ready.is_empty() {
-        return Err(type_err(TypeError::NoInputs {
-            graph: prefix.to_owned(),
-        }));
-    }
-    let mut seen: HashSet<String> = ready.iter().map(|(s, _)| s.clone()).collect();
-
-    while let Some((pre, post)) = ready.pop() {
-        let pre_output = types[&pre].output.clone();
-        let post_node = &graph.nodes[&post];
-        let post_types = types.get_mut(&post).expect("edge endpoints validated");
+    fn propagate_edge(
+        &self,
+        types: &mut IndexMap<String, NodeTypes>,
+        pre: &str,
+        post: &str,
+    ) -> Result<()> {
+        let pre_output = types[pre].output.clone();
+        let post_node = &self.graph.nodes[post];
+        let post_types = types.get_mut(post).expect("edge endpoints validated");
 
         if post_types.input_undefined() {
             post_types.input = pre_output;
         } else if post_types.input != pre_output {
             return Err(type_err(TypeError::EdgeMismatch {
-                src: qualify(prefix, &pre),
-                src_type: graph.nodes.get(&pre).map_or("Input", NirNode::type_name),
-                dst: qualify(prefix, &post),
+                src: self.qualified(pre),
+                src_type: self
+                    .graph
+                    .nodes
+                    .get(pre)
+                    .map_or("Input", NirNode::type_name),
+                dst: self.qualified(post),
                 dst_type: post_node.type_name(),
                 output: pre_output,
                 input: post_types.input.clone(),
@@ -313,65 +390,99 @@ fn infer_graph(graph: &NirGraph, prefix: &str, depth: usize) -> Result<InferredT
         if matches!(post_node, NirNode::Output(_)) {
             post_types.output = post_types.input.clone();
         }
-
         if post_types.output_undefined() {
-            let inferred = infer_output(post_node, &post_types.input).map_err(|reason| {
-                type_err(TypeError::Inference {
-                    node: qualify(prefix, &post),
-                    node_type: post_node.type_name(),
-                    reason,
-                })
-            })?;
+            let inferred = infer_output(post_node, &post_types.input)
+                .map_err(|reason| self.inference_error(post, post_node, reason))?;
             if let Some(shape) = inferred {
                 post_types.output = vec![Some(shape)];
             }
         }
-
-        seen.insert(post.clone());
-        ready.extend(
-            edges
-                .iter()
-                .filter(|(s, d)| *s == post && !seen.contains(d))
-                .cloned(),
-        );
+        Ok(())
     }
 
-    // Every leaf must be an Output, or have a type to build one from.
-    let leaves: Vec<&String> = graph
-        .nodes
-        .keys()
-        .filter(|k| !srcs.contains(k.as_str()))
-        .collect();
-    if leaves.is_empty() {
-        return Err(type_err(TypeError::NoOutputs {
-            graph: prefix.to_owned(),
-        }));
-    }
-    for name in leaves {
-        let node = &graph.nodes[name];
-        if matches!(node, NirNode::Output(_)) {
-            continue;
-        }
-        let declared = &types[name];
-        if declared.output_undefined() {
-            return Err(type_err(TypeError::UndefinedOutput {
-                node: qualify(prefix, name),
-                node_type: node.type_name(),
+    /// Every leaf must be an `Output`, or have a type to build one from.
+    fn implicit_outputs(
+        &self,
+        types: &IndexMap<String, NodeTypes>,
+        taken: &mut HashSet<String>,
+    ) -> Result<Vec<ImplicitPort>> {
+        let srcs: HashSet<&str> = self.graph.edges.iter().map(|(s, _)| s.as_str()).collect();
+        let leaves: Vec<&String> = self
+            .graph
+            .nodes
+            .keys()
+            .filter(|k| !srcs.contains(k.as_str()))
+            .collect();
+        if leaves.is_empty() {
+            return Err(type_err(TypeError::NoOutputs {
+                graph: self.prefix.to_owned(),
             }));
         }
-        let shape = single_port(&declared.output, &qualify(prefix, name), name)?;
-        let new_name = unique_name(&format!("output_{name}"), &mut taken);
-        out.implicit_outputs.push(ImplicitPort {
-            name: new_name,
-            node: name.clone(),
-            shape,
-        });
+        let mut ports = Vec::new();
+        for name in leaves {
+            let node = &self.graph.nodes[name];
+            if matches!(node, NirNode::Output(_)) {
+                continue;
+            }
+            let declared = &types[name];
+            if declared.output_undefined() {
+                return Err(type_err(TypeError::UndefinedOutput {
+                    node: self.qualified(name),
+                    node_type: node.type_name(),
+                }));
+            }
+            let shape = single_port(&declared.output, &self.qualified(name), name)?;
+            ports.push(ImplicitPort {
+                name: unique_name(&format!("output_{name}"), taken),
+                node: name.clone(),
+                shape,
+            });
+        }
+        Ok(ports)
     }
 
-    for name in graph.nodes.keys() {
-        out.nodes.insert(name.clone(), types[name].clone());
+    /// Both ends of one edge must have a single, equal port.
+    fn check_edge(&self, inferred: &InferredTypes, src: &str, dst: &str) -> Result<()> {
+        let (pre, post) = (&inferred.nodes[src], &inferred.nodes[dst]);
+        let (pre_node, post_node) = (&self.graph.nodes[src], &self.graph.nodes[dst]);
+        if pre.output_undefined() {
+            return Err(type_err(TypeError::UndefinedOutput {
+                node: self.qualified(src),
+                node_type: pre_node.type_name(),
+            }));
+        }
+        if post.input_undefined() {
+            return Err(type_err(TypeError::UndefinedInput {
+                node: self.qualified(dst),
+                node_type: post_node.type_name(),
+            }));
+        }
+        if pre.output.len() != post.input.len() {
+            return Err(type_err(TypeError::PortCountMismatch {
+                src: self.qualified(src),
+                dst: self.qualified(dst),
+                outputs: pre.output.len(),
+                inputs: post.input.len(),
+            }));
+        }
+        if pre.output.len() != 1 {
+            return Err(type_err(TypeError::MultiPort {
+                src: self.qualified(src),
+                dst: self.qualified(dst),
+            }));
+        }
+        if pre.output != post.input {
+            return Err(type_err(TypeError::EdgeMismatch {
+                src: self.qualified(src),
+                src_type: pre_node.type_name(),
+                dst: self.qualified(dst),
+                dst_type: post_node.type_name(),
+                output: pre.output.clone(),
+                input: post.input.clone(),
+            }));
+        }
+        Ok(())
     }
-    Ok(out)
 }
 
 /// The sole shape of a port list, or the unsupported-multi-port error.
@@ -423,47 +534,11 @@ fn check_graph(
             )?;
         }
     }
-    for (src, dst) in &graph.edges {
-        let (pre, post) = (&inferred.nodes[src], &inferred.nodes[dst]);
-        let (pre_node, post_node) = (&graph.nodes[src], &graph.nodes[dst]);
-        if pre.output_undefined() {
-            return Err(type_err(TypeError::UndefinedOutput {
-                node: qualify(prefix, src),
-                node_type: pre_node.type_name(),
-            }));
-        }
-        if post.input_undefined() {
-            return Err(type_err(TypeError::UndefinedInput {
-                node: qualify(prefix, dst),
-                node_type: post_node.type_name(),
-            }));
-        }
-        if pre.output.len() != post.input.len() {
-            return Err(type_err(TypeError::PortCountMismatch {
-                src: qualify(prefix, src),
-                dst: qualify(prefix, dst),
-                outputs: pre.output.len(),
-                inputs: post.input.len(),
-            }));
-        }
-        if pre.output.len() != 1 {
-            return Err(type_err(TypeError::MultiPort {
-                src: qualify(prefix, src),
-                dst: qualify(prefix, dst),
-            }));
-        }
-        if pre.output != post.input {
-            return Err(type_err(TypeError::EdgeMismatch {
-                src: qualify(prefix, src),
-                src_type: pre_node.type_name(),
-                dst: qualify(prefix, dst),
-                dst_type: post_node.type_name(),
-                output: pre.output.clone(),
-                input: post.input.clone(),
-            }));
-        }
-    }
-    Ok(())
+    let scope = Scope { graph, prefix };
+    graph
+        .edges
+        .iter()
+        .try_for_each(|(src, dst)| scope.check_edge(inferred, src, dst))
 }
 
 fn apply_repair(graph: &mut NirGraph, inferred: &InferredTypes) {
@@ -471,19 +546,30 @@ fn apply_repair(graph: &mut NirGraph, inferred: &InferredTypes) {
         return;
     }
     for (name, node) in &mut graph.nodes {
-        let input = inferred.nodes[name].input.first().cloned().flatten();
-        match node {
-            NirNode::Graph(sub) => apply_repair(sub, &inferred.subgraphs[name]),
-            NirNode::Conv1d(conv) if conv.input_shape.is_none() => {
-                conv.input_shape = input.and_then(|s| s.get(1).copied());
-            }
-            NirNode::Conv2d(conv) if conv.input_shape.is_none() => {
-                conv.input_shape = input.map(|s| s[1..].to_vec());
-            }
-            NirNode::Flatten(flat) if flat.input_type.is_none() => flat.input_type = input,
-            _ => {}
+        if let NirNode::Graph(sub) = node {
+            apply_repair(sub, &inferred.subgraphs[name]);
+        } else {
+            repair_node(node, inferred.nodes[name].input.first().cloned().flatten());
         }
     }
+    insert_implicit_ports(graph, inferred);
+}
+
+/// Fill in the optional input type a node was missing.
+fn repair_node(node: &mut NirNode, input: Option<Shape>) {
+    match node {
+        NirNode::Conv1d(conv) if conv.input_shape.is_none() => {
+            conv.input_shape = input.and_then(|s| s.get(1).copied());
+        }
+        NirNode::Conv2d(conv) if conv.input_shape.is_none() => {
+            conv.input_shape = input.map(|s| s[1..].to_vec());
+        }
+        NirNode::Flatten(flat) if flat.input_type.is_none() => flat.input_type = input,
+        _ => {}
+    }
+}
+
+fn insert_implicit_ports(graph: &mut NirGraph, inferred: &InferredTypes) {
     for port in &inferred.implicit_inputs {
         graph.nodes.insert(
             port.name.clone(),
@@ -525,11 +611,11 @@ fn declared_types(node: &NirNode) -> std::result::Result<NodeTypes, String> {
         NirNode::Lif(n) => same(n.r.shape()),
         NirNode::Conv1d(n) => match n.input_shape {
             None => NodeTypes::undefined(),
-            Some(len) => conv_types(&n.weight, 3, &[len], &n.padding, &n.dilation, &n.stride)?,
+            Some(len) => ConvParams::conv1d(n).types(&[len])?,
         },
         NirNode::Conv2d(n) => match &n.input_shape {
             None => NodeTypes::undefined(),
-            Some(spatial) => conv_types(&n.weight, 4, spatial, &n.padding, &n.dilation, &n.stride)?,
+            Some(spatial) => ConvParams::conv2d(n).types(spatial)?,
         },
         NirNode::SumPool2d(_) | NirNode::AvgPool2d(_) => NodeTypes::undefined(),
         NirNode::Flatten(n) => match &n.input_type {
@@ -555,12 +641,8 @@ fn infer_output(
         _ => Err("input type is undefined".to_owned()),
     };
     match node {
-        NirNode::Conv1d(n) => {
-            conv_output(&n.weight, 3, &n.padding, &n.dilation, &n.stride, &known()?).map(Some)
-        }
-        NirNode::Conv2d(n) => {
-            conv_output(&n.weight, 4, &n.padding, &n.dilation, &n.stride, &known()?).map(Some)
-        }
+        NirNode::Conv1d(n) => ConvParams::conv1d(n).output(&known()?).map(Some),
+        NirNode::Conv2d(n) => ConvParams::conv2d(n).output(&known()?).map(Some),
         NirNode::SumPool2d(n) => {
             pool_output(&known()?, &n.kernel_size, &n.stride, &n.padding).map(Some)
         }
@@ -592,62 +674,82 @@ fn matrix_types(weight: &Tensor) -> std::result::Result<NodeTypes, String> {
     ))
 }
 
-fn conv_types(
-    weight: &Tensor,
+/// Convolution fields that fix its shapes.
+struct ConvParams<'a> {
+    weight: &'a Tensor,
+    /// Weight rank: 3 for `Conv1d`, 4 for `Conv2d`.
     rank: usize,
-    spatial: &[usize],
-    padding: &Padding,
-    dilation: &[i64],
-    stride: &[i64],
-) -> std::result::Result<NodeTypes, String> {
-    let channels = *weight
-        .shape()
-        .get(1)
-        .ok_or_else(|| format!("weight rank {} is not {rank}", weight.shape().len()))?;
-    let mut input = vec![channels];
-    input.extend_from_slice(spatial);
-    let output = conv_output(weight, rank, padding, dilation, stride, &input)?;
-    Ok(NodeTypes::leaf(Some(input), Some(output)))
+    padding: &'a Padding,
+    dilation: &'a [i64],
+    stride: &'a [i64],
 }
 
-/// `[C_out, *spatial_out]` for a convolution whose input is
-/// `[C_in, *spatial]`.
-fn conv_output(
-    weight: &Tensor,
-    rank: usize,
-    padding: &Padding,
-    dilation: &[i64],
-    stride: &[i64],
-    input: &[usize],
-) -> std::result::Result<Shape, String> {
-    if weight.shape().len() != rank {
-        return Err(format!(
-            "weight rank {} is not {rank}",
-            weight.shape().len()
-        ));
+impl<'a> ConvParams<'a> {
+    fn conv1d(n: &'a Conv1d) -> Self {
+        Self {
+            weight: &n.weight,
+            rank: 3,
+            padding: &n.padding,
+            dilation: &n.dilation,
+            stride: &n.stride,
+        }
     }
-    if input.len() != rank - 1 {
-        return Err(format!(
-            "input rank {} is not {} (channels plus {} spatial axes)",
-            input.len(),
-            rank - 1,
-            rank - 2
-        ));
+
+    fn conv2d(n: &'a Conv2d) -> Self {
+        Self {
+            weight: &n.weight,
+            rank: 4,
+            padding: &n.padding,
+            dilation: &n.dilation,
+            stride: &n.stride,
+        }
     }
-    let pad = match padding {
-        Padding::Explicit(p) => Pad::Explicit(p),
-        Padding::Same => Pad::Same,
-        Padding::Valid => Pad::Valid,
-    };
-    let mut out = vec![weight.shape()[0]];
-    out.extend(spatial_output(
-        &input[1..],
-        pad,
-        dilation,
-        &weight.shape()[2..],
-        stride,
-    )?);
-    Ok(out)
+
+    /// Ports for a convolution whose spatial input extents are declared.
+    fn types(&self, spatial: &[usize]) -> std::result::Result<NodeTypes, String> {
+        let channels = *self.weight.shape().get(1).ok_or_else(|| {
+            format!(
+                "weight rank {} is not {}",
+                self.weight.shape().len(),
+                self.rank
+            )
+        })?;
+        let mut input = vec![channels];
+        input.extend_from_slice(spatial);
+        let output = self.output(&input)?;
+        Ok(NodeTypes::leaf(Some(input), Some(output)))
+    }
+
+    /// `[C_out, *spatial_out]` for an input of `[C_in, *spatial]`.
+    fn output(&self, input: &[usize]) -> std::result::Result<Shape, String> {
+        let rank = self.rank;
+        let weight = self.weight.shape();
+        if weight.len() != rank {
+            return Err(format!("weight rank {} is not {rank}", weight.len()));
+        }
+        if input.len() != rank - 1 {
+            return Err(format!(
+                "input rank {} is not {} (channels plus {} spatial axes)",
+                input.len(),
+                rank - 1,
+                rank - 2
+            ));
+        }
+        let padding = match self.padding {
+            Padding::Explicit(p) => Pad::Explicit(p),
+            Padding::Same => Pad::Same,
+            Padding::Valid => Pad::Valid,
+        };
+        let window = Window {
+            padding,
+            dilation: self.dilation,
+            kernel: &weight[2..],
+            stride: self.stride,
+        };
+        let mut out = vec![weight[0]];
+        out.extend(window.output(&input[1..])?);
+        Ok(out)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -671,46 +773,59 @@ fn axis_value(
     }
 }
 
-/// `floor((in + 2p - d(k-1) - 1) / s + 1)` per axis (PyTorch / NIR formula).
-fn spatial_output(
-    input: &[usize],
-    padding: Pad<'_>,
-    dilation: &[i64],
-    kernel: &[usize],
-    stride: &[i64],
-) -> std::result::Result<Shape, String> {
-    let ndim = input.len();
-    let mut out = Vec::with_capacity(ndim);
-    for (axis, &n) in input.iter().enumerate() {
-        let extent = match padding {
-            Pad::Same => i128::from(n as u64),
-            Pad::Valid | Pad::Explicit(_) => {
-                let p = match padding {
-                    Pad::Explicit(p) => axis_value(p, axis, ndim, "padding")?,
-                    _ => 0,
-                };
-                let d = axis_value(dilation, axis, ndim, "dilation")?;
-                let s = axis_value(stride, axis, ndim, "stride")?;
-                if s <= 0 {
-                    return Err(format!("stride must be positive, found {s}"));
-                }
-                let k = match kernel.len() {
-                    1 => kernel[0],
-                    len if len == ndim => kernel[axis],
-                    len => return Err(format!("kernel has {len} extents for {ndim} spatial axes")),
-                };
-                let numerator = i128::from(n as u64) + 2 * i128::from(p)
-                    - i128::from(d) * (i128::from(k as u64) - 1)
-                    - 1;
-                numerator.div_euclid(i128::from(s)) + 1
-            }
-        };
-        let extent = usize::try_from(extent).map_err(|_| {
-            format!("output extent {extent} on spatial axis {axis} is out of range")
-        })?;
-        out.push(extent);
+/// Sliding-window parameters shared by convolution and pooling.
+struct Window<'a> {
+    padding: Pad<'a>,
+    dilation: &'a [i64],
+    kernel: &'a [usize],
+    stride: &'a [i64],
+}
+
+impl Window<'_> {
+    /// `floor((in + 2p - d(k-1) - 1) / s + 1)` per axis (PyTorch / NIR formula).
+    fn output(&self, input: &[usize]) -> std::result::Result<Shape, String> {
+        let ndim = input.len();
+        input
+            .iter()
+            .enumerate()
+            .map(|(axis, &n)| self.extent(n, axis, ndim))
+            .collect()
     }
-    Ok(out)
+
+    fn extent(&self, n: usize, axis: usize, ndim: usize) -> std::result::Result<usize, String> {
+        let extent = match self.padding {
+            Pad::Same => i128::from(n as u64),
+            Pad::Valid | Pad::Explicit(_) => self.sliding_extent(n, axis, ndim)?,
+        };
+        usize::try_from(extent)
+            .map_err(|_| format!("output extent {extent} on spatial axis {axis} is out of range"))
+    }
+
+    fn sliding_extent(
+        &self,
+        n: usize,
+        axis: usize,
+        ndim: usize,
+    ) -> std::result::Result<i128, String> {
+        let p = match self.padding {
+            Pad::Explicit(p) => axis_value(p, axis, ndim, "padding")?,
+            _ => 0,
+        };
+        let d = axis_value(self.dilation, axis, ndim, "dilation")?;
+        let s = axis_value(self.stride, axis, ndim, "stride")?;
+        if s <= 0 {
+            return Err(format!("stride must be positive, found {s}"));
+        }
+        let k = match self.kernel.len() {
+            1 => self.kernel[0],
+            len if len == ndim => self.kernel[axis],
+            len => return Err(format!("kernel has {len} extents for {ndim} spatial axes")),
+        };
+        let numerator = i128::from(n as u64) + 2 * i128::from(p)
+            - i128::from(d) * (i128::from(k as u64) - 1)
+            - 1;
+        Ok(numerator.div_euclid(i128::from(s)) + 1)
+    }
 }
 
 fn pool_extents<'a>(tensor: &'a Tensor, field: &str) -> std::result::Result<&'a [i64], String> {
@@ -741,13 +856,13 @@ fn pool_output(
     let stride = pool_extents(stride, "stride")?;
     let padding = pool_extents(padding, "padding")?;
     let mut out = vec![input[0]];
-    out.extend(spatial_output(
-        &input[1..],
-        Pad::Explicit(padding),
-        &[1],
-        &kernel,
+    let window = Window {
+        padding: Pad::Explicit(padding),
+        dilation: &[1],
+        kernel: &kernel,
         stride,
-    )?);
+    };
+    out.extend(window.output(&input[1..])?);
     Ok(out)
 }
 

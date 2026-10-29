@@ -593,4 +593,82 @@ mod tests {
         let err: Box<dyn std::error::Error> = Box::new(NirError::Unimplemented("x"));
         assert!(err.to_string().contains("not implemented"));
     }
+
+    #[test]
+    fn type_error_displays() {
+        let s = |v: &str| v.to_owned();
+        let one = || vec![Some(vec![2usize])];
+        let cases = [
+            (
+                TypeError::EdgeMismatch {
+                    src: s("a"),
+                    src_type: "LIF",
+                    dst: s("b"),
+                    dst_type: "Output",
+                    output: one(),
+                    input: vec![None, Some(vec![3])],
+                },
+                "type mismatch: a (LIF).output [2] -> b (Output).input [?, [3]]",
+            ),
+            (
+                TypeError::PortCountMismatch {
+                    src: s("a"),
+                    dst: s("b"),
+                    outputs: 1,
+                    inputs: 2,
+                },
+                "type length mismatch: len(a.output)=1 -> len(b.input)=2",
+            ),
+            (
+                TypeError::MultiPort {
+                    src: s("a"),
+                    dst: s("b"),
+                },
+                "multiple input/output types not supported yet (a -> b)",
+            ),
+            (
+                TypeError::UndefinedOutput {
+                    node: s("a"),
+                    node_type: "Conv2d",
+                },
+                "Conv2d node a has no defined output type",
+            ),
+            (
+                TypeError::UndefinedInput {
+                    node: s("a"),
+                    node_type: "Conv2d",
+                },
+                "Conv2d node a has no defined input type",
+            ),
+            (
+                TypeError::NoInputs { graph: s("") },
+                "no input nodes found to start type inference",
+            ),
+            (
+                TypeError::NoInputs { graph: s("sub") },
+                "no input nodes found to start type inference in subgraph \"sub\"",
+            ),
+            (
+                TypeError::NoOutputs { graph: s("") },
+                "no output nodes found (cyclic output)",
+            ),
+            (
+                TypeError::Inference {
+                    node: s("a"),
+                    node_type: "Flatten",
+                    reason: s("bad"),
+                },
+                "cannot infer shape of Flatten node a: bad",
+            ),
+            (
+                TypeError::NestingTooDeep { limit: 64 },
+                "graph nesting depth exceeds 64 for type checking",
+            ),
+        ];
+        for (err, text) in cases {
+            assert_eq!(err.to_string(), text);
+            let wrapped = NirError::TypeCheck(Box::new(err));
+            assert_eq!(wrapped.to_string(), format!("type check failed: {text}"));
+        }
+    }
 }
