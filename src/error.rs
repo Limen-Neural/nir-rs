@@ -594,6 +594,14 @@ mod tests {
         assert!(err.to_string().contains("not implemented"));
     }
 
+    fn assert_displays<const N: usize>(cases: [(TypeError, &str); N]) {
+        for (err, text) in cases {
+            assert_eq!(err.to_string(), text);
+            let wrapped = NirError::TypeCheck(Box::new(err));
+            assert_eq!(wrapped.to_string(), format!("type check failed: {text}"));
+        }
+    }
+
     #[test]
     fn type_error_displays() {
         let s = |v: &str| v.to_owned();
@@ -640,6 +648,14 @@ mod tests {
                 },
                 "Conv2d node a has no defined input type",
             ),
+        ];
+        assert_displays(cases);
+    }
+
+    #[test]
+    fn type_error_graph_displays() {
+        let s = |v: &str| v.to_owned();
+        let cases = [
             (
                 TypeError::NoInputs { graph: s("") },
                 "no input nodes found to start type inference",
@@ -665,10 +681,6 @@ mod tests {
                 "graph nesting depth exceeds 64 for type checking",
             ),
         ];
-        for (err, text) in cases {
-            assert_eq!(err.to_string(), text);
-            let wrapped = NirError::TypeCheck(Box::new(err));
-            assert_eq!(wrapped.to_string(), format!("type check failed: {text}"));
-        }
+        assert_displays(cases);
     }
 }
