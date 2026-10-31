@@ -23,7 +23,7 @@ fn conv1d_same_padding_keeps_length() {
         groups: 1,
         bias: Tensor::from_f32(vec![3], vec![0.0; 3]).unwrap(),
         input_shape: None,
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     });
     let g = chain(vec![
         ("in", input(&[2, 10])),
@@ -66,7 +66,7 @@ fn hostile_extents_do_not_panic() {
                 groups: 1,
                 bias: Tensor::from_f32(vec![1], vec![0.0]).unwrap(),
                 input_shape: None,
-                metadata: Default::default(),
+                metadata: MetadataMap::default(),
             }),
         ),
         ("out", output(&[1])),
@@ -109,6 +109,12 @@ fn window_extent_errors() {
         vec![5]
     );
     assert!(window(Pad::Valid, &[1], &[3], &[0]).output(&[5]).is_err());
+    assert!(
+        window(Pad::Valid, &[0], &[3], &[1])
+            .output(&[5])
+            .unwrap_err()
+            .contains("dilation must be positive")
+    );
     assert!(
         window(Pad::Valid, &[1], &[3, 3, 3], &[1])
             .output(&[5, 5])

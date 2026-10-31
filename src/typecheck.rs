@@ -32,7 +32,7 @@
 use crate::error::{NirError, Result, TypeError};
 use crate::graph::NirGraph;
 use crate::nodes::{Conv1d, Conv2d, Input, NirNode, Output, Padding};
-use crate::types::{Tensor, TensorData};
+use crate::types::{MetadataMap, Tensor, TensorData};
 use indexmap::IndexMap;
 use std::collections::HashSet;
 
@@ -388,7 +388,7 @@ impl Scope<'_> {
         }
 
         if matches!(post_node, NirNode::Output(_)) {
-            post_types.output = post_types.input.clone();
+            post_types.output.clone_from(&post_types.input);
         }
         if post_types.output_undefined() {
             let inferred = infer_output(post_node, &post_types.input)
@@ -575,7 +575,7 @@ fn insert_implicit_ports(graph: &mut NirGraph, inferred: &InferredTypes) {
             port.name.clone(),
             NirNode::Input(Input {
                 shape: port.shape.clone(),
-                metadata: Default::default(),
+                metadata: MetadataMap::default(),
             }),
         );
         graph.edges.push((port.name.clone(), port.node.clone()));
@@ -585,7 +585,7 @@ fn insert_implicit_ports(graph: &mut NirGraph, inferred: &InferredTypes) {
             port.name.clone(),
             NirNode::Output(Output {
                 shape: port.shape.clone(),
-                metadata: Default::default(),
+                metadata: MetadataMap::default(),
             }),
         );
         graph.edges.push((port.node.clone(), port.name.clone()));
@@ -594,21 +594,20 @@ fn insert_implicit_ports(graph: &mut NirGraph, inferred: &InferredTypes) {
 
 /// Types a node knows from its own fields (Python `__post_init__`).
 fn declared_types(node: &NirNode) -> std::result::Result<NodeTypes, String> {
-    let same = |shape: &[usize]| NodeTypes::leaf(Some(shape.to_vec()), Some(shape.to_vec()));
     Ok(match node {
-        NirNode::Input(n) => same(&n.shape),
-        NirNode::Output(n) => same(&n.shape),
         NirNode::Affine(n) => matrix_types(&n.weight)?,
         NirNode::Linear(n) => matrix_types(&n.weight)?,
-        NirNode::Scale(n) => same(n.scale.shape()),
-        NirNode::Delay(n) => same(n.delay.shape()),
-        NirNode::Threshold(n) => same(n.threshold.shape()),
-        NirNode::CubaLi(n) => same(n.v_leak.shape()),
-        NirNode::CubaLif(n) => same(n.v_threshold.shape()),
-        NirNode::I(n) => same(n.r.shape()),
-        NirNode::If(n) => same(n.r.shape()),
-        NirNode::Li(n) => same(n.r.shape()),
-        NirNode::Lif(n) => same(n.r.shape()),
+        NirNode::Input(_)
+        | NirNode::Output(_)
+        | NirNode::Scale(_)
+        | NirNode::Delay(_)
+        | NirNode::Threshold(_)
+        | NirNode::CubaLi(_)
+        | NirNode::CubaLif(_)
+        | NirNode::I(_)
+        | NirNode::If(_)
+        | NirNode::Li(_)
+        | NirNode::Lif(_) => parameter_types(node),
         NirNode::Conv1d(n) => match n.input_shape {
             None => NodeTypes::undefined(),
             Some(len) => ConvParams::conv1d(n).types(&[len])?,
@@ -628,6 +627,25 @@ fn declared_types(node: &NirNode) -> std::result::Result<NodeTypes, String> {
         // Handled by the caller (needs the recursive result).
         NirNode::Graph(_) => NodeTypes::undefined(),
     })
+}
+
+/// Nodes whose ports all share the shape of one field.
+fn parameter_types(node: &NirNode) -> NodeTypes {
+    let same = |shape: &[usize]| NodeTypes::leaf(Some(shape.to_vec()), Some(shape.to_vec()));
+    match node {
+        NirNode::Input(n) => same(&n.shape),
+        NirNode::Output(n) => same(&n.shape),
+        NirNode::Scale(n) => same(n.scale.shape()),
+        NirNode::Delay(n) => same(n.delay.shape()),
+        NirNode::Threshold(n) => same(n.threshold.shape()),
+        NirNode::CubaLi(n) => same(n.v_leak.shape()),
+        NirNode::CubaLif(n) => same(n.v_threshold.shape()),
+        NirNode::I(n) => same(n.r.shape()),
+        NirNode::If(n) => same(n.r.shape()),
+        NirNode::Li(n) => same(n.r.shape()),
+        NirNode::Lif(n) => same(n.r.shape()),
+        _ => NodeTypes::undefined(),
+    }
 }
 
 /// Output shape for nodes whose output follows from their (now known) input.
@@ -812,6 +830,9 @@ impl Window<'_> {
             _ => 0,
         };
         let d = axis_value(self.dilation, axis, ndim, "dilation")?;
+        if d <= 0 {
+            return Err(format!("dilation must be positive, found {d}"));
+        }
         let s = axis_value(self.stride, axis, ndim, "stride")?;
         if s <= 0 {
             return Err(format!("stride must be positive, found {s}"));

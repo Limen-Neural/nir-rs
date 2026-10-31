@@ -155,7 +155,7 @@ fn invalid_node_parameters_become_inference_errors() {
         kernel_size: zeros(&[2]),
         stride: Tensor::from_i64(vec![2], vec![1, 1]).unwrap(),
         padding: Tensor::from_i64(vec![2], vec![0, 0]).unwrap(),
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     });
     let g = chain(vec![("in", input(&[1, 4, 4])), ("pool", float_pool)]);
     assert!(inference_reason(&g).contains("integer tensor"));

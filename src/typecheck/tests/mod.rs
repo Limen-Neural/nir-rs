@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::nodes::{Conv1d, Conv2d, Flatten, Lif, SumPool2d};
+use crate::types::MetadataMap;
 
 mod graph;
 mod repair;
@@ -10,14 +11,14 @@ mod shape_math;
 fn input(shape: &[usize]) -> NirNode {
     NirNode::Input(Input {
         shape: shape.to_vec(),
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     })
 }
 
 fn output(shape: &[usize]) -> NirNode {
     NirNode::Output(Output {
         shape: shape.to_vec(),
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     })
 }
 
@@ -32,7 +33,7 @@ fn lif(shape: &[usize]) -> NirNode {
         v_leak: t(0.0),
         v_threshold: t(1.0),
         v_reset: None,
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     })
 }
 
@@ -54,7 +55,7 @@ fn conv2d(
         groups: 1,
         bias: Tensor::from_f32(vec![c_out], vec![0.0; c_out]).unwrap(),
         input_shape,
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     })
 }
 
@@ -64,7 +65,7 @@ fn pool(kernel: i64) -> NirNode {
         kernel_size: t(kernel),
         stride: t(kernel),
         padding: t(0),
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     })
 }
 
@@ -73,7 +74,7 @@ fn flatten(input_type: Option<Vec<usize>>) -> NirNode {
         start_dim: 1,
         end_dim: -1,
         input_type,
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     })
 }
 
@@ -105,7 +106,7 @@ fn conv1d(weight: Tensor, padding: Padding, input_shape: Option<usize>) -> NirNo
         groups: 1,
         bias: Tensor::from_f32(vec![1], vec![0.0]).unwrap(),
         input_shape,
-        metadata: Default::default(),
+        metadata: MetadataMap::default(),
     })
 }
 
