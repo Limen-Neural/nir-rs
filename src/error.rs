@@ -108,6 +108,126 @@ pub enum ParameterError {
     },
 }
 
+/// One port list rendered for [`TypeError`] messages (`[1, 1, 1]`, `?` when
+/// undefined, `[[2], [3]]` for several ports).
+fn fmt_ports(ports: &[Option<Vec<usize>>]) -> String {
+    let one = |p: &Option<Vec<usize>>| {
+        p.as_ref()
+            .map_or_else(|| "?".to_owned(), |s| format!("{s:?}"))
+    };
+    match ports {
+        [single] => one(single),
+        many => format!("[{}]", many.iter().map(one).collect::<Vec<_>>().join(", ")),
+    }
+}
+
+/// Why opt-in type/shape checking rejected a graph.
+///
+/// Returned inside [`NirError::TypeCheck`] by
+/// [`crate::NirGraph::infer_types`], [`crate::NirGraph::check_types`] and
+/// [`crate::NirGraph::infer_and_repair`]. Node names inside nested subgraphs
+/// are `/`-separated paths (`"encoder/conv"`). Ports are `Option<Vec<usize>>`
+/// where `None` is an undefined type.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum TypeError {
+    /// The producer's output shape differs from the consumer's input shape.
+    #[error(
+        "type mismatch: {src} ({src_type}).output {} -> {dst} ({dst_type}).input {}",
+        fmt_ports(.output),
+        fmt_ports(.input)
+    )]
+    EdgeMismatch {
+        /// Producer node.
+        src: String,
+        /// Producer wire type (`Input` for an implicit input port).
+        src_type: &'static str,
+        /// Consumer node.
+        dst: String,
+        /// Consumer wire type.
+        dst_type: &'static str,
+        /// Producer output ports.
+        output: Vec<Option<Vec<usize>>>,
+        /// Consumer input ports.
+        input: Vec<Option<Vec<usize>>>,
+    },
+    /// Producer and consumer expose a different number of ports.
+    #[error("type length mismatch: len({src}.output)={outputs} -> len({dst}.input)={inputs}")]
+    PortCountMismatch {
+        /// Producer node.
+        src: String,
+        /// Consumer node.
+        dst: String,
+        /// Producer output port count.
+        outputs: usize,
+        /// Consumer input port count.
+        inputs: usize,
+    },
+    /// An edge crosses a node with several ports (unsupported, as in Python).
+    #[error("multiple input/output types not supported yet ({src} -> {dst})")]
+    MultiPort {
+        /// Producer node.
+        src: String,
+        /// Consumer node.
+        dst: String,
+    },
+    /// A node feeding an edge, or a graph leaf, has no output type.
+    #[error("{node_type} node {node} has no defined output type")]
+    UndefinedOutput {
+        /// Node name.
+        node: String,
+        /// Wire type string.
+        node_type: &'static str,
+    },
+    /// A node consuming an edge, or a graph root, has no input type.
+    ///
+    /// Typical for `Conv*` without `input_shape`, pooling, and `Flatten`
+    /// without `input_type` that nothing upstream defines.
+    #[error("{node_type} node {node} has no defined input type")]
+    UndefinedInput {
+        /// Node name.
+        node: String,
+        /// Wire type string.
+        node_type: &'static str,
+    },
+    /// No `Input` node (explicit or implied by a root) starts propagation.
+    #[error("no input nodes found to start type inference{}", graph_suffix(.graph))]
+    NoInputs {
+        /// Subgraph path, empty for the root graph.
+        graph: String,
+    },
+    /// Every node has an outgoing edge, so there is no graph output.
+    #[error("no output nodes found (cyclic output){}", graph_suffix(.graph))]
+    NoOutputs {
+        /// Subgraph path, empty for the root graph.
+        graph: String,
+    },
+    /// A node's own parameters make its shape impossible to infer.
+    #[error("cannot infer shape of {node_type} node {node}: {reason}")]
+    Inference {
+        /// Node name.
+        node: String,
+        /// Wire type string.
+        node_type: &'static str,
+        /// Human-readable cause.
+        reason: String,
+    },
+    /// Subgraph nesting exceeds what type inference will recurse into.
+    #[error("graph nesting depth exceeds {limit} for type checking")]
+    NestingTooDeep {
+        /// [`crate::NirGraph::MAX_TYPE_CHECK_DEPTH`].
+        limit: usize,
+    },
+}
+
+fn graph_suffix(graph: &str) -> String {
+    if graph.is_empty() {
+        String::new()
+    } else {
+        format!(" in subgraph {graph:?}")
+    }
+}
+
 /// Structural collection bounded by a [`crate::io::ReadOptions`] count limit.
 ///
 /// Distinct from the decoded-allocation budget (`max_bytes` /
@@ -208,6 +328,15 @@ pub enum NirError {
         /// The invariant that failed.
         kind: ParameterError,
     },
+
+    /// Opt-in type/shape checking rejected the graph.
+    ///
+    /// Returned only by [`crate::NirGraph::infer_types`],
+    /// [`crate::NirGraph::check_types`], [`crate::NirGraph::infer_and_repair`]
+    /// and [`crate::io::read_with`] when
+    /// [`ReadOptions::check_types`](crate::io::ReadOptions::check_types) is set.
+    #[error("type check failed: {0}")]
+    TypeCheck(Box<TypeError>),
 
     /// A bounded read would exceed its decoded-allocation budget.
     #[error(
@@ -463,5 +592,95 @@ mod tests {
     fn error_trait_implemented() {
         let err: Box<dyn std::error::Error> = Box::new(NirError::Unimplemented("x"));
         assert!(err.to_string().contains("not implemented"));
+    }
+
+    fn assert_displays<const N: usize>(cases: [(TypeError, &str); N]) {
+        for (err, text) in cases {
+            assert_eq!(err.to_string(), text);
+            let wrapped = NirError::TypeCheck(Box::new(err));
+            assert_eq!(wrapped.to_string(), format!("type check failed: {text}"));
+        }
+    }
+
+    #[test]
+    fn type_error_displays() {
+        let s = |v: &str| v.to_owned();
+        let one = || vec![Some(vec![2usize])];
+        let cases = [
+            (
+                TypeError::EdgeMismatch {
+                    src: s("a"),
+                    src_type: "LIF",
+                    dst: s("b"),
+                    dst_type: "Output",
+                    output: one(),
+                    input: vec![None, Some(vec![3])],
+                },
+                "type mismatch: a (LIF).output [2] -> b (Output).input [?, [3]]",
+            ),
+            (
+                TypeError::PortCountMismatch {
+                    src: s("a"),
+                    dst: s("b"),
+                    outputs: 1,
+                    inputs: 2,
+                },
+                "type length mismatch: len(a.output)=1 -> len(b.input)=2",
+            ),
+            (
+                TypeError::MultiPort {
+                    src: s("a"),
+                    dst: s("b"),
+                },
+                "multiple input/output types not supported yet (a -> b)",
+            ),
+            (
+                TypeError::UndefinedOutput {
+                    node: s("a"),
+                    node_type: "Conv2d",
+                },
+                "Conv2d node a has no defined output type",
+            ),
+            (
+                TypeError::UndefinedInput {
+                    node: s("a"),
+                    node_type: "Conv2d",
+                },
+                "Conv2d node a has no defined input type",
+            ),
+        ];
+        assert_displays(cases);
+    }
+
+    #[test]
+    fn type_error_graph_displays() {
+        let s = |v: &str| v.to_owned();
+        let cases = [
+            (
+                TypeError::NoInputs { graph: s("") },
+                "no input nodes found to start type inference",
+            ),
+            (
+                TypeError::NoInputs { graph: s("sub") },
+                "no input nodes found to start type inference in subgraph \"sub\"",
+            ),
+            (
+                TypeError::NoOutputs { graph: s("") },
+                "no output nodes found (cyclic output)",
+            ),
+            (
+                TypeError::Inference {
+                    node: s("a"),
+                    node_type: "Flatten",
+                    reason: s("bad"),
+                },
+                "cannot infer shape of Flatten node a: bad",
+            ),
+            (
+                TypeError::NestingTooDeep { limit: 64 },
+                "graph nesting depth exceeds 64 for type checking",
+            ),
+        ];
+        assert_displays(cases);
     }
 }

@@ -139,8 +139,23 @@ padding, bias, pooling windows) are a separate opt-in:
 g.validate_parameters()?;
 ```
 
-HDF5 reads run neither check. The default writer runs structure validation
-only.
+Shape agreement along edges is a third opt-in, mirroring Python
+`NIRGraph(type_check=True)` (`Conv1d`/`Conv2d`, `SumPool2d`/`AvgPool2d`,
+`Flatten`, and port shapes of every other node):
+
+```rust
+g.check_types()?;           // would Python accept this graph? never mutates
+let types = g.infer_types()?; // per-node shapes + the Input/Output Python would add
+g.infer_and_repair()?;      // explicit, atomic: actually insert them
+```
+
+Unlike Python, loading never inserts `Input`/`Output` nodes: only
+`infer_and_repair` mutates. `ReadOptions::with_check_types(true)` runs
+`check_types` after an HDF5 decode. See the `typecheck` module docs for the one
+intentional difference (non-square `Conv2d` kernels).
+
+HDF5 reads run none of these checks by default. The default writer runs
+structure validation only.
 
 ## File I/O
 
