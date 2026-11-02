@@ -28,6 +28,10 @@
 //! `weight.shape[2]` as the kernel size for **both** spatial axes. This crate
 //! uses `weight.shape[2]` and `weight.shape[3]` per axis, so non-square
 //! kernels are inferred correctly instead of reproducing that quirk.
+//!
+//! Inherited as-is: with `Padding::Same`, upstream `calculate_conv_output`
+//! returns the input extent and ignores `stride`, so a strided `same`
+//! convolution keeps its spatial size here too (PyTorch would reject it).
 
 use crate::error::{NirError, Result, TypeError};
 use crate::graph::NirGraph;
@@ -167,8 +171,8 @@ impl NirGraph {
     /// Python does this implicitly on construction; here it is explicit and
     /// atomic (the graph is untouched when an error is returned). On success:
     ///
-    /// - an `Input` is prepended to every non-`Input` root and an `Output`
-    ///   appended to every non-`Output` leaf (named as in Python)
+    /// - an `Input` is added for every non-`Input` root and an `Output` for
+    ///   every non-`Output` leaf, appended in node order and named as in Python
     /// - `Conv1d` / `Conv2d` get `input_shape`, and `Flatten` gets
     ///   `input_type`, where those were `None`
     ///
@@ -239,7 +243,7 @@ impl Wiring {
 }
 
 fn infer_graph(graph: &NirGraph, prefix: &str, depth: usize) -> Result<InferredTypes> {
-    if depth > NirGraph::MAX_TYPE_CHECK_DEPTH {
+    if depth >= NirGraph::MAX_TYPE_CHECK_DEPTH {
         return Err(type_err(TypeError::NestingTooDeep {
             limit: NirGraph::MAX_TYPE_CHECK_DEPTH,
         }));
@@ -519,7 +523,7 @@ fn check_graph(
     prefix: &str,
     depth: usize,
 ) -> Result<()> {
-    if depth > NirGraph::MAX_TYPE_CHECK_DEPTH {
+    if depth >= NirGraph::MAX_TYPE_CHECK_DEPTH {
         return Err(type_err(TypeError::NestingTooDeep {
             limit: NirGraph::MAX_TYPE_CHECK_DEPTH,
         }));

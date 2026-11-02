@@ -130,17 +130,30 @@ fn nested_mismatch_is_path_qualified() {
     assert!(err.contains("sub/lif"), "{err}");
 }
 
-#[test]
-fn deep_nesting_is_bounded() {
+fn nested(levels: usize) -> NirGraph {
     let mut g = chain(vec![("in", input(&[1])), ("out", output(&[1]))]);
-    for _ in 0..(NirGraph::MAX_TYPE_CHECK_DEPTH + 2) {
+    for _ in 0..levels {
         let mut outer = NirGraph::new();
         outer
             .insert_node("sub", NirNode::Graph(Box::new(g)))
             .unwrap();
         g = outer;
     }
-    assert!(matches!(type_error(&g), TypeError::NestingTooDeep { .. }));
+    g
+}
+
+#[test]
+fn deep_nesting_is_bounded() {
+    let limit = NirGraph::MAX_TYPE_CHECK_DEPTH;
+    assert!(matches!(
+        type_error(&nested(limit)),
+        TypeError::NestingTooDeep { .. }
+    ));
+    assert!(matches!(
+        type_error(&nested(limit + 2)),
+        TypeError::NestingTooDeep { .. }
+    ));
+    nested(limit - 1).check_types().unwrap();
 }
 
 #[test]
