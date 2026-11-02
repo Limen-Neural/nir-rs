@@ -116,10 +116,12 @@ pub mod error;
 pub mod graph;
 pub mod io;
 pub mod nodes;
+mod typecheck;
 pub mod types;
 mod validation;
 
-pub use error::{NirError, ParameterError, ReadLimitResource, Result};
+pub use error::{NirError, ParameterError, ReadLimitResource, Result, TypeError};
 pub use graph::NirGraph;
 pub use nodes::NirNode;
+pub use typecheck::{ImplicitPort, InferredTypes, NodeTypes, Shape};
 pub use types::{DType, MetadataMap, MetadataValue, Tensor, TensorData};

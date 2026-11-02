@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 for the **0.x** series as described under [Versioning](#versioning) below.
 
+## [Unreleased]
+
+### Added
+
+- Opt-in type/shape checking aligned with Python `NIRGraph` (LIM-1313):
+  `NirGraph::infer_types`, `check_types`, and the explicit, atomic
+  `infer_and_repair`; `InferredTypes` / `NodeTypes` / `ImplicitPort` /
+  `Shape`; `NirError::TypeCheck(Box<TypeError>)` and `TypeError`;
+  `ReadOptions::check_types` / `with_check_types`. Default `read`,
+  `validate_structure`, and the writer are unchanged. The checker never
+  mutates the graph; only `infer_and_repair` inserts `Input`/`Output`.
+
 ## [0.4.5] - 2026-10-08
 
 ### Added

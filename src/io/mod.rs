@@ -188,6 +188,14 @@ pub struct ReadOptions {
     /// and keeps [`read`] byte-for-byte compatible with earlier crate
     /// versions.
     pub version_policy: VersionPolicy,
+    /// Run [`NirGraph::check_types`] on the decoded graph. Defaults to
+    /// `false`, so [`read`] stays permissive and never fails on shapes.
+    ///
+    /// Python `nir.read` type-checks by default and may insert `Input` /
+    /// `Output` nodes; this flag only *checks* and never changes the graph.
+    /// Structure errors (dangling or duplicate edges) surface first, exactly
+    /// as from [`NirGraph::validate_structure`].
+    pub check_types: bool,
 }
 
 impl ReadOptions {
@@ -217,6 +225,20 @@ impl ReadOptions {
     #[must_use]
     pub fn with_max_nested_graphs(mut self, max_nested_graphs: Option<usize>) -> Self {
         self.max_nested_graphs = max_nested_graphs;
+        self
+    }
+
+    /// Run [`NirGraph::check_types`] after decoding (default off).
+    ///
+    /// ```
+    /// use nir_rs::io::ReadOptions;
+    ///
+    /// assert!(!ReadOptions::default().check_types);
+    /// assert!(ReadOptions::default().with_check_types(true).check_types);
+    /// ```
+    #[must_use]
+    pub fn with_check_types(mut self, check_types: bool) -> Self {
+        self.check_types = check_types;
         self
     }
 
@@ -389,8 +411,14 @@ pub fn read(path: impl AsRef<Path>) -> Result<NirGraph> {
 /// count would cross the corresponding limit, and
 /// [`NirError::IncompatibleVersion`] when `opts.version_policy` rejects
 /// `/version`. Version-policy checks run before the graph body is decoded.
+/// With `opts.check_types`, structure errors or [`NirError::TypeCheck`] are
+/// returned after a successful decode.
 pub fn read_with(path: impl AsRef<Path>, opts: &ReadOptions) -> Result<NirGraph> {
-    backend::read(path.as_ref(), opts)
+    let graph = backend::read(path.as_ref(), opts)?;
+    if opts.check_types {
+        graph.check_types()?;
+    }
+    Ok(graph)
 }
 
 /// Read only the `/version` string from a `.nir` file.
