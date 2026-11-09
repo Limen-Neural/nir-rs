@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use super::*;
-use crate::nodes::{Conv1d, Conv2d, Flatten, Lif, SumPool2d};
-use crate::types::MetadataMap;
+use crate::nodes::{Conv1d, Conv2d, Flatten, Lif, Padding, SumPool2d};
+use crate::types::{MetadataMap, Tensor};
 
 mod graph;
 mod repair;

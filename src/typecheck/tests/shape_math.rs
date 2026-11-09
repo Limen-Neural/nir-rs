@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use super::*;
+use crate::typecheck::shape::{Pad, Window, flatten_output, matrix_types, pool_output, py_slice};
 
 #[test]
 fn non_square_kernel_uses_each_axis() {

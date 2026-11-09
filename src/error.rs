@@ -220,11 +220,20 @@ pub enum TypeError {
     },
 }
 
-fn graph_suffix(graph: &str) -> String {
-    if graph.is_empty() {
-        String::new()
-    } else {
-        format!(" in subgraph {graph:?}")
+fn graph_suffix(graph: &str) -> GraphSuffix<'_> {
+    GraphSuffix(graph)
+}
+
+/// ` in subgraph "<path>"`, or nothing for the root graph (empty path).
+struct GraphSuffix<'a>(&'a str);
+
+impl fmt::Display for GraphSuffix<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.is_empty() {
+            Ok(())
+        } else {
+            write!(f, " in subgraph {:?}", self.0)
+        }
     }
 }
 
