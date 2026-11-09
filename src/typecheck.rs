@@ -38,7 +38,7 @@ use crate::graph::NirGraph;
 use crate::nodes::{Conv1d, Conv2d, Input, NirNode, Output, Padding};
 use crate::types::{MetadataMap, Tensor, TensorData};
 use indexmap::IndexMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Tensor shape of one port (axis lengths).
 pub type Shape = Vec<usize>;
@@ -147,10 +147,11 @@ impl NirGraph {
     /// ```
     /// use nir_rs::{NirGraph, NirNode, NirError};
     /// use nir_rs::nodes::{Input, Output};
+    /// use nir_rs::types::MetadataMap;
     ///
     /// let mut g = NirGraph::new();
-    /// g.insert_node("in", NirNode::Input(Input { shape: vec![3], metadata: Default::default() }))?;
-    /// g.insert_node("out", NirNode::Output(Output { shape: vec![4], metadata: Default::default() }))?;
+    /// g.insert_node("in", NirNode::Input(Input { shape: vec![3], metadata: MetadataMap::default() }))?;
+    /// g.insert_node("out", NirNode::Output(Output { shape: vec![4], metadata: MetadataMap::default() }))?;
     /// g.add_edge("in", "out");
     /// assert!(g.validate_structure().is_ok());
     /// assert!(matches!(g.check_types(), Err(NirError::TypeCheck(_))));
@@ -337,29 +338,36 @@ impl Scope<'_> {
     }
 
     /// Walk the edges from the `Input` nodes, filling in undefined types.
+    ///
+    /// Outgoing edges are indexed up front, in edge order, so each edge is
+    /// queued at most once and propagation stays linear in the edge count.
     fn propagate(&self, types: &mut IndexMap<String, NodeTypes>, wiring: &Wiring) -> Result<()> {
-        let mut ready: Vec<(String, String)> = wiring
+        let mut outgoing: HashMap<&str, Vec<&str>> = HashMap::with_capacity(wiring.edges.len());
+        for (src, dst) in &wiring.edges {
+            outgoing.entry(src.as_str()).or_default().push(dst.as_str());
+        }
+        let mut ready: Vec<(&str, &str)> = wiring
             .edges
             .iter()
             .filter(|(s, _)| wiring.input_names.contains(s))
-            .cloned()
+            .map(|(s, d)| (s.as_str(), d.as_str()))
             .collect();
         if ready.is_empty() {
             return Err(type_err(TypeError::NoInputs {
                 graph: self.prefix.to_owned(),
             }));
         }
-        let mut seen: HashSet<String> = ready.iter().map(|(s, _)| s.clone()).collect();
+        let mut seen: HashSet<&str> = ready.iter().map(|(s, _)| *s).collect();
         while let Some((pre, post)) = ready.pop() {
-            self.propagate_edge(types, &pre, &post)?;
-            seen.insert(post.clone());
-            ready.extend(
-                wiring
-                    .edges
-                    .iter()
-                    .filter(|(s, d)| *s == post && !seen.contains(d))
-                    .cloned(),
-            );
+            self.propagate_edge(types, pre, post)?;
+            seen.insert(post);
+            if let Some(dsts) = outgoing.get(post) {
+                ready.extend(
+                    dsts.iter()
+                        .filter(|dst| !seen.contains(*dst))
+                        .map(|dst| (post, *dst)),
+                );
+            }
         }
         Ok(())
     }

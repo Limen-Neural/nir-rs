@@ -98,13 +98,16 @@ fn type_error(g: &NirGraph) -> TypeError {
 }
 
 fn conv1d(weight: Tensor, padding: Padding, input_shape: Option<usize>) -> NirNode {
+    // Size the bias from the output channels so fixtures stay valid under
+    // `validate_parameters` for any weight shape.
+    let c_out = weight.shape()[0];
     NirNode::Conv1d(Conv1d {
         weight,
         stride: vec![1],
         padding,
         dilation: vec![1],
         groups: 1,
-        bias: Tensor::from_f32(vec![1], vec![0.0]).unwrap(),
+        bias: Tensor::from_f32(vec![c_out], vec![0.0; c_out]).unwrap(),
         input_shape,
         metadata: MetadataMap::default(),
     })

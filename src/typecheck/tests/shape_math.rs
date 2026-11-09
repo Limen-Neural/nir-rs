@@ -54,24 +54,39 @@ fn affine_ports_follow_weight_axes() {
 
 #[test]
 fn hostile_extents_do_not_panic() {
+    let conv = |stride: i64, padding: i64, dilation: i64| {
+        NirNode::Conv2d(Conv2d {
+            weight: Tensor::from_f32(vec![1, 1, 1, 1], vec![0.0]).unwrap(),
+            stride: vec![stride],
+            padding: Padding::Explicit(vec![padding]),
+            dilation: vec![dilation],
+            groups: 1,
+            bias: Tensor::from_f32(vec![1], vec![0.0]).unwrap(),
+            input_shape: None,
+            metadata: MetadataMap::default(),
+        })
+    };
+    // Huge explicit padding drives the extent past `usize` bounds; the `i128`
+    // arithmetic itself must stay panic-free.
     let g = chain(vec![
         ("in", input(&[1, usize::MAX, 4])),
-        (
-            "conv",
-            NirNode::Conv2d(Conv2d {
-                weight: Tensor::from_f32(vec![1, 1, 1, 1], vec![0.0]).unwrap(),
-                stride: vec![i64::MIN],
-                padding: Padding::Explicit(vec![i64::MAX]),
-                dilation: vec![i64::MAX],
-                groups: 1,
-                bias: Tensor::from_f32(vec![1], vec![0.0]).unwrap(),
-                input_shape: None,
-                metadata: MetadataMap::default(),
-            }),
-        ),
+        ("conv", conv(1, i64::MAX, 1)),
         ("out", output(&[1])),
     ]);
-    assert!(g.check_types().is_err());
+    assert!(
+        inference_reason(&g).contains("out of range"),
+        "extent overflow"
+    );
+    // Non-positive stride is rejected before any extent arithmetic runs.
+    let g = chain(vec![
+        ("in", input(&[1, usize::MAX, 4])),
+        ("conv", conv(i64::MIN, 0, 1)),
+        ("out", output(&[1])),
+    ]);
+    assert!(
+        inference_reason(&g).contains("stride must be positive"),
+        "stride guard"
+    );
 }
 
 #[test]
