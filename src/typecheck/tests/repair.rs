@@ -77,6 +77,25 @@ fn conv1d_is_inferred_and_repaired() {
 }
 
 #[test]
+fn repair_exposes_channel_mismatch_like_python() {
+    // While `input_shape` is unset, channel counts are never compared (Python
+    // propagates shapes wholesale), so this graph passes and repair fills
+    // `input_shape`. The next check now declares the weight's channel count
+    // and flags the mismatch, exactly as re-reading the repaired graph in
+    // Python would.
+    let mut g = chain(vec![
+        ("in", input(&[3, 8, 8])),
+        ("conv", conv2d(4, 2, (3, 3), None)),
+    ]);
+    g.check_types().unwrap();
+    g.infer_and_repair().unwrap();
+    let Err(NirError::TypeCheck(inner)) = g.check_types() else {
+        panic!("filled input_shape must expose the channel mismatch");
+    };
+    assert!(matches!(*inner, TypeError::EdgeMismatch { .. }));
+}
+
+#[test]
 fn nested_graph_is_repaired() {
     let mut g = chain(vec![
         ("in", input(&[1, 8, 8])),

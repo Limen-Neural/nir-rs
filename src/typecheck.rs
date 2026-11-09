@@ -108,12 +108,14 @@ pub struct InferredTypes {
 }
 
 impl NirGraph {
-    /// Maximum subgraph nesting that type inference recurses into.
+    /// Maximum number of graph levels type inference recurses through, root
+    /// included.
     ///
     /// Inference recurses on the process stack, unlike
     /// [`validate_structure`](Self::validate_structure), so it uses a much
     /// smaller bound than [`MAX_NESTING_DEPTH`](Self::MAX_NESTING_DEPTH).
-    /// Deeper graphs fail with [`TypeError::NestingTooDeep`].
+    /// Subgraphs nested `MAX_TYPE_CHECK_DEPTH` levels deep or deeper fail
+    /// with [`TypeError::NestingTooDeep`]; one level less still passes.
     pub const MAX_TYPE_CHECK_DEPTH: usize = 64;
 
     /// Infer every node's input/output shape without mutating the graph.
@@ -180,8 +182,14 @@ impl NirGraph {
     /// - `Conv1d` / `Conv2d` get `input_shape`, and `Flatten` gets
     ///   `input_type`, where those were `None`
     ///
-    /// Nested subgraphs are repaired too. A repaired graph passes
-    /// [`check_types`](Self::check_types), and repairing it again is a no-op.
+    /// Nested subgraphs are repaired too, and repairing again is a no-op.
+    /// A repaired graph passes [`check_types`](Self::check_types) again, with
+    /// one Python-inherited exception: while a `Conv*` `input_shape` is unset,
+    /// channel counts are never compared (Python propagates shapes wholesale),
+    /// so a producer whose channels differ from the weight passes the first
+    /// check. Once repair fills `input_shape`, the convolution declares the
+    /// weight's channel count and the next check flags the mismatch, exactly
+    /// as re-reading the repaired graph in Python would.
     ///
     /// # Errors
     ///
@@ -363,8 +371,12 @@ impl Scope<'_> {
         let mut seen: HashSet<&str> = ready.iter().map(|(s, _)| *s).collect();
         while let Some((pre, post)) = ready.pop() {
             self.propagate_edge(types, pre, post)?;
-            seen.insert(post);
-            if let Some(dsts) = outgoing.get(post) {
+            // Expand only on the first visit to `post`: a repeat visit (a
+            // node with several incoming edges) would only re-queue edges
+            // the first expansion already queued.
+            if seen.insert(post)
+                && let Some(dsts) = outgoing.get(post)
+            {
                 ready.extend(
                     dsts.iter()
                         .filter(|dst| !seen.contains(*dst))

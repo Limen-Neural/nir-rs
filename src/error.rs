@@ -212,8 +212,9 @@ pub enum TypeError {
         /// Human-readable cause.
         reason: String,
     },
-    /// Subgraph nesting exceeds what type inference will recurse into.
-    #[error("graph nesting depth exceeds {limit} for type checking")]
+    /// Subgraph nesting reaches the type-check recursion limit (root level
+    /// included).
+    #[error("graph nesting reaches the type-check limit of {limit} levels")]
     NestingTooDeep {
         /// [`crate::NirGraph::MAX_TYPE_CHECK_DEPTH`].
         limit: usize,
@@ -687,7 +688,7 @@ mod tests {
             ),
             (
                 TypeError::NestingTooDeep { limit: 64 },
-                "graph nesting depth exceeds 64 for type checking",
+                "graph nesting reaches the type-check limit of 64 levels",
             ),
         ];
         assert_displays(cases);

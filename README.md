@@ -153,8 +153,8 @@ Unlike Python, loading never inserts `Input`/`Output` nodes: only
 `infer_and_repair` mutates. `ReadOptions::with_check_types(true)` runs
 `check_types` after an HDF5 decode. See the `typecheck` module docs for the one
 intentional difference (non-square `Conv2d` kernels); inference recurses on the
-stack, so nesting deeper than `NirGraph::MAX_TYPE_CHECK_DEPTH` (64) fails with
-`TypeError::NestingTooDeep`.
+stack, so subgraphs nested `NirGraph::MAX_TYPE_CHECK_DEPTH` (64) levels deep or
+deeper fail with `TypeError::NestingTooDeep` (63 levels still pass).
 
 HDF5 reads run none of these checks by default. The default writer runs
 structure validation only.
