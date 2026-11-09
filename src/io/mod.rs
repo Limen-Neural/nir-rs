@@ -120,10 +120,11 @@ const DEFAULT_COMPRESSION: u8 = 4;
 /// Allocation and collection policy for decoding an untrusted `.nir` file
 /// with [`read_with`].
 ///
-/// Defaults are **permissive**: every field is `None`, so [`read`] stays
-/// unbounded aside from the existing hard cap of 1024 `NIRGraph` groups
-/// (root plus nested). That cap is a stack/alias safety bound, not a
-/// substitute for a caller-chosen collection budget.
+/// Defaults are **permissive**: the budget fields are all `None`, so [`read`]
+/// stays unbounded aside from the existing hard cap of 1024 `NIRGraph` groups
+/// (root plus nested), and `check_types` is `false`, so no shape validation
+/// runs. That cap is a stack/alias safety bound, not a substitute for a
+/// caller-chosen collection budget.
 ///
 /// `max_bytes` is a **decoded-allocation budget**, not an on-disk file-size
 /// limit and not a bound on the returned graph's exact resident size. Charging
