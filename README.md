@@ -268,8 +268,10 @@ for Python and hardware tooling. JSON cannot represent NaN/infinities faithfully
 
 ## Toolchain
 
-**Rust 1.99.0** — `rust-toolchain.toml`, `package.rust-version`, and CI
-(Linux / macOS / Windows) all pin the same version.
+**Dev/CI pin: Rust 1.99.0** — `rust-toolchain.toml` and the non-MSRV CI jobs
+(Linux / macOS / Windows) all pin the same version. `package.rust-version` is
+the measured MSRV floor (**1.88.0**) and may be lower; the `msrv` CI job builds
+and tests that floor.
 
 ## Develop
 

@@ -2,9 +2,11 @@
 name = "nir-rs"
 version = "0.4.5"
 edition = "2024"
-# Supported toolchain — keep in lockstep with rust-toolchain.toml and CI
-# (`toolchain: "1.99.0"`). Raise when the pin moves.
-rust-version = "1.99.0"
+# True minimum supported Rust (measured floor, issue #70). This is a floor,
+# not the dev pin: rust-toolchain.toml and the non-MSRV CI jobs stay on 1.99.0
+# and must satisfy `rust-version <= toolchain channel`. The `hdf5` feature may
+# require a newer toolchain via hdf5-metno; see COMPATIBILITY.md.
+rust-version = "1.88.0"
 license = "MIT OR Apache-2.0"
 authors = ["Raul Cardenas Montoya <montoyaraul34@gmail.com>"]
 description = "Pure-Rust implementation of the Neuromorphic Intermediate Representation (NIR) — the standard interchange format for spiking neural networks."
