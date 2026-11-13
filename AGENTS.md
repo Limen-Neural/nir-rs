@@ -52,7 +52,8 @@ nightly fuzz harnesses: see [TESTING.md](TESTING.md) (`cargo +nightly fuzz run â
 (Ubuntu) or `hdf5` (Homebrew) first.
 
 **Toolchain:** dev/CI pin is **Rust 1.99.0** â€” `rust-toolchain.toml` and every
-CI job except `msrv` (`toolchain: "1.99.0"`) on **Linux, macOS, and Windows**.
+CI job except `msrv` (`toolchain: "1.99.0"`); the OS test matrix covers
+**Linux, macOS, and Windows**.
 `package.rust-version` is the **measured minimum supported Rust version
 (MSRV) floor** and may be lower than the dev pin; the invariant is
 `rust-version <= toolchain channel`. A dedicated

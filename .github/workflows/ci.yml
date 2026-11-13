@@ -263,6 +263,9 @@ jobs:
         run: |
           rust_version=$(grep -m1 '^rust-version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
           echo "version=$rust_version" >> "$GITHUB_OUTPUT"
+          # rust-toolchain.toml would otherwise override the action's default
+          # toolchain; RUSTUP_TOOLCHAIN takes precedence for later steps.
+          echo "RUSTUP_TOOLCHAIN=$rust_version" >> "$GITHUB_ENV"
 
       - name: Install MSRV toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
@@ -280,5 +283,5 @@ jobs:
         run: |
           args=()
           if [ -n "$MSRV_FEATURES" ]; then args=(--features "$MSRV_FEATURES"); fi
-          cargo check --all-targets "${args[@]}"
-          cargo test --all-targets "${args[@]}"
+          cargo check --all-targets --locked "${args[@]}"
+          cargo test --all-targets --locked "${args[@]}"
