@@ -9,7 +9,8 @@
 //! subgraphs. Validation walks those subgraphs on a heap-allocated work
 //! list so process-stack usage does not grow with nesting depth.
 //! Convolution and pooling parameter invariants are a separate opt-in check
-//! ([`NirGraph::validate_parameters`]).
+//! ([`NirGraph::validate_parameters`]), as is Python-aligned type/shape
+//! checking ([`NirGraph::check_types`]).
 
 use crate::error::{NirError, Result};
 use crate::nodes::NirNode;
@@ -112,7 +113,8 @@ impl NirGraph {
     /// process-stack usage does not grow with nesting depth. A chain deeper than
     /// [`Self::MAX_NESTING_DEPTH`] fails with [`NirError::InvalidGraph`].
     ///
-    /// Cycles are **allowed**. Type/shape inference is out of scope for v0.2.
+    /// Cycles are **allowed**. Shape checking is separate and opt-in:
+    /// [`check_types`](Self::check_types).
     /// Convolution and pooling parameter invariants are checked separately by
     /// [`validate_parameters`](Self::validate_parameters).
     ///

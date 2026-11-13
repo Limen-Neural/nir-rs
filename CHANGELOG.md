@@ -8,6 +8,16 @@ for the **0.x** series as described under [Versioning](#versioning) below.
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in type/shape checking aligned with Python `NIRGraph` (LIM-1313):
+  `NirGraph::infer_types`, `check_types`, and the explicit, atomic
+  `infer_and_repair`; `InferredTypes` / `NodeTypes` / `ImplicitPort` /
+  `Shape`; `NirError::TypeCheck(Box<TypeError>)` and `TypeError`;
+  `ReadOptions::check_types` / `with_check_types`. Default `read`,
+  `validate_structure`, and the writer are unchanged. The checker never
+  mutates the graph; only `infer_and_repair` inserts `Input`/`Output`.
+
 ### Changed
 
 - `package.rust-version` lowered **1.99.0 → 1.88.0**, the measured MSRV floor
