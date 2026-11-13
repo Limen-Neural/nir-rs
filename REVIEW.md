@@ -24,6 +24,16 @@ sudo apt-get install -y libhdf5-dev   # Ubuntu/Debian; brew install hdf5 on macO
 cargo test --features hdf5,hdf5/static,hdf5/zlib
 ```
 
+## Toolchain pins
+
+`package.rust-version` is the **measured MSRV floor** and is allowed to differ
+from the dev/CI pin: `rust-version <= toolchain channel` must hold, with
+`rust-toolchain.toml` and the non-MSRV CI jobs pinned at **1.99.0**. Do not
+raise `rust-version` just because the dev pin moved; only when code or a
+dependency requires it. The `msrv` CI job reads `rust-version` from
+`Cargo.toml` and runs check/test on it (default + `serde`; `hdf5` stays on the
+dev pin).
+
 ## Checklist
 
 - [ ] No secrets or credentials
@@ -31,6 +41,8 @@ cargo test --features hdf5,hdf5/static,hdf5/zlib
 - [ ] Dual license files present when packaging (`LICENSE-MIT`, `LICENSE-APACHE-2.0`)
 - [ ] New public API has rustdoc
 - [ ] CI workflow still targets `Main` and `main` if changed
+- [ ] `rust-version` stays the measured MSRV floor and never exceeds the
+      1.99.0 dev/CI pin; `msrv` CI job covers it
 - [ ] Graph model still builds and tests green **without** the `hdf5` feature
 - [ ] No Python added to the repo, tests, or CI
 - [ ] Read and write paths stay symmetric — a new wire field needs both sides

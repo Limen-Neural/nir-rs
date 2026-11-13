@@ -51,9 +51,16 @@ nightly fuzz harnesses: see [TESTING.md](TESTING.md) (`cargo +nightly fuzz run �
 `--all-features` enables `hdf5`, which links libhdf5: install `libhdf5-dev`
 (Ubuntu) or `hdf5` (Homebrew) first.
 
-**Toolchain:** **Rust 1.99.0** everywhere — `rust-toolchain.toml`,
-`package.rust-version`, and CI (`toolchain: "1.99.0"`) on **Linux, macOS, and
-Windows**. Keep those three in lockstep when the pin moves.
+**Toolchain:** dev/CI pin is **Rust 1.99.0** — `rust-toolchain.toml` and every
+CI job except `msrv` (`toolchain: "1.99.0"`); the OS test matrix covers
+**Linux, macOS, and Windows**.
+`package.rust-version` is the **measured minimum supported Rust version
+(MSRV) floor** and may be lower than the dev pin; the invariant is
+`rust-version <= toolchain channel`. A dedicated
+`msrv` CI job reads `rust-version` from `Cargo.toml` and runs check/test on it.
+When the dev pin moves, update `rust-toolchain.toml` and the non-MSRV CI jobs
+together; only raise `rust-version` when the code or a dependency actually
+requires it.
 
 ### Package / semver CI (release gate)
 

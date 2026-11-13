@@ -91,10 +91,18 @@ version separately. This is guidance, not an enforced minimum library version.
 
 | Pin | Version | Role |
 |-----|---------|------|
-| Dev / CI / `package.rust-version` | **1.99.0** | Same pin in `rust-toolchain.toml`, GitHub Actions, and crates.io metadata |
+| Dev / CI toolchain | **1.99.0** | `rust-toolchain.toml` and every non-MSRV CI job |
+| `package.rust-version` (MSRV) | **1.88.0** | Measured floor; a dedicated `msrv` CI job reads it from `Cargo.toml` |
 
-We do not matrix CI on the cargo floor. Raise the floor when dependencies or
-language features require it; document the bump in the changelog.
+The two pins are intentionally different: `rust-version` is the oldest rustc
+that actually builds the crate, while the dev/CI pin tracks current stable
+(`rust-version <= toolchain channel`). Raise `rust-version` only when the code
+or a dependency requires it; document the bump in the changelog.
+
+The `hdf5` feature is not covered by the `msrv` job (it needs a native libhdf5
+and is exercised on the dev pin). Its practical floor is set by `hdf5-metno`,
+which may require a newer rustc than 1.88.0 — default-feature and `serde`
+consumers are unaffected.
 
 ## Updating claims when upstream NIR moves
 

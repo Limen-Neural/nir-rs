@@ -18,6 +18,19 @@ for the **0.x** series as described under [Versioning](#versioning) below.
   `validate_structure`, and the writer are unchanged. The checker never
   mutates the graph; only `infer_and_repair` inserts `Input`/`Output`.
 
+### Changed
+
+- `package.rust-version` lowered **1.99.0 → 1.88.0**, the measured MSRV floor
+  (let-chains in `src/io/` require 1.88; 1.85 fails). The dev/CI pin stays at
+  **1.99.0** — `rust-version` and `rust-toolchain.toml` are no longer required
+  to match; the invariant is `rust-version <= toolchain channel` (#70).
+- New `msrv` CI job reads `rust-version` from `Cargo.toml` and runs
+  `cargo check`/`cargo test` on it for default and `serde` features. The
+  `hdf5` feature remains on the dev pin (native libhdf5; floor set by
+  `hdf5-metno`).
+- Pin-rule docs updated in AGENTS.md, CLAUDE.md, README.md, REVIEW.md, and
+  COMPATIBILITY.md.
+
 ## [0.4.5] - 2026-10-08
 
 ### Added

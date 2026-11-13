@@ -236,3 +236,52 @@ jobs:
         if: runner.os == 'macOS' || runner.os == 'Windows'
         shell: bash -l {0}
         run: cargo test --all-features
+
+  # MSRV: installs whatever `package.rust-version` declares in Cargo.toml — the
+  # measured floor, deliberately below the 1.99.0 dev/CI pin. Default + serde
+  # only: `hdf5` needs a native libhdf5 and its floor is set by hdf5-metno, not
+  # by this job (see COMPATIBILITY.md).
+  msrv:
+    name: MSRV (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            features: ""
+          - name: serde
+            features: "serde"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        run: |
+          rust_version=$(grep -m1 '^rust-version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "version=$rust_version" >> "$GITHUB_OUTPUT"
+          # rust-toolchain.toml would otherwise override the action's default
+          # toolchain; RUSTUP_TOOLCHAIN takes precedence for later steps.
+          echo "RUSTUP_TOOLCHAIN=$rust_version" >> "$GITHUB_ENV"
+
+      - name: Install MSRV toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: msrv-${{ matrix.name }}-${{ steps.msrv.outputs.version }}
+
+      - name: Check and test on MSRV
+        env:
+          MSRV_FEATURES: ${{ matrix.features }}
+        run: |
+          args=()
+          if [ -n "$MSRV_FEATURES" ]; then args=(--features "$MSRV_FEATURES"); fi
+          cargo check --all-targets --locked "${args[@]}"
+          cargo test --all-targets --locked "${args[@]}"
