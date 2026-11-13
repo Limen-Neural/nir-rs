@@ -9,9 +9,10 @@ quality bar. Read it before editing code or workflows.
 ## Release-sensitive commands
 
 - Use Rust **1.99.0** for dev/CI ([`rust-toolchain.toml`](rust-toolchain.toml),
-  non-MSRV CI jobs, development images). `package.rust-version` is the
-  measured MSRV floor and may be lower — keep `rust-version <= toolchain
-  channel`; the `msrv` CI job verifies the floor from `Cargo.toml`.
+  CI jobs, development images). `package.rust-version` is the measured minimum
+  supported Rust version (MSRV) floor and may be lower than the dev pin — keep
+  `rust-version <= toolchain channel`; the `msrv` CI job verifies the floor
+  from `Cargo.toml`.
 - Preserve the Rust 2024 edition and a default build free of native/system
   library dependencies. The `hdf5` feature stays opt-in, with system and static
   test paths maintained.

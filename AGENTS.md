@@ -52,9 +52,10 @@ nightly fuzz harnesses: see [TESTING.md](TESTING.md) (`cargo +nightly fuzz run â
 (Ubuntu) or `hdf5` (Homebrew) first.
 
 **Toolchain:** dev/CI pin is **Rust 1.99.0** â€” `rust-toolchain.toml` and every
-non-MSRV CI job (`toolchain: "1.99.0"`) on **Linux, macOS, and Windows**.
-`package.rust-version` is the **measured MSRV floor** and may be lower than the
-dev pin; the invariant is `rust-version <= toolchain channel`. A dedicated
+CI job except `msrv` (`toolchain: "1.99.0"`) on **Linux, macOS, and Windows**.
+`package.rust-version` is the **measured minimum supported Rust version
+(MSRV) floor** and may be lower than the dev pin; the invariant is
+`rust-version <= toolchain channel`. A dedicated
 `msrv` CI job reads `rust-version` from `Cargo.toml` and runs check/test on it.
 When the dev pin moves, update `rust-toolchain.toml` and the non-MSRV CI jobs
 together; only raise `rust-version` when the code or a dependency actually
